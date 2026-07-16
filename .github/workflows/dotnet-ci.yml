@@ -29,7 +29,6 @@ jobs:
     - name: NuGet Security Audit
       run: |
         dotnet list Prueba1.slnx package --vulnerable
-        dotnet restore Prueba1.slnx --audit
 
     # 5. Compilar el proyecto en modo Release
     - name: Build Application
