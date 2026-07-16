@@ -23,18 +23,18 @@ jobs:
 
     # 3. Restaurar dependencias
     - name: Restore Dependencies
-      run: dotnet restore
+      run: dotnet restore Prueba1.slnx
 
     # 4. DevSecOps: Auditoría de seguridad en paquetes de NuGet (Vulnerabilidades)
     - name: NuGet Security Audit
       run: |
-        dotnet list package --vulnerable
-        dotnet restore --audit
+        dotnet list Prueba1.slnx package --vulnerable
+        dotnet restore Prueba1.slnx --audit
 
     # 5. Compilar el proyecto en modo Release
     - name: Build Application
-      run: dotnet build --no-restore --configuration Release
+      run: dotnet build Prueba1.slnx --no-restore --configuration Release
 
     # 6. Ejecutar pruebas unitarias y de integración
     - name: Run Tests (Unit & Integration)
-      run: dotnet test --no-build --configuration Release --verbosity normal
+      run: dotnet test Prueba1.slnx --no-build --configuration Release --verbosity normal
