@@ -25,6 +25,16 @@ public class ApplicationDbContext : DbContext
             entity.Property(u => u.Telefono).HasMaxLength(20);
             entity.Property(u => u.PasswordHash).HasMaxLength(500).IsRequired();
             entity.Property(u => u.PlanActivo).HasMaxLength(50);
+
+            entity.OwnsOne(u => u.PerfilConduccion);
+            entity.OwnsOne(u => u.FichaMedica);
+            entity.OwnsOne(u => u.Preferencias);
+            entity.OwnsOne(u => u.Settings);
+            entity.OwnsOne(u => u.Permisos, p =>
+            {
+                p.OwnsOne(perm => perm.Mobile);
+                p.OwnsOne(perm => perm.Web);
+            });
         });
 
         modelBuilder.Entity<RefreshToken>(entity =>
