@@ -15,16 +15,10 @@ if (useCosmosDb)
 {
     builder.Services.RegisterApplicationServices(builder.Configuration);
 }
-else if (useInMemory)
-{
-    builder.Services.AddDbContext<ApplicationDbContext>(options =>
-        options.UseInMemoryDatabase("ImpactXDb"));
-    builder.Services.RegisterApplicationServices(builder.Configuration);
-}
 else
 {
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
-        options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+        options.UseInMemoryDatabase("ImpactXDb"));
     builder.Services.RegisterApplicationServices(builder.Configuration);
 }
 
