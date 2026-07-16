@@ -13,6 +13,10 @@ public class ApplicationDbContext : DbContext
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<Plan> Planes => Set<Plan>();
+    public DbSet<Suscripcion> Suscripciones => Set<Suscripcion>();
+    public DbSet<Pago> Pagos => Set<Pago>();
+    public DbSet<Wearable> Wearables => Set<Wearable>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -40,6 +44,19 @@ public class ApplicationDbContext : DbContext
             entity.HasKey(p => p.Id);
             entity.HasIndex(p => p.Token).IsUnique();
             entity.Property(p => p.Token).HasMaxLength(500).IsRequired();
+        });
+
+        modelBuilder.Entity<Wearable>(entity =>
+        {
+            entity.HasKey(w => w.Id);
+            entity.Property(w => w.DispositivoId).HasMaxLength(200);
+            entity.Property(w => w.Nombre).HasMaxLength(200);
+            entity.Property(w => w.Modelo).HasMaxLength(200);
+            entity.Property(w => w.AppVersion).HasMaxLength(50);
+            entity.Property(w => w.PairingToken).HasMaxLength(200);
+            entity.Property(w => w.Estado).HasMaxLength(50);
+            entity.HasIndex(w => w.UsuarioId);
+            entity.HasIndex(w => w.PairingToken);
         });
     }
 }

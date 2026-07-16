@@ -15,4 +15,6 @@ public class Wearable
     public bool Calibrado { get; set; }
     public DateTime? UltimaCalibracion { get; set; }
     public List<string> PermisosOtorgados { get; set; } = [];
+    public string? PairingToken { get; set; }
+    public string Estado { get; set; } = "Pendiente";
 }

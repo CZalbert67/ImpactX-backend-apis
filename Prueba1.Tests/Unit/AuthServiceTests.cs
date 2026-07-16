@@ -15,6 +15,8 @@ public class AuthServiceTests
     private readonly Mock<IEncryptionService> _encryptionService;
     private readonly Mock<ITokenService> _tokenService;
     private readonly Mock<IEmailService> _emailService;
+    private readonly Mock<IPlanRepository> _planRepo;
+    private readonly Mock<ISuscripcionRepository> _suscripcionRepo;
     private readonly AuthService _authService;
 
     public AuthServiceTests()
@@ -25,6 +27,8 @@ public class AuthServiceTests
         _encryptionService = new Mock<IEncryptionService>();
         _tokenService = new Mock<ITokenService>();
         _emailService = new Mock<IEmailService>();
+        _planRepo = new Mock<IPlanRepository>();
+        _suscripcionRepo = new Mock<ISuscripcionRepository>();
 
         _authService = new AuthService(
             _usuarioRepo.Object,
@@ -32,7 +36,9 @@ public class AuthServiceTests
             _passwordResetTokenRepo.Object,
             _encryptionService.Object,
             _tokenService.Object,
-            _emailService.Object);
+            _emailService.Object,
+            _planRepo.Object,
+            _suscripcionRepo.Object);
     }
 
     [Fact]

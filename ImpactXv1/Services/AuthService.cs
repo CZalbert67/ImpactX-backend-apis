@@ -13,6 +13,8 @@ public class AuthService : IAuthService
     private readonly IEncryptionService _encryptionService;
     private readonly ITokenService _tokenService;
     private readonly IEmailService _emailService;
+    private readonly IPlanRepository _planRepository;
+    private readonly ISuscripcionRepository _suscripcionRepository;
 
     public AuthService(
         IUsuarioRepository usuarioRepository,
@@ -20,7 +22,9 @@ public class AuthService : IAuthService
         IPasswordResetTokenRepository passwordResetTokenRepository,
         IEncryptionService encryptionService,
         ITokenService tokenService,
-        IEmailService emailService)
+        IEmailService emailService,
+        IPlanRepository planRepository,
+        ISuscripcionRepository suscripcionRepository)
     {
         _usuarioRepository = usuarioRepository;
         _refreshTokenRepository = refreshTokenRepository;
@@ -28,6 +32,8 @@ public class AuthService : IAuthService
         _encryptionService = encryptionService;
         _tokenService = tokenService;
         _emailService = emailService;
+        _planRepository = planRepository;
+        _suscripcionRepository = suscripcionRepository;
     }
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
@@ -60,6 +66,24 @@ public class AuthService : IAuthService
         };
 
         await _usuarioRepository.AddAsync(usuario);
+
+        var freePlan = await _planRepository.GetByNameAsync("Free");
+        if (freePlan is not null)
+        {
+            var trialEnd = DateTime.UtcNow.AddDays(14);
+            var suscripcion = new Suscripcion
+            {
+                UsuarioId = usuario.Id,
+                PlanId = freePlan.Id,
+                Estado = "Trial",
+                Inicio = DateTime.UtcNow,
+                TrialFin = trialEnd,
+                Fin = trialEnd,
+            };
+            await _suscripcionRepository.AddAsync(suscripcion);
+            usuario.PlanActivo = "Free";
+            await _usuarioRepository.UpdateAsync(usuario);
+        }
 
         var accessToken = _tokenService.GenerateAccessToken(usuario);
         var refreshToken = await CreateRefreshTokenAsync(usuario);

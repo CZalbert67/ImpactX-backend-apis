@@ -24,12 +24,20 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IUsuarioRepository, CosmosUsuarioRepository>();
             services.AddScoped<IRefreshTokenRepository, CosmosRefreshTokenRepository>();
             services.AddScoped<IPasswordResetTokenRepository, CosmosPasswordResetTokenRepository>();
+            services.AddScoped<IPlanRepository, CosmosPlanRepository>();
+            services.AddScoped<ISuscripcionRepository, CosmosSuscripcionRepository>();
+            services.AddScoped<IPagoRepository, CosmosPagoRepository>();
+            services.AddScoped<IWearableRepository, CosmosWearableRepository>();
         }
         else
         {
             services.AddScoped<IUsuarioRepository, UsuarioRepository>();
             services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
             services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
+            services.AddScoped<IPlanRepository, PlanRepository>();
+            services.AddScoped<ISuscripcionRepository, SuscripcionRepository>();
+            services.AddScoped<IPagoRepository, PagoRepository>();
+            services.AddScoped<IWearableRepository, WearableRepository>();
         }
 
         services.AddScoped<IEncryptionService, EncryptionService>();
@@ -37,6 +45,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IEmailService, StubEmailService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IPlanService, PlanService>();
+        services.AddScoped<IWearableService, WearableService>();
+        services.AddScoped<IPermissionService, PermissionService>();
 
         return services;
     }

@@ -36,6 +36,13 @@ if (useCosmosDb)
 {
     var cosmosDb = app.Services.GetRequiredService<CosmosDbContext>();
     await cosmosDb.EnsureContainersAsync();
+    await PlanSeeder.SeedPlansAsync(cosmosDb);
+}
+else if (useInMemory)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    await PlanSeeder.SeedPlansEfAsync(db);
 }
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
