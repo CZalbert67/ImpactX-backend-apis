@@ -7,6 +7,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseSetting("UseCosmosDb", "false");
         builder.UseSetting("UseInMemoryDatabase", "true");
 
         builder.UseSetting("Jwt:Secret", "test-secret-key-that-is-at-least-32-characters-long-for-hmac");
