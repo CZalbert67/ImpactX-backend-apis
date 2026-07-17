@@ -1,8 +1,9 @@
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Repositories;
-using Prueba1.Models.DTOs;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Exceptions;
+using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Models.DTOs;
 
-namespace Prueba1.Services;
+namespace ImpactX.Services;
 
 public class PlanService : IPlanService
 {
@@ -63,7 +64,7 @@ public class PlanService : IPlanService
     {
         var plan = await _planRepository.GetByNameAsync(request.PlanNombre);
         if (plan is null)
-            throw new ArgumentException("Plan no encontrado.");
+            throw new BadRequestException("Plan no encontrado.");
 
         var current = await _suscripcionRepository.GetActiveByUserAsync(usuarioId);
 
@@ -75,7 +76,7 @@ public class PlanService : IPlanService
             var newOrder = PlanOrder.GetValueOrDefault(plan.Nombre, 0);
 
             if (newOrder <= currentOrder)
-                throw new InvalidOperationException(
+                throw new ConflictException(
                     "Solo puedes cambiar a un plan superior.");
         }
 
@@ -106,7 +107,7 @@ public class PlanService : IPlanService
     {
         var suscripcion = await _suscripcionRepository.GetActiveByUserAsync(usuarioId);
         if (suscripcion is null)
-            throw new InvalidOperationException("No tienes una suscripción activa.");
+            throw new ConflictException("No tienes una suscripción activa.");
 
         suscripcion.Estado = "Cancelada";
         suscripcion.CanceladaEn = DateTime.UtcNow;

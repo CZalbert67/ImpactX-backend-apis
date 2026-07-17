@@ -1,8 +1,9 @@
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Repositories;
-using Prueba1.Models.DTOs;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Exceptions;
+using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Models.DTOs;
 
-namespace Prueba1.Services;
+namespace ImpactX.Services;
 
 public class WearableService : IWearableService
 {
@@ -29,7 +30,7 @@ public class WearableService : IWearableService
     public async Task<PairResponse> PairAsync(Guid usuarioId, PairWearableRequest request)
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId)
-            ?? throw new KeyNotFoundException("Usuario no encontrado.");
+            ?? throw new NotFoundException("Usuario no encontrado.");
 
         var suscripcion = await _planService.GetCurrentSubscriptionAsync(usuarioId);
         var planName = suscripcion?.PlanNombre ?? "Free";
@@ -38,12 +39,12 @@ public class WearableService : IWearableService
         var vinculados = existing.Count(w => w.Estado == "Vinculado");
 
         if (planName == "Free" && vinculados >= 1)
-            throw new InvalidOperationException(
+            throw new ConflictException(
                 "El plan Free permite solo 1 wearable. Actualiza tu plan para vincular más.");
 
         var existingDevice = await _wearableRepository.GetByDispositivoIdAsync(request.DispositivoId);
         if (existingDevice is not null)
-            throw new InvalidOperationException("Este dispositivo ya está vinculado a otra cuenta.");
+            throw new ConflictException("Este dispositivo ya está vinculado a otra cuenta.");
 
         var token = Guid.NewGuid().ToString("N")[..8].ToUpper();
 
@@ -70,13 +71,13 @@ public class WearableService : IWearableService
     public async Task<WearableDto> PairConfirmAsync(Guid usuarioId, PairConfirmRequest request)
     {
         var wearable = await _wearableRepository.GetByPairingTokenAsync(request.Token)
-            ?? throw new InvalidOperationException("Token de vinculación inválido o expirado.");
+            ?? throw new ConflictException("Token de vinculación inválido o expirado.");
 
         if (wearable.UsuarioId != usuarioId)
-            throw new InvalidOperationException("Este token no pertenece al usuario actual.");
+            throw new ConflictException("Este token no pertenece al usuario actual.");
 
         if (wearable.Estado != "Pendiente")
-            throw new InvalidOperationException("Este wearable ya fue vinculado.");
+            throw new ConflictException("Este wearable ya fue vinculado.");
 
         wearable.Estado = "Vinculado";
         wearable.Connected = true;
@@ -89,7 +90,7 @@ public class WearableService : IWearableService
     public async Task<List<TelemetryPointDto>> SyncAsync(Guid usuarioId, SyncTelemetryRequest request)
     {
         var wearable = await _wearableRepository.GetByUsuarioIdAsync(usuarioId)
-            ?? throw new InvalidOperationException("No hay un wearable vinculado.");
+            ?? throw new ConflictException("No hay un wearable vinculado.");
 
         wearable.UltimaSincronizacion = DateTime.UtcNow;
         wearable.Connected = true;
@@ -101,7 +102,7 @@ public class WearableService : IWearableService
     public async Task<WearableDto> CalibrateAsync(Guid usuarioId, CalibrationRequest request)
     {
         var wearable = await _wearableRepository.GetByUsuarioIdAsync(usuarioId)
-            ?? throw new InvalidOperationException("No hay un wearable vinculado.");
+            ?? throw new ConflictException("No hay un wearable vinculado.");
 
         wearable.Calibrado = true;
         wearable.UltimaCalibracion = DateTime.UtcNow;
@@ -116,7 +117,7 @@ public class WearableService : IWearableService
         var vinculados = wearables.Where(w => w.Estado == "Vinculado").ToList();
 
         if (vinculados.Count == 0)
-            throw new InvalidOperationException("No hay un wearable vinculado para desvincular.");
+            throw new ConflictException("No hay un wearable vinculado para desvincular.");
 
         foreach (var w in vinculados)
         {
@@ -129,7 +130,7 @@ public class WearableService : IWearableService
     public async Task<WearableDto> UpdatePermissionsAsync(Guid usuarioId, UpdateWearablePermissionsRequest request)
     {
         var wearable = await _wearableRepository.GetByUsuarioIdAsync(usuarioId)
-            ?? throw new InvalidOperationException("No hay un wearable vinculado.");
+            ?? throw new ConflictException("No hay un wearable vinculado.");
 
         wearable.PermisosOtorgados = request.Permisos;
         await _wearableRepository.UpdateAsync(wearable);
@@ -140,7 +141,7 @@ public class WearableService : IWearableService
     public async Task<SensorDiagnosticsDto> GetSensorDiagnosticsAsync(Guid usuarioId)
     {
         var wearable = await _wearableRepository.GetByUsuarioIdAsync(usuarioId)
-            ?? throw new InvalidOperationException("No hay un wearable vinculado.");
+            ?? throw new ConflictException("No hay un wearable vinculado.");
 
         return new SensorDiagnosticsDto
         {
@@ -157,7 +158,7 @@ public class WearableService : IWearableService
     public async Task<WearableDto> UpdateBatteryAsync(Guid usuarioId, BatteryUpdateRequest request)
     {
         var wearable = await _wearableRepository.GetByUsuarioIdAsync(usuarioId)
-            ?? throw new InvalidOperationException("No hay un wearable vinculado.");
+            ?? throw new ConflictException("No hay un wearable vinculado.");
 
         wearable.NivelBateria = Math.Clamp(request.Nivel, 0, 100);
         await _wearableRepository.UpdateAsync(wearable);

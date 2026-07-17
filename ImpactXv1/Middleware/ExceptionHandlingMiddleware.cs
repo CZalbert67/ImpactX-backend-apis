@@ -1,8 +1,9 @@
 using System.Net;
 using System.Text.Json;
-using Prueba1.Models.DTOs;
+using ImpactX.Core.Exceptions;
+using ImpactX.Models.DTOs;
 
-namespace Prueba1.Middleware;
+namespace ImpactX.Middleware;
 
 public class ExceptionHandlingMiddleware
 {
@@ -26,12 +27,14 @@ public class ExceptionHandlingMiddleware
             _logger.LogError(ex, "Error no controlado: {Message}", ex.Message);
 
             context.Response.ContentType = "application/json";
-            context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+            var (statusCode, mensaje) = MapException(ex);
+
+            context.Response.StatusCode = (int)statusCode;
 
             var response = new ErrorResponse
             {
-                StatusCode = context.Response.StatusCode,
-                Mensaje = "Ocurrió un error interno en el servidor.",
+                StatusCode = (int)statusCode,
+                Mensaje = mensaje,
                 Detalle = context.RequestServices
                     .GetService<IWebHostEnvironment>()?.IsDevelopment() == true
                     ? ex.Message
@@ -41,5 +44,21 @@ public class ExceptionHandlingMiddleware
 
             await context.Response.WriteAsync(JsonSerializer.Serialize(response));
         }
+    }
+
+    private static (HttpStatusCode code, string message) MapException(Exception ex)
+    {
+        return ex switch
+        {
+            NotFoundException => (HttpStatusCode.NotFound, ex.Message),
+            ConflictException => (HttpStatusCode.Conflict, ex.Message),
+            ForbiddenException => (HttpStatusCode.Forbidden, ex.Message),
+            BadRequestException => (HttpStatusCode.BadRequest, ex.Message),
+            UnauthorizedAccessException => (HttpStatusCode.Forbidden, "No tienes permisos para esta acción."),
+            KeyNotFoundException => (HttpStatusCode.NotFound, "El recurso solicitado no fue encontrado."),
+            ArgumentException => (HttpStatusCode.BadRequest, ex.Message),
+            InvalidOperationException => (HttpStatusCode.Conflict, ex.Message),
+            _ => (HttpStatusCode.InternalServerError, "Ocurrió un error interno en el servidor.")
+        };
     }
 }

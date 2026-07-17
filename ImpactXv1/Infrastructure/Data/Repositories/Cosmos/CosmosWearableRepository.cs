@@ -1,8 +1,8 @@
 using Microsoft.Azure.Cosmos;
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Repositories;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Interfaces.Repositories;
 
-namespace Prueba1.Infrastructure.Data.Repositories.Cosmos;
+namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
 
 public class CosmosWearableRepository : IWearableRepository
 {

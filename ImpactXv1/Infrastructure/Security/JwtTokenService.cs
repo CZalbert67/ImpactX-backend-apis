@@ -4,10 +4,10 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Services;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Interfaces.Services;
 
-namespace Prueba1.Infrastructure.Security;
+namespace ImpactX.Infrastructure.Security;
 
 public class JwtTokenService : ITokenService
 {

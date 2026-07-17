@@ -1,15 +1,15 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using Prueba1.Core.Interfaces.Repositories;
-using Prueba1.Core.Interfaces.Services;
-using Prueba1.Infrastructure.Data;
-using Prueba1.Infrastructure.Data.Repositories.Cosmos;
-using Prueba1.Infrastructure.Data.Repositories.EF;
-using Prueba1.Infrastructure.Security;
-using Prueba1.Services;
+using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Interfaces.Services;
+using ImpactX.Infrastructure.Data;
+using ImpactX.Infrastructure.Data.Repositories.Cosmos;
+using ImpactX.Infrastructure.Data.Repositories.EF;
+using ImpactX.Infrastructure.Security;
+using ImpactX.Services;
 
-namespace Prueba1.Extensions;
+namespace ImpactX.Extensions;
 
 public static class ServiceCollectionExtensions
 {
@@ -28,6 +28,10 @@ public static class ServiceCollectionExtensions
             services.AddScoped<ISuscripcionRepository, CosmosSuscripcionRepository>();
             services.AddScoped<IPagoRepository, CosmosPagoRepository>();
             services.AddScoped<IWearableRepository, CosmosWearableRepository>();
+            services.AddScoped<IContactoRepository, CosmosContactoRepository>();
+            services.AddScoped<IMonitorRepository, CosmosMonitorRepository>();
+            services.AddScoped<IRutaRepository, CosmosRutaRepository>();
+            services.AddScoped<IViajeRepository, CosmosViajeRepository>();
         }
         else
         {
@@ -38,6 +42,10 @@ public static class ServiceCollectionExtensions
             services.AddScoped<ISuscripcionRepository, SuscripcionRepository>();
             services.AddScoped<IPagoRepository, PagoRepository>();
             services.AddScoped<IWearableRepository, WearableRepository>();
+            services.AddScoped<IContactoRepository, ContactoRepository>();
+            services.AddScoped<IMonitorRepository, MonitorRepository>();
+            services.AddScoped<IRutaRepository, RutaRepository>();
+            services.AddScoped<IViajeRepository, ViajeRepository>();
         }
 
         services.AddScoped<IEncryptionService, EncryptionService>();
@@ -48,6 +56,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPlanService, PlanService>();
         services.AddScoped<IWearableService, WearableService>();
         services.AddScoped<IPermissionService, PermissionService>();
+        services.AddScoped<IContactService, ContactService>();
+        services.AddScoped<IMonitorService, MonitorService>();
+        services.AddScoped<IRutaService, RutaService>();
+        services.AddScoped<IViajeService, ViajeService>();
 
         return services;
     }

@@ -1,6 +1,6 @@
-using Prueba1.Core.Domain;
+using ImpactX.Core.Domain;
 
-namespace Prueba1.Core.Interfaces.Repositories;
+namespace ImpactX.Core.Interfaces.Repositories;
 
 public interface ISuscripcionRepository
 {

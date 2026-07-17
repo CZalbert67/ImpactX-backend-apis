@@ -1,4 +1,4 @@
-namespace Prueba1.Core.Interfaces.Services;
+namespace ImpactX.Core.Interfaces.Services;
 
 public interface IEncryptionService
 {

@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
-using Prueba1.Models.DTOs;
+using ImpactX.Models.DTOs;
 
-namespace Prueba1.Tests.Integration;
+namespace ImpactX.Tests.Integration;
 
 public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
 {

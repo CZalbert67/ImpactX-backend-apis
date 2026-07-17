@@ -1,10 +1,11 @@
+using ImpactX.Core.Exceptions;
 using Moq;
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Repositories;
-using Prueba1.Models.DTOs;
-using Prueba1.Services;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Models.DTOs;
+using ImpactX.Services;
 
-namespace Prueba1.Tests.Unit;
+namespace ImpactX.Tests.Unit;
 
 public class PermissionServiceTests
 {
@@ -74,7 +75,7 @@ public class PermissionServiceTests
     {
         _usuarioRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Usuario?)null);
 
-        await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+        await Assert.ThrowsAsync<NotFoundException>(() =>
             _permissionService.GetPermissionsAsync(Guid.NewGuid()));
     }
 

@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Prueba1.Services;
+using ImpactX.Services;
 
-namespace Prueba1.Controllers;
+namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/plans")]

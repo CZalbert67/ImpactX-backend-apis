@@ -1,10 +1,10 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Prueba1.Models.DTOs;
-using Prueba1.Services;
+using ImpactX.Models.DTOs;
+using ImpactX.Services;
 
-namespace Prueba1.Controllers;
+namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/subscription")]

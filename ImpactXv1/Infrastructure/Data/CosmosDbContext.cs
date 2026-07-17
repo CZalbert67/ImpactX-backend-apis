@@ -1,6 +1,6 @@
 using Microsoft.Azure.Cosmos;
 
-namespace Prueba1.Infrastructure.Data;
+namespace ImpactX.Infrastructure.Data;
 
 public class CosmosDbContext
 {

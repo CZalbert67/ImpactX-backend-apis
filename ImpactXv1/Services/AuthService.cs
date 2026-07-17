@@ -1,9 +1,10 @@
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Repositories;
-using Prueba1.Core.Interfaces.Services;
-using Prueba1.Models.DTOs;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Exceptions;
+using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Interfaces.Services;
+using ImpactX.Models.DTOs;
 
-namespace Prueba1.Services;
+namespace ImpactX.Services;
 
 public class AuthService : IAuthService
 {
@@ -281,7 +282,7 @@ public class AuthService : IAuthService
 
         if (usuario is null)
         {
-            throw new KeyNotFoundException("Usuario no encontrado.");
+            throw new NotFoundException("Usuario no encontrado.");
         }
 
         return new ExportAccountDto

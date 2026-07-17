@@ -1,11 +1,11 @@
 using Moq;
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Repositories;
-using Prueba1.Core.Interfaces.Services;
-using Prueba1.Models.DTOs;
-using Prueba1.Services;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Interfaces.Services;
+using ImpactX.Models.DTOs;
+using ImpactX.Services;
 
-namespace Prueba1.Tests.Unit;
+namespace ImpactX.Tests.Unit;
 
 public class AuthServiceTests
 {

@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
-using Prueba1.Core.Interfaces.Services;
+using ImpactX.Core.Interfaces.Services;
 
-namespace Prueba1.Infrastructure.Security;
+namespace ImpactX.Infrastructure.Security;
 
 public class EncryptionService : IEncryptionService
 {

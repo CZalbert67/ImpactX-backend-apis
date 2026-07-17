@@ -1,7 +1,7 @@
 using Microsoft.Azure.Cosmos;
-using Prueba1.Core.Domain;
+using ImpactX.Core.Domain;
 
-namespace Prueba1.Infrastructure.Data;
+namespace ImpactX.Infrastructure.Data;
 
 public static class PlanSeeder
 {

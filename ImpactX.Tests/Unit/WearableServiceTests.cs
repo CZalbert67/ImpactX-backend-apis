@@ -1,10 +1,11 @@
+using ImpactX.Core.Exceptions;
 using Moq;
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Repositories;
-using Prueba1.Models.DTOs;
-using Prueba1.Services;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Models.DTOs;
+using ImpactX.Services;
 
-namespace Prueba1.Tests.Unit;
+namespace ImpactX.Tests.Unit;
 
 public class WearableServiceTests
 {
@@ -94,7 +95,7 @@ public class WearableServiceTests
         _wearableRepo.Setup(r => r.GetAllByUsuarioIdAsync(usuarioId))
             .ReturnsAsync([new Wearable { Estado = "Vinculado" }]);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<ConflictException>(() =>
             _wearableService.PairAsync(usuarioId, new PairWearableRequest
             {
                 DispositivoId = "DEV-002",
@@ -116,7 +117,7 @@ public class WearableServiceTests
         _wearableRepo.Setup(r => r.GetByDispositivoIdAsync("DEV-001"))
             .ReturnsAsync(new Wearable());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<ConflictException>(() =>
             _wearableService.PairAsync(usuarioId, new PairWearableRequest
             {
                 DispositivoId = "DEV-001",
@@ -155,7 +156,7 @@ public class WearableServiceTests
     {
         _wearableRepo.Setup(r => r.GetByPairingTokenAsync("INVALID")).ReturnsAsync((Wearable?)null);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<ConflictException>(() =>
             _wearableService.PairConfirmAsync(Guid.NewGuid(), new PairConfirmRequest
             {
                 Token = "INVALID"
@@ -176,7 +177,7 @@ public class WearableServiceTests
 
         _wearableRepo.Setup(r => r.GetByPairingTokenAsync("TOKEN123")).ReturnsAsync(wearable);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<ConflictException>(() =>
             _wearableService.PairConfirmAsync(usuarioId, new PairConfirmRequest { Token = "TOKEN123" }));
     }
 
@@ -228,7 +229,7 @@ public class WearableServiceTests
     {
         _wearableRepo.Setup(r => r.GetAllByUsuarioIdAsync(It.IsAny<Guid>())).ReturnsAsync([]);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<ConflictException>(() =>
             _wearableService.UnlinkAsync(Guid.NewGuid()));
     }
 

@@ -1,8 +1,9 @@
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Repositories;
-using Prueba1.Models.DTOs;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Exceptions;
+using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Models.DTOs;
 
-namespace Prueba1.Services;
+namespace ImpactX.Services;
 
 public class PermissionService : IPermissionService
 {
@@ -16,7 +17,7 @@ public class PermissionService : IPermissionService
     public async Task<PermisosDto> GetPermissionsAsync(Guid usuarioId)
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId)
-            ?? throw new KeyNotFoundException("Usuario no encontrado.");
+            ?? throw new NotFoundException("Usuario no encontrado.");
 
         return MapToPermisosDto(usuario.Permisos) ?? new PermisosDto();
     }
@@ -24,7 +25,7 @@ public class PermissionService : IPermissionService
     public async Task<PermisosPlataformaDto> UpdateMobilePermissionsAsync(Guid usuarioId, UpdatePermissionsRequest request)
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId)
-            ?? throw new KeyNotFoundException("Usuario no encontrado.");
+            ?? throw new NotFoundException("Usuario no encontrado.");
 
         usuario.Permisos ??= new PermisosApp();
         usuario.Permisos.Mobile = MapToPermisosPlataforma(request);
@@ -37,7 +38,7 @@ public class PermissionService : IPermissionService
     public async Task<PermisosPlataformaDto> UpdateWebPermissionsAsync(Guid usuarioId, UpdatePermissionsRequest request)
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId)
-            ?? throw new KeyNotFoundException("Usuario no encontrado.");
+            ?? throw new NotFoundException("Usuario no encontrado.");
 
         usuario.Permisos ??= new PermisosApp();
         usuario.Permisos.Web = MapToPermisosPlataforma(request);

@@ -1,7 +1,8 @@
+using ImpactX.Extensions;
+using ImpactX.Infrastructure.Data;
+using ImpactX.Middleware;
 using Microsoft.EntityFrameworkCore;
-using Prueba1.Extensions;
-using Prueba1.Infrastructure.Data;
-using Prueba1.Middleware;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,18 +27,7 @@ builder.Services.ConfigureJwtAuthentication(builder.Configuration);
 
 var app = builder.Build();
 
-if (useCosmosDb)
-{
-    var cosmosDb = app.Services.GetRequiredService<CosmosDbContext>();
-    await cosmosDb.EnsureContainersAsync();
-    await PlanSeeder.SeedPlansAsync(cosmosDb);
-}
-else if (useInMemory)
-{
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    await PlanSeeder.SeedPlansEfAsync(db);
-}
+await app.SeedDatabaseAsync(useCosmosDb, useInMemory);
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseMiddleware<RequestLoggingMiddleware>();
@@ -46,17 +36,12 @@ app.UseMiddleware<SecurityHeadersMiddleware>();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.UseSwaggerUI(options =>
-    {
-        options.SwaggerEndpoint("/openapi/v1.json", "ImpactX API v1");
-    });
+    app.MapScalarApiReference();
 }
 
 app.UseHttpsRedirection();
-
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
 
 app.Run();

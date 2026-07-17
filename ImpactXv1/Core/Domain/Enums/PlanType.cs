@@ -1,4 +1,4 @@
-namespace Prueba1.Core.Domain.Enums;
+namespace ImpactX.Core.Domain.Enums;
 
 public enum PlanType
 {

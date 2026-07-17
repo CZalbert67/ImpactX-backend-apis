@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="ImpactX.Tests/ImpactX.Tests.csproj" />
+  <Project Path="ImpactXv1/ImpactX.Api.csproj" />
+</Solution>
