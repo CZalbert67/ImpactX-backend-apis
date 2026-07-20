@@ -1,0 +1,114 @@
+name: .NET CI Pipeline
+
+on:
+  push:
+    branches: [ leo-desarrollo, main ]
+  pull_request:
+    branches: [ leo-desarrollo, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore and Audit Dependencies
+        run: |
+          dotnet restore Prueba1.slnx \
+            -p:NuGetAudit=true \
+            -p:NuGetAuditMode=all \
+            "-warnaserror:NU1903;NU1904"
+          dotnet package list \
+            --project Prueba1.slnx \
+            --vulnerable \
+            --include-transitive \
+            --no-restore
+
+      - name: Build Application
+        run: dotnet build Prueba1.slnx --no-restore --configuration Release
+
+      - name: Run Tests with Coverage
+        run: >
+          dotnet test Prueba1.slnx
+          --no-build
+          --configuration Release
+          --verbosity normal
+          --logger "trx;LogFileName=test-results.trx"
+          --collect "XPlat Code Coverage"
+          --results-directory "${{ runner.temp }}/TestResults"
+
+      - name: Upload TRX Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: ${{ runner.temp }}/TestResults/**/*.trx
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload Coverage Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-results
+          path: ${{ runner.temp }}/TestResults/**/coverage.cobertura.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+  docker-smoke-test:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: docker build -t impactx-api:ci .
+
+      - name: Run Container
+        run: >
+          docker run -d
+          --name impactx-api
+          -p 8080:8080
+          -e ASPNETCORE_ENVIRONMENT=CI
+          -e ASPNETCORE_HTTP_PORTS=8080
+          -e UseCosmosDb=false
+          -e UseInMemoryDatabase=true
+          -e Jwt__Secret=ImpactX_CI_Temporary_Key_At_Least_32_Characters
+          -e Jwt__Issuer=ImpactX-CI
+          -e Jwt__Audience=ImpactX-CI-Client
+          impactx-api:ci
+
+      - name: Health Check
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://localhost:8080/health; then
+              echo "Health check successful."
+              exit 0
+            fi
+            echo "Waiting for API... attempt ${attempt}/30"
+            sleep 2
+          done
+          echo "Health check failed."
+          docker logs impactx-api 2>&1 || true
+          exit 1
+
+      - name: Cleanup Container
+        if: always()
+        run: docker rm -f impactx-api || true
