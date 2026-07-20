@@ -7,6 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
+builder.Services.AddHealthChecks();
 
 var useCosmosDb = builder.Configuration.GetValue<bool>("UseCosmosDb");
 var useInMemory = builder.Configuration.GetValue<bool>("UseInMemoryDatabase");
@@ -57,6 +58,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapHealthChecks("/health");
 
 app.Run();
 
