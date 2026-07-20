@@ -32,6 +32,9 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IMonitorRepository, CosmosMonitorRepository>();
             services.AddScoped<IRutaRepository, CosmosRutaRepository>();
             services.AddScoped<IViajeRepository, CosmosViajeRepository>();
+            services.AddScoped<IAlertaRepository, CosmosAlertaRepository>();
+            services.AddScoped<IIncidenteRepository, CosmosIncidenteRepository>();
+            services.AddScoped<INotificacionRepository, CosmosNotificacionRepository>();
         }
         else
         {
@@ -46,6 +49,9 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IMonitorRepository, MonitorRepository>();
             services.AddScoped<IRutaRepository, RutaRepository>();
             services.AddScoped<IViajeRepository, ViajeRepository>();
+            services.AddScoped<IAlertaRepository, AlertaRepository>();
+            services.AddScoped<IIncidenteRepository, IncidenteRepository>();
+            services.AddScoped<INotificacionRepository, NotificacionRepository>();
         }
 
         services.AddScoped<IEncryptionService, EncryptionService>();
@@ -60,6 +66,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMonitorService, MonitorService>();
         services.AddScoped<IRutaService, RutaService>();
         services.AddScoped<IViajeService, ViajeService>();
+        services.AddScoped<IAlertService, AlertService>();
+        services.AddScoped<IIncidentService, IncidentService>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<IAnalyticsService, AnalyticsService>();
+        services.AddScoped<ISettingsService, SettingsService>();
 
         return services;
     }

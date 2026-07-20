@@ -23,6 +23,7 @@ public class CosmosDbContext
     public Container Wearables { get; }
     public Container AppInvites { get; }
     public Container ChatThreads { get; }
+    public Container Incidentes { get; }
 
     public CosmosDbContext(IConfiguration config)
     {
@@ -56,6 +57,7 @@ public class CosmosDbContext
         Wearables = _database.GetContainer("Wearables");
         AppInvites = _database.GetContainer("AppInvites");
         ChatThreads = _database.GetContainer("ChatThreads");
+        Incidentes = _database.GetContainer("Incidentes");
     }
 
     public async Task EnsureContainersAsync()
@@ -78,6 +80,7 @@ public class CosmosDbContext
             ("Wearables", "/usuarioId", -1),
             ("AppInvites", "/usuarioId", 2592000),
             ("ChatThreads", "/usuarioId", -1),
+            ("Incidentes", "/usuarioId", -1),
         };
 
         foreach (var (name, partitionKey, ttl) in containerDefinitions)

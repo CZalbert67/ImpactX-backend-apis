@@ -23,6 +23,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<Ruta> Rutas => Set<Ruta>();
     public DbSet<Viaje> Viajes => Set<Viaje>();
     public DbSet<ViajeTelemetry> ViajeTelemetries => Set<ViajeTelemetry>();
+    public DbSet<Alerta> Alertas => Set<Alerta>();
+    public DbSet<Incidente> Incidentes => Set<Incidente>();
+    public DbSet<Notificacion> Notificaciones => Set<Notificacion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -177,6 +180,49 @@ public class ApplicationDbContext : DbContext
             entity.Property(w => w.Estado).HasMaxLength(50);
             entity.HasIndex(w => w.UsuarioId);
             entity.HasIndex(w => w.PairingToken);
+        });
+
+        modelBuilder.Entity<Alerta>(entity =>
+        {
+            entity.HasKey(a => a.Id);
+            entity.Property(a => a.Tipo).HasMaxLength(50);
+            entity.Property(a => a.Severidad).HasMaxLength(20);
+            entity.Property(a => a.Estado).HasMaxLength(20);
+            entity.Property(a => a.Lugar).HasMaxLength(500);
+            entity.Property(a => a.GForce).HasMaxLength(20);
+            entity.Property(a => a.Decibeles).HasMaxLength(20);
+            entity.Property(a => a.FrecuenciaCardiaca).HasMaxLength(20);
+            entity.Property(a => a.Activacion).HasMaxLength(50);
+            entity.Property(a => a.Modo).HasMaxLength(20);
+            entity.Property(a => a.Canal).HasMaxLength(50);
+            entity.Property(a => a.ViajeId).HasMaxLength(100);
+            entity.Property(a => a.MetodoCierre).HasMaxLength(50);
+            entity.HasIndex(a => a.UsuarioId);
+        });
+
+        modelBuilder.Entity<Incidente>(entity =>
+        {
+            entity.HasKey(i => i.Id);
+            entity.Property(i => i.Severidad).HasMaxLength(20);
+            entity.Property(i => i.Lugar).HasMaxLength(500);
+            entity.Property(i => i.GForce).HasMaxLength(20);
+            entity.Property(i => i.Decibeles).HasMaxLength(20);
+            entity.Property(i => i.FrecuenciaCardiaca).HasMaxLength(20);
+            entity.Property(i => i.Canal).HasMaxLength(50);
+            entity.Property(i => i.MetodoCierre).HasMaxLength(50);
+            entity.HasIndex(i => i.UsuarioId);
+            entity.HasIndex(i => i.AlertaId);
+        });
+
+        modelBuilder.Entity<Notificacion>(entity =>
+        {
+            entity.HasKey(n => n.Id);
+            entity.Property(n => n.Titulo).HasMaxLength(200).IsRequired();
+            entity.Property(n => n.Mensaje).HasMaxLength(1000).IsRequired();
+            entity.Property(n => n.Tipo).HasMaxLength(50);
+            entity.Property(n => n.ReferenciaId).HasMaxLength(100);
+            entity.Property(n => n.ReferenciaTipo).HasMaxLength(50);
+            entity.HasIndex(n => n.UsuarioId);
         });
     }
 }
