@@ -44,3 +44,6 @@ bld/
 # OS
 .DS_Store
 Thumbs.db
+
+# Test results
+TestResults/
