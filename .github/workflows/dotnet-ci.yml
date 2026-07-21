@@ -29,22 +29,22 @@ jobs:
 
       - name: Restore and Audit Dependencies
         run: |
-          dotnet restore Prueba1.slnx \
+          dotnet restore ImpactX.slnx \
             -p:NuGetAudit=true \
             -p:NuGetAuditMode=all \
             "-warnaserror:NU1903;NU1904"
           dotnet package list \
-            --project Prueba1.slnx \
+            --project ImpactX.slnx \
             --vulnerable \
             --include-transitive \
             --no-restore
 
       - name: Build Application
-        run: dotnet build Prueba1.slnx --no-restore --configuration Release
+        run: dotnet build ImpactX.slnx --no-restore --configuration Release
 
       - name: Run Tests with Coverage
         run: >
-          dotnet test Prueba1.slnx
+          dotnet test ImpactX.slnx
           --no-build
           --configuration Release
           --verbosity normal
