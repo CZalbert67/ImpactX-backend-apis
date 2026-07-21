@@ -1,4 +1,4 @@
-namespace Prueba1.Core.Domain;
+namespace ImpactX.Core.Domain;
 
 public class SettingsUsuario
 {

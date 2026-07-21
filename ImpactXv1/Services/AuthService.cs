@@ -1,9 +1,10 @@
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Repositories;
-using Prueba1.Core.Interfaces.Services;
-using Prueba1.Models.DTOs;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Exceptions;
+using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Interfaces.Services;
+using ImpactX.Models.DTOs;
 
-namespace Prueba1.Services;
+namespace ImpactX.Services;
 
 public class AuthService : IAuthService
 {
@@ -13,6 +14,8 @@ public class AuthService : IAuthService
     private readonly IEncryptionService _encryptionService;
     private readonly ITokenService _tokenService;
     private readonly IEmailService _emailService;
+    private readonly IPlanRepository _planRepository;
+    private readonly ISuscripcionRepository _suscripcionRepository;
 
     public AuthService(
         IUsuarioRepository usuarioRepository,
@@ -20,7 +23,9 @@ public class AuthService : IAuthService
         IPasswordResetTokenRepository passwordResetTokenRepository,
         IEncryptionService encryptionService,
         ITokenService tokenService,
-        IEmailService emailService)
+        IEmailService emailService,
+        IPlanRepository planRepository,
+        ISuscripcionRepository suscripcionRepository)
     {
         _usuarioRepository = usuarioRepository;
         _refreshTokenRepository = refreshTokenRepository;
@@ -28,6 +33,8 @@ public class AuthService : IAuthService
         _encryptionService = encryptionService;
         _tokenService = tokenService;
         _emailService = emailService;
+        _planRepository = planRepository;
+        _suscripcionRepository = suscripcionRepository;
     }
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
@@ -60,6 +67,24 @@ public class AuthService : IAuthService
         };
 
         await _usuarioRepository.AddAsync(usuario);
+
+        var freePlan = await _planRepository.GetByNameAsync("Free");
+        if (freePlan is not null)
+        {
+            var trialEnd = DateTime.UtcNow.AddDays(14);
+            var suscripcion = new Suscripcion
+            {
+                UsuarioId = usuario.Id,
+                PlanId = freePlan.Id,
+                Estado = "Trial",
+                Inicio = DateTime.UtcNow,
+                TrialFin = trialEnd,
+                Fin = trialEnd,
+            };
+            await _suscripcionRepository.AddAsync(suscripcion);
+            usuario.PlanActivo = "Free";
+            await _usuarioRepository.UpdateAsync(usuario);
+        }
 
         var accessToken = _tokenService.GenerateAccessToken(usuario);
         var refreshToken = await CreateRefreshTokenAsync(usuario);
@@ -257,7 +282,7 @@ public class AuthService : IAuthService
 
         if (usuario is null)
         {
-            throw new KeyNotFoundException("Usuario no encontrado.");
+            throw new NotFoundException("Usuario no encontrado.");
         }
 
         return new ExportAccountDto

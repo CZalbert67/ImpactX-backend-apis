@@ -1,4 +1,4 @@
-namespace Prueba1.Models.DTOs;
+namespace ImpactX.Models.DTOs;
 
 public class ErrorResponse
 {

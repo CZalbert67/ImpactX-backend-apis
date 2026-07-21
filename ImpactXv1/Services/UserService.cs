@@ -1,8 +1,9 @@
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Repositories;
-using Prueba1.Models.DTOs;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Exceptions;
+using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Models.DTOs;
 
-namespace Prueba1.Services;
+namespace ImpactX.Services;
 
 public class UserService : IUserService
 {
@@ -17,7 +18,7 @@ public class UserService : IUserService
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
         if (usuario is null)
-            throw new KeyNotFoundException("Usuario no encontrado.");
+            throw new NotFoundException("Usuario no encontrado.");
 
         return MapToProfileDto(usuario);
     }
@@ -26,7 +27,7 @@ public class UserService : IUserService
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
         if (usuario is null)
-            throw new KeyNotFoundException("Usuario no encontrado.");
+            throw new NotFoundException("Usuario no encontrado.");
 
         if (request.Nombre is not null)
             usuario.Nombre = request.Nombre;
@@ -41,7 +42,7 @@ public class UserService : IUserService
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
         if (usuario is null)
-            throw new KeyNotFoundException("Usuario no encontrado.");
+            throw new NotFoundException("Usuario no encontrado.");
 
         return MapToPreferencesDto(usuario.Preferencias) ?? new UserPreferencesDto();
     }
@@ -50,7 +51,7 @@ public class UserService : IUserService
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
         if (usuario is null)
-            throw new KeyNotFoundException("Usuario no encontrado.");
+            throw new NotFoundException("Usuario no encontrado.");
 
         usuario.Preferencias ??= new PreferenciasUsuario();
 
@@ -73,7 +74,7 @@ public class UserService : IUserService
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
         if (usuario is null)
-            throw new KeyNotFoundException("Usuario no encontrado.");
+            throw new NotFoundException("Usuario no encontrado.");
 
         return MapToDriverProfileDto(usuario.PerfilConduccion) ?? new DriverProfileDto();
     }
@@ -82,7 +83,7 @@ public class UserService : IUserService
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
         if (usuario is null)
-            throw new KeyNotFoundException("Usuario no encontrado.");
+            throw new NotFoundException("Usuario no encontrado.");
 
         usuario.PerfilConduccion ??= new PerfilConduccion();
 
@@ -111,7 +112,7 @@ public class UserService : IUserService
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
         if (usuario is null)
-            throw new KeyNotFoundException("Usuario no encontrado.");
+            throw new NotFoundException("Usuario no encontrado.");
 
         return MapToMedicalProfileDto(usuario.FichaMedica) ?? new MedicalProfileDto();
     }
@@ -120,7 +121,7 @@ public class UserService : IUserService
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
         if (usuario is null)
-            throw new KeyNotFoundException("Usuario no encontrado.");
+            throw new NotFoundException("Usuario no encontrado.");
 
         usuario.FichaMedica ??= new FichaMedica();
 

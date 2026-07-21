@@ -1,6 +1,6 @@
-using Prueba1.Core.Domain;
+using ImpactX.Core.Domain;
 
-namespace Prueba1.Core.Interfaces.Services;
+namespace ImpactX.Core.Interfaces.Services;
 
 public interface ITokenService
 {

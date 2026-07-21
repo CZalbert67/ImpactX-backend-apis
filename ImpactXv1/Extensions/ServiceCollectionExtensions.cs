@@ -1,15 +1,15 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using Prueba1.Core.Interfaces.Repositories;
-using Prueba1.Core.Interfaces.Services;
-using Prueba1.Infrastructure.Data;
-using Prueba1.Infrastructure.Data.Repositories.Cosmos;
-using Prueba1.Infrastructure.Data.Repositories.EF;
-using Prueba1.Infrastructure.Security;
-using Prueba1.Services;
+using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Interfaces.Services;
+using ImpactX.Infrastructure.Data;
+using ImpactX.Infrastructure.Data.Repositories.Cosmos;
+using ImpactX.Infrastructure.Data.Repositories.EF;
+using ImpactX.Infrastructure.Security;
+using ImpactX.Services;
 
-namespace Prueba1.Extensions;
+namespace ImpactX.Extensions;
 
 public static class ServiceCollectionExtensions
 {
@@ -24,12 +24,34 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IUsuarioRepository, CosmosUsuarioRepository>();
             services.AddScoped<IRefreshTokenRepository, CosmosRefreshTokenRepository>();
             services.AddScoped<IPasswordResetTokenRepository, CosmosPasswordResetTokenRepository>();
+            services.AddScoped<IPlanRepository, CosmosPlanRepository>();
+            services.AddScoped<ISuscripcionRepository, CosmosSuscripcionRepository>();
+            services.AddScoped<IPagoRepository, CosmosPagoRepository>();
+            services.AddScoped<IWearableRepository, CosmosWearableRepository>();
+            services.AddScoped<IContactoRepository, CosmosContactoRepository>();
+            services.AddScoped<IMonitorRepository, CosmosMonitorRepository>();
+            services.AddScoped<IRutaRepository, CosmosRutaRepository>();
+            services.AddScoped<IViajeRepository, CosmosViajeRepository>();
+            services.AddScoped<IAlertaRepository, CosmosAlertaRepository>();
+            services.AddScoped<IIncidenteRepository, CosmosIncidenteRepository>();
+            services.AddScoped<INotificacionRepository, CosmosNotificacionRepository>();
         }
         else
         {
             services.AddScoped<IUsuarioRepository, UsuarioRepository>();
             services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
             services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
+            services.AddScoped<IPlanRepository, PlanRepository>();
+            services.AddScoped<ISuscripcionRepository, SuscripcionRepository>();
+            services.AddScoped<IPagoRepository, PagoRepository>();
+            services.AddScoped<IWearableRepository, WearableRepository>();
+            services.AddScoped<IContactoRepository, ContactoRepository>();
+            services.AddScoped<IMonitorRepository, MonitorRepository>();
+            services.AddScoped<IRutaRepository, RutaRepository>();
+            services.AddScoped<IViajeRepository, ViajeRepository>();
+            services.AddScoped<IAlertaRepository, AlertaRepository>();
+            services.AddScoped<IIncidenteRepository, IncidenteRepository>();
+            services.AddScoped<INotificacionRepository, NotificacionRepository>();
         }
 
         services.AddScoped<IEncryptionService, EncryptionService>();
@@ -37,6 +59,18 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IEmailService, StubEmailService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IPlanService, PlanService>();
+        services.AddScoped<IWearableService, WearableService>();
+        services.AddScoped<IPermissionService, PermissionService>();
+        services.AddScoped<IContactService, ContactService>();
+        services.AddScoped<IMonitorService, MonitorService>();
+        services.AddScoped<IRutaService, RutaService>();
+        services.AddScoped<IViajeService, ViajeService>();
+        services.AddScoped<IAlertService, AlertService>();
+        services.AddScoped<IIncidentService, IncidentService>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<IAnalyticsService, AnalyticsService>();
+        services.AddScoped<ISettingsService, SettingsService>();
 
         return services;
     }

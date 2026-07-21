@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
-using Prueba1.Core.Domain;
-using Prueba1.Core.Interfaces.Repositories;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Interfaces.Repositories;
 
-namespace Prueba1.Infrastructure.Data.Repositories.EF;
+namespace ImpactX.Infrastructure.Data.Repositories.EF;
 
 public class PasswordResetTokenRepository : IPasswordResetTokenRepository
 {

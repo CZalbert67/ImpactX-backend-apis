@@ -1,6 +1,7 @@
-using Prueba1.Models.DTOs;
+using ImpactX.Core.Exceptions;
+using ImpactX.Models.DTOs;
 
-namespace Prueba1.Services;
+namespace ImpactX.Services;
 
 public interface IAuthService
 {

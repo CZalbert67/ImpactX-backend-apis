@@ -1,4 +1,4 @@
-namespace Prueba1.Middleware;
+namespace ImpactX.Middleware;
 
 public class SecurityHeadersMiddleware
 {
