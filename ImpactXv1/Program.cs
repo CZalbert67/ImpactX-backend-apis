@@ -27,6 +27,17 @@ else
 
 builder.Services.ConfigureJwtAuthentication(builder.Configuration);
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowLocalhost", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
 var app = builder.Build();
 
 await app.SeedDatabaseAsync(useCosmosDb, useInMemory);
@@ -34,6 +45,8 @@ await app.SeedDatabaseAsync(useCosmosDb, useInMemory);
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<SecurityHeadersMiddleware>();
+
+app.UseCors("AllowLocalhost");
 
 if (app.Environment.IsDevelopment())
 {
