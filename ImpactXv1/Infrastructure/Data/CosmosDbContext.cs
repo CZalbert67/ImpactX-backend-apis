@@ -62,6 +62,8 @@ public class CosmosDbContext
 
     public async Task EnsureContainersAsync()
     {
+        await _client.CreateDatabaseIfNotExistsAsync(_database.Id);
+
         var containerDefinitions = new[]
         {
             ("Usuarios", "/id", -1),

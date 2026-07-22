@@ -6,8 +6,7 @@ Esta guía contiene la configuración de acceso y snippets de código listos par
 
 * **Account Endpoint:** `https://impactx-db-west-final.documents.azure.com:443/`
 * **Account Key (Lectura y Escritura):** `<REPLACE_WITH_YOUR_COSMOS_KEY>`
-* **Base de Datos Principal:** `ImpactX-Data`
-* **Base de Datos Temporal/Test:** `TestDatabase`
+* **Base de Datos:** `ImpactX-Data`
 
 ---
 
