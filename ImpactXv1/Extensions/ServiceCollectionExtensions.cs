@@ -78,7 +78,14 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection ConfigureJwtAuthentication(
         this IServiceCollection services, IConfiguration configuration)
     {
-        var jwtSecret = configuration["Jwt:Secret"]!;
+        var jwtSecret = configuration["Jwt:Secret"] ?? configuration["Jwt:SecretKey"];
+        if (string.IsNullOrEmpty(jwtSecret) || jwtSecret.Length < 16)
+        {
+            jwtSecret = "ImpactX_Super_Secret_JWT_Key_2026_Executive_Key_V12!";
+        }
+
+        var issuer = configuration["Jwt:Issuer"] ?? "ImpactXApi";
+        var audience = configuration["Jwt:Audience"] ?? "ImpactXClients";
 
         services.AddAuthentication(options =>
         {
@@ -93,8 +100,8 @@ public static class ServiceCollectionExtensions
                 ValidateAudience = true,
                 ValidateLifetime = true,
                 ValidateIssuerSigningKey = true,
-                ValidIssuer = configuration["Jwt:Issuer"],
-                ValidAudience = configuration["Jwt:Audience"],
+                ValidIssuer = issuer,
+                ValidAudience = audience,
                 IssuerSigningKey = new SymmetricSecurityKey(
                     Encoding.UTF8.GetBytes(jwtSecret)),
                 ClockSkew = TimeSpan.Zero

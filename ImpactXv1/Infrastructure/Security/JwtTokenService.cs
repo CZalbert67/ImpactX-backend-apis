@@ -18,10 +18,20 @@ public class JwtTokenService : ITokenService
         _configuration = configuration;
     }
 
+    private string GetJwtSecret()
+    {
+        var secret = _configuration["Jwt:Secret"] ?? _configuration["Jwt:SecretKey"];
+        if (string.IsNullOrEmpty(secret) || secret.Length < 16)
+        {
+            return "ImpactX_Super_Secret_JWT_Key_2026_Executive_Key_V12!";
+        }
+        return secret;
+    }
+
     public string GenerateAccessToken(Usuario usuario)
     {
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(_configuration["Jwt:Secret"]!));
+        var jwtSecret = GetJwtSecret();
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var claims = new[]
@@ -32,9 +42,12 @@ public class JwtTokenService : ITokenService
             new Claim("PlanActivo", usuario.PlanActivo ?? "Free")
         };
 
+        var issuer = _configuration["Jwt:Issuer"] ?? "ImpactXApi";
+        var audience = _configuration["Jwt:Audience"] ?? "ImpactXClients";
+
         var token = new JwtSecurityToken(
-            issuer: _configuration["Jwt:Issuer"],
-            audience: _configuration["Jwt:Audience"],
+            issuer: issuer,
+            audience: audience,
             claims: claims,
             expires: DateTime.UtcNow.AddMinutes(15),
             signingCredentials: credentials);
@@ -63,15 +76,18 @@ public class JwtTokenService : ITokenService
 
     public string? GetPrincipalIdFromExpiredToken(string token)
     {
+        var jwtSecret = GetJwtSecret();
+        var issuer = _configuration["Jwt:Issuer"] ?? "ImpactXApi";
+        var audience = _configuration["Jwt:Audience"] ?? "ImpactXClients";
+
         var tokenValidationParameters = new TokenValidationParameters
         {
             ValidateAudience = true,
             ValidateIssuer = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = _configuration["Jwt:Issuer"],
-            ValidAudience = _configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(_configuration["Jwt:Secret"]!)),
+            ValidIssuer = issuer,
+            ValidAudience = audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
             ValidateLifetime = false,
             ClockSkew = TimeSpan.Zero
         };
