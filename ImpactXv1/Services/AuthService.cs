@@ -68,22 +68,29 @@ public class AuthService : IAuthService
 
         await _usuarioRepository.AddAsync(usuario);
 
-        var freePlan = await _planRepository.GetByNameAsync("Free");
-        if (freePlan is not null)
+        try
         {
-            var trialEnd = DateTime.UtcNow.AddDays(14);
-            var suscripcion = new Suscripcion
+            var freePlan = await _planRepository.GetByNameAsync("Free");
+            if (freePlan is not null)
             {
-                UsuarioId = usuario.Id,
-                PlanId = freePlan.Id,
-                Estado = "Trial",
-                Inicio = DateTime.UtcNow,
-                TrialFin = trialEnd,
-                Fin = trialEnd,
-            };
-            await _suscripcionRepository.AddAsync(suscripcion);
-            usuario.PlanActivo = "Free";
-            await _usuarioRepository.UpdateAsync(usuario);
+                var trialEnd = DateTime.UtcNow.AddDays(14);
+                var suscripcion = new Suscripcion
+                {
+                    UsuarioId = usuario.Id,
+                    PlanId = freePlan.Id,
+                    Estado = "Trial",
+                    Inicio = DateTime.UtcNow,
+                    TrialFin = trialEnd,
+                    Fin = trialEnd,
+                };
+                await _suscripcionRepository.AddAsync(suscripcion);
+                usuario.PlanActivo = "Free";
+                await _usuarioRepository.UpdateAsync(usuario);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AuthService] Info: Asignación de plan omitida ({ex.Message}).");
         }
 
         var accessToken = _tokenService.GenerateAccessToken(usuario);
