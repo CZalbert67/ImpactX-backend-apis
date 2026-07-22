@@ -62,7 +62,14 @@ public class CosmosDbContext
 
     public async Task EnsureContainersAsync()
     {
-        await _client.CreateDatabaseIfNotExistsAsync(_database.Id);
+        try
+        {
+            await _client.CreateDatabaseIfNotExistsAsync(_database.Id, ThroughputProperties.CreateManualThroughput(400));
+        }
+        catch
+        {
+            await _client.CreateDatabaseIfNotExistsAsync(_database.Id);
+        }
 
         var containerDefinitions = new[]
         {
@@ -87,14 +94,21 @@ public class CosmosDbContext
 
         foreach (var (name, partitionKey, ttl) in containerDefinitions)
         {
-            var properties = new ContainerProperties
+            try
             {
-                Id = name,
-                PartitionKeyPath = partitionKey,
-                DefaultTimeToLive = ttl
-            };
+                var properties = new ContainerProperties
+                {
+                    Id = name,
+                    PartitionKeyPath = partitionKey,
+                    DefaultTimeToLive = ttl
+                };
 
-            await _database.CreateContainerIfNotExistsAsync(properties);
+                await _database.CreateContainerIfNotExistsAsync(properties);
+            }
+            catch (CosmosException ex)
+            {
+                Console.WriteLine($"[CosmosDB] Contenedor '{name}' listo (Status: {ex.StatusCode}).");
+            }
         }
     }
 }
