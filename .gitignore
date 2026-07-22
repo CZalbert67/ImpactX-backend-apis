@@ -45,5 +45,10 @@ bld/
 .DS_Store
 Thumbs.db
 
+# Local settings
+appsettings.Local.json
+appsettings.*.Local.json
+appsettings.*.local.json
+
 # Test results
 TestResults/
