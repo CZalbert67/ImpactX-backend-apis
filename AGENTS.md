@@ -82,24 +82,35 @@ dotnet add package <PackageName>
 4. `app.UseCors("AllowLocalhost")`
 5. `UseAuthentication()` / `UseAuthorization()`
 6. `MapControllers()`
-7. `MapHealthChecks("/health")`
+7. `MapHealthChecks` — three endpoints: `/health`, `/health/live`, `/health/ready`
 
-## OpenAPI + Scalar (Development only)
+## OpenAPI (all environments) + Scalar + Swagger UI (Development only)
 ```csharp
+app.MapOpenApi();
+
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
     app.MapScalarApiReference();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/openapi/v1.json", "ImpactX API v1");
+    });
 }
 ```
-- OpenAPI spec at `/openapi/v1.json`
-- Scalar UI replaces Swagger UI (package `Scalar.AspNetCore`)
+- OpenAPI spec at `/openapi/v1.json` — **available in all environments**
+- Scalar UI at Scalar default route (package `Scalar.AspNetCore`) — Development only
+- Swagger UI at `/swagger` and `/swagger/index.html` (package `Swashbuckle.AspNetCore`) — Development only
 
 ## Health checks
-- `builder.Services.AddHealthChecks()` — basic, no custom health checks registered
-- Mapped at `GET /health` (no authentication, no authorization)
+- `builder.Services.AddHealthChecks()` — includes `live` and `ready` checks with tags
+- Three endpoints with unified JSON response (`status`, `service`, `environment`, `timestamp` as `DateTimeOffset`)
+- **`GET /health`** — aggregates all checks (no tag filter), same format
+- **`GET /health/live`** — filtered by `"live"` tag (process alive)
+- **`GET /health/ready`** — filtered by `"ready"` tag (app ready for requests)
+- Response writer in `Program.cs::WriteHealthCheckResponse` — safe, no internals exposed
+- No authentication, no authorization on any health endpoint
 
-## Tests — 306 total (xUnit + Moq + WebApplicationFactory)
+## Tests — 317 total (xUnit + Moq + WebApplicationFactory)
 - **Unit tests** (14 files in `ImpactX.Tests/Unit/`): pure Moq per service
 - **Integration tests** (16 files in `ImpactX.Tests/Integration/`): `CustomWebApplicationFactory<Program>` forces `UseCosmosDb=false` + `UseInMemoryDatabase=true`, injects test JWT secret
 - API project exposes `partial class Program` for `WebApplicationFactory<Program>`
@@ -122,6 +133,8 @@ if (app.Environment.IsDevelopment())
 - HTTPS: `https://localhost:7278`
 - Launch profiles: `http` and `https` (both set `ASPNETCORE_ENVIRONMENT=Development`)
 - API routes: `api/auth/*`, `api/users/*`, `api/plans/*`, `api/subscription/*`, `api/wearable/*`, `api/permissions/*`, `api/contacts/*`, `api/monitors/*`, `api/routes/*`, `api/trips/*`, `api/alertas/*`, `api/incidentes/*`, `api/notificaciones/*`, `api/analytics/*`, `api/settings/*`
+- Health endpoints: `GET /health`, `GET /health/live`, `GET /health/ready`
+- Swagger UI at `/swagger` (Development only)
 
 ## Configuration & secrets
 - `UserSecretsId`: `45e9cf43-58e6-44b4-9a33-3a4988095b2d` — use `dotnet user-secrets set ...`
