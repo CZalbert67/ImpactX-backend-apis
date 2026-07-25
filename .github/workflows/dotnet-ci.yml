@@ -2,9 +2,9 @@ name: .NET CI Pipeline
 
 on:
   push:
-    branches: [ leo-desarrollo, main ]
+    branches: [ main, leo-desarrollo, feat/** ]
   pull_request:
-    branches: [ leo-desarrollo, main ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -70,45 +70,112 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  docker-smoke-test:
+  smoke-test:
     needs: build-and-test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
+    env:
+      ASPNETCORE_ENVIRONMENT: CI
+      ASPNETCORE_URLS: http://127.0.0.1:5055
+      UseCosmosDb: "false"
+      UseInMemoryDatabase: "true"
+      Jwt__Secret: ImpactX_CI_Test_Secret_2026_Only_For_Automated_Tests_123456
+      Jwt__Issuer: ImpactX-CI
+      Jwt__Audience: ImpactX-CI-Client
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Build Docker Image
-        run: docker build -t impactx-api:ci .
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
 
-      - name: Run Container
-        run: >
-          docker run -d
-          --name impactx-api
-          -p 8080:8080
-          -e ASPNETCORE_ENVIRONMENT=CI
-          -e ASPNETCORE_HTTP_PORTS=8080
-          -e UseCosmosDb=false
-          -e UseInMemoryDatabase=true
-          -e Jwt__Secret=ImpactX_CI_Temporary_Key_At_Least_32_Characters
-          -e Jwt__Issuer=ImpactX-CI
-          -e Jwt__Audience=ImpactX-CI-Client
-          impactx-api:ci
+      - name: Restore API Project
+        run: dotnet restore ImpactXv1/ImpactX.Api.csproj
 
-      - name: Health Check
+      - name: Publish, Start, and Smoke Test
         run: |
+          set -Eeuo pipefail
+
+          PUBLISH_DIR="${{ runner.temp }}/publish"
+          LOG_FILE="${{ runner.temp }}/api-log.txt"
+
+          dotnet publish ImpactXv1/ImpactX.Api.csproj \
+            --configuration Release \
+            --output "$PUBLISH_DIR" \
+            --no-restore \
+            --nologo
+
+          dotnet "$PUBLISH_DIR/ImpactX.Api.dll" > "$LOG_FILE" 2>&1 &
+          API_PID=$!
+
+          cleanup() {
+            kill "$API_PID" 2>/dev/null || true
+            wait "$API_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
           for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error http://localhost:8080/health; then
-              echo "Health check successful."
-              exit 0
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "::error::API process died before becoming ready"
+              cat "$LOG_FILE"
+              exit 1
             fi
-            echo "Waiting for API... attempt ${attempt}/30"
+
+            code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              --connect-timeout 2 --max-time 5 \
+              http://127.0.0.1:5055/health 2>/dev/null || echo "000")
+
+            if [ "$code" = "200" ]; then
+              echo "API is ready (attempt ${attempt})"
+              break
+            fi
+
+            if [ "$attempt" -eq 30 ]; then
+              echo "::error::API failed to respond after 30 attempts"
+              cat "$LOG_FILE"
+              exit 1
+            fi
+
             sleep 2
           done
-          echo "Health check failed."
-          docker logs impactx-api 2>&1 || true
-          exit 1
 
-      - name: Cleanup Container
+          # Validate /health, /health/live, /health/ready
+          for endpoint in health health/live health/ready; do
+            outfile="${{ runner.temp }}/$(echo "${endpoint}" | tr '/' '-').json"
+            curl --fail --silent --show-error \
+              --connect-timeout 2 --max-time 5 \
+              "http://127.0.0.1:5055/${endpoint}" > "$outfile"
+            python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['status']=='healthy'; assert d['service']=='impactx-api'; assert d['environment']=='CI'; assert 'timestamp' in d; import datetime; datetime.datetime.fromisoformat(d['timestamp']); print('OK')" "$outfile"
+            echo "/${endpoint} OK"
+          done
+
+          # Validate /openapi/v1.json
+          openapi_file="${{ runner.temp }}/openapi.json"
+          curl --fail --silent --show-error \
+            --connect-timeout 2 --max-time 5 \
+            "http://127.0.0.1:5055/openapi/v1.json" > "$openapi_file"
+          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert 'openapi' in d; assert 'paths' in d; assert isinstance(d['paths'], dict); print('OK')" "$openapi_file"
+          echo "/openapi/v1.json OK"
+
+          # Validate Swagger returns 404 in CI
+          swagger_code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --connect-timeout 2 --max-time 5 \
+            http://127.0.0.1:5055/swagger/index.html)
+          if [ "$swagger_code" != "404" ]; then
+            echo "::error::Swagger returned ${swagger_code} instead of 404 in CI environment"
+            exit 1
+          fi
+          echo "/swagger/index.html 404 OK"
+
+          echo "All smoke tests passed"
+
+      - name: Upload API Log
+        uses: actions/upload-artifact@v4
         if: always()
-        run: docker rm -f impactx-api || true
+        with:
+          name: api-smoke-log
+          path: ${{ runner.temp }}/api-log.txt
+          if-no-files-found: warn
+          retention-days: 7

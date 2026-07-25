@@ -116,17 +116,18 @@ if (app.Environment.IsDevelopment())
 - API project exposes `partial class Program` for `WebApplicationFactory<Program>`
 
 ## CI/CD — 6 GitHub Actions workflows
-1. **dotnet-ci.yml** — push/PR to `leo-desarrollo` / `main`: restore → NuGet audit (NU1903/1904 as error) → build Release → test with XPlat Code Coverage + TRX → docker smoke test (health check at `/health`)
+1. **dotnet-ci.yml** — Pipeline principal de CI:
+   - `push` a `main`, `leo-desarrollo`, `feat/**`
+   - `pull_request` hacia `main`
+   - `workflow_dispatch`
+   - **Job `build-and-test`** (15 min): checkout → setup-dotnet 10.0.x → restore con NuGet audit → build Release → test (317, TRX + XPlat Code Coverage) → publica TRX + cobertura
+   - **Job `smoke-test`** (5 min, depende de build-and-test): checkout → setup-dotnet → restore API → publish Release → ejecución directa de `ImpactX.Api.dll` con `dotnet`, usando `UseCosmosDb=false`, `UseInMemoryDatabase=true`, `ASPNETCORE_ENVIRONMENT=CI`, `ASPNETCORE_URLS=http://127.0.0.1:5055`, JWT de test → valida 4 endpoints (`/health`, `/health/live`, `/health/ready`, `/openapi/v1.json`) con Python 3 (status, service, environment, timestamp, schema) → verifica Swagger 404 → publica log de arranque
+   - **Sin Docker**: el smoke test ejecuta `dotnet publish` + `ImpactX.Api.dll` directamente
 2. **main_impactx-api-backend.yml** — push to `main` only: build → publish → deploy to Azure Web App `impactx-api-backend` (oidc login)
 3. **api-security-audit.yml** — OWASP API security scan
 4. **secret-scanning.yml** — Gitleaks credential scan
 5. **codeql-analysis.yml** — CodeQL SAST (C#, security-extended)
-6. **code-quality-roslyn.yml** — `dotnet format --verify-no-changes`
-
-## Docker
-- Multi-stage: `mcr.microsoft.com/dotnet/sdk:10.0` → `mcr.microsoft.com/dotnet/aspnet:10.0`
-- Port **8080** (`ASPNETCORE_HTTP_PORTS=8080`)
-- Entrypoint: `dotnet ImpactX.Api.dll`
+6. **code-quality-roslyn.yml** — `dotnet format --verify-no-changes` (workflow separado porque `dotnet format` falla con 14.673 errores ENDOFLINE/FINALNEWLINE preexistentes en checkout limpio)
 
 ## Dev server
 - HTTP: `http://localhost:5000` / `http://localhost:5161`
