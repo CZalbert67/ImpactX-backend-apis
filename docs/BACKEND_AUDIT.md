@@ -148,16 +148,85 @@ La implementación elevó el total de pruebas de **306 a 315** (9 nuevas).
 
 | Archivo | Acción |
 |---|---|
-| `.gitattributes` | ✅ Creado (`* text=auto`, `*.cs text diff=csharp`) |
+| `.gitattributes` | ✅ Creado (`* text=auto`, `*.cs text eol=crlf diff=csharp`) |
 | `ImpactXv1/Program.cs` | ✅ Modificado (`app.MapOpenApi()` fuera del bloque Development) |
 | `ImpactX.Tests/Integration/PlatformFoundationTests.cs` | ✅ Modificado (prueba `OpenApiV1Json_Returns200_InProduction` agregada) |
 | `AGENTS.md` | ✅ Modificado (317 tests, OpenAPI global, Scalar+Swagger solo Dev) |
 | `docs/BACKEND_AUDIT.md` | ✅ Modificado (documentación de Ronda 2) |
 
 - Se configuró `core.whitespace cr-at-eol` en el repositorio.
-- Se corrigieron los finales de línea de `Program.cs` y `PlatformFoundationTests.cs` a LF (consistentes con el resto del repositorio). `.gitattributes` declara `*.cs text` para que Git normalice a LF en el índice.
+- `.editorconfig` exige `end_of_line = crlf` para todos los archivos.
+- `.gitattributes` configura CRLF para los archivos C# en el directorio de trabajo durante el checkout, mientras Git mantiene el contenido de texto normalizado internamente.
+- `Program.cs` y `PlatformFoundationTests.cs` usan CRLF.
+- El checkout limpio todavía presenta 14.673 errores ENDOFLINE/FINALNEWLINE preexistentes en otros archivos (ViajeService.cs, WearableService.cs, y otros 13 archivos).
 - `app.MapOpenApi()` ahora se ejecuta en todos los ambientes; solo Scalar y Swagger UI permanecen en Development.
 - Total de pruebas: **317** (306 base + 11 nuevas: 9 de Ronda 1 + 2 de Ronda 2).
+
+### Ronda 3 — Pipeline Foundation (backend-ci-foundation)
+
+| Archivo | Acción |
+|---|---|
+| `.github/workflows/dotnet-ci.yml` | ✅ Triggers actualizados: `push` a `main`/`leo-desarrollo`/`feat/**`, `pull_request` a `main`, `workflow_dispatch` |
+| `.github/workflows/dotnet-ci.yml` | ✅ `docker-smoke-test` eliminado, reemplazado por `smoke-test` con `dotnet publish` y ejecución directa de `ImpactX.Api.dll` con `dotnet` |
+| `.github/workflows/dotnet-ci.yml` | ✅ Validación de 4 endpoints: `/health`, `/health/live`, `/health/ready`, `/openapi/v1.json` |
+| `.github/workflows/dotnet-ci.yml` | ✅ Validación JSON con Python 3: status, service, environment, timestamp ISO 8601 |
+| `.github/workflows/dotnet-ci.yml` | ✅ Validación de `GET /swagger/index.html` → 404 en CI |
+| `.github/workflows/dotnet-ci.yml` | ✅ Publicación de log de arranque como artefacto (`api-smoke-log`) |
+| `.github/workflows/dotnet-ci.yml` | ✅ `timeout-minutes: 5` en smoke-test, `set -Eeuo pipefail`, `trap` para limpieza |
+| `AGENTS.md` | ✅ Actualizado con flujo real del pipeline principal |
+| `docs/BACKEND_AUDIT.md` | ✅ Documentación de avance del pipeline |
+
+#### Detalle del nuevo job `smoke-test`
+
+```
+env:
+  ASPNETCORE_ENVIRONMENT: CI
+  ASPNETCORE_URLS: http://127.0.0.1:5055
+  UseCosmosDb: "false"
+  UseInMemoryDatabase: "true"
+  Jwt__Secret: ImpactX_CI_Test_Secret_2026_Only_For_Automated_Tests_123456
+  Jwt__Issuer: ImpactX-CI
+  Jwt__Audience: ImpactX-CI-Client
+
+pasos:
+  1. checkout + setup-dotnet + restore (solo API project)
+  2. dotnet publish --configuration Release
+  3. Iniciar API en background con trap EXIT
+  4. Espera activa (30 intentos × 2s) hasta /health responda 200
+  5. Validar /health → JSON con status=healthy, service=impactx-api, environment=CI, timestamp ISO 8601
+  6. Validar /health/live → mismo schema
+  7. Validar /health/ready → mismo schema
+  8. Validar /openapi/v1.json → contiene openapi y paths (objeto)
+  9. Validar /swagger/index.html → 404 en CI
+  10. Publicar log de arranque como artefacto (if: always(), retention 7d)
+```
+
+Sin Docker. Sin contenedores.
+
+#### dotnet format — verificación en checkout limpio
+
+Se creó un clon temporal del repositorio en `/tmp/clean-checkout` y se ejecutó:
+
+```
+dotnet restore ImpactX.slnx
+dotnet format ImpactX.slnx --verify-no-changes --no-restore
+```
+
+**Resultado**: Exit code 2. **14.673 errores** ENDOFLINE/FINALNEWLINE.
+
+Los errores se concentran en `ViajeService.cs` (16 líneas), `WearableService.cs` (el archivo completo, 185 líneas), más 13 archivos con FINALNEWLINE en ambos proyectos (PlanType.cs, IEncryptionService.cs, ITokenService.cs, UsuarioRepository.cs, EncryptionService.cs, ExceptionHandlingMiddleware.cs, RequestLoggingMiddleware.cs, SecurityHeadersMiddleware.cs, AuthResponse.cs, ErrorResponse.cs, LoginRequest.cs, RegisterRequest.cs, IAuthService.cs).
+
+**Decisión**: No se agregó `dotnet format --verify-no-changes` al pipeline principal porque fallaría en checkout limpio. El workflow `code-quality-roslyn.yml` se conserva como control separado. Los errores de formato son preexistentes (14.673) y deben abordarse en una ronda futura corrigiendo los finales de línea o la configuración de `.editorconfig`/`.gitattributes`.
+
+#### Problemas pendientes de los workflows secundarios
+
+| Workflow | Problema |
+|---|---|
+| `main_impactx-api-backend.yml` | `include-prerelease: true` obsoleto; sin `timeout-minutes` |
+| `api-security-audit.yml` | `include-prerelease: true` obsoleto; duplica restore/build del pipeline principal |
+| `codeql-analysis.yml` | `include-prerelease: true` obsoleto; duplica build |
+| `code-quality-roslyn.yml` | `include-prerelease: true` obsoleto; 14.673 errores ENDOFLINE/FINALNEWLINE |
+| `secret-scanning.yml` | Sin problemas detectados |
 
 ## Historial de versiones del documento
 
@@ -166,3 +235,4 @@ La implementación elevó el total de pruebas de **306 a 315** (9 nuevas).
 | 1.0 | — | Creación inicial del documento con auditoría de línea base |
 | 1.1 | — | Ronda 1: health checks, Swagger UI, 315 pruebas |
 | 1.2 | — | Ronda 2: `.gitattributes`, OpenAPI global, 317 pruebas |
+| 1.3 | — | Ronda 3: Pipeline Foundation — sin Docker, smoke test con dotnet publish y ejecución directa de `ImpactX.Api.dll`, 4 endpoints, 317 pruebas |
