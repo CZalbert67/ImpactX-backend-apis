@@ -36,7 +36,7 @@
 | 14 | Docker multi-stage | `mcr.microsoft.com/dotnet/sdk:10.0` → `mcr.microsoft.com/dotnet/aspnet:10.0`, puerto 8080 |
 | 15 | Health checks | `GET /health`, `GET /health/live`, `GET /health/ready` con ResponseWriter unificado |
 | 16 | OpenAPI | `/openapi/v1.json` + Scalar UI + Swagger UI (`/swagger`) solo en Development |
-| 17 | 6 pipelines CI/CD | .NET CI, Azure deploy, OWASP audit, Gitleaks, CodeQL, Roslyn format |
+| 17 | 7 pipelines CI/CD | .NET CI, Azure deploy, OWASP audit, Gitleaks, CodeQL, Roslyn format, Bicep infra validation |
 
 ---
 
@@ -360,6 +360,73 @@ En Ronda 4 se reescribió `code-quality-roslyn.yml` para:
 - Los recursos existentes (Web App `impactx-api-backend`, Cosmos DB, etc.) no fueron importados ni validados.
 - No se ejecutó `az deployment`. No se modificaron workflows de GitHub Actions.
 
+### Ronda 6 — Azure IaC Validation (ci/azure-iac-validation)
+
+| Archivo | Acción |
+|---|---|
+| `.github/workflows/infra-validation.yml` | ✅ Creado — Bicep Infrastructure Validation |
+| `AGENTS.md` | ✅ Modificado — 7 workflows, documentación del nuevo workflow |
+| `docs/BACKEND_AUDIT.md` | ✅ Modificado — documentación de Ronda 6 |
+| `infra/README.md` | ✅ Modificado — sección de validación automática añadida |
+
+#### Workflow creado
+
+- **Nombre**: Bicep Infrastructure Validation
+- **Archivo**: `.github/workflows/infra-validation.yml`
+- **Triggers**:
+  - `pull_request` a `main` con cambios en `infra/**` o `.github/workflows/infra-validation.yml`
+  - `workflow_dispatch` (manual)
+- **Sin trigger `push`**
+- **Permisos**: `contents: read` únicamente
+- **Sin OIDC**: no se configura `id-token: write`
+- **Sin Azure login**: no hay comandos `az`
+- **Sin despliegue**: no hay `az deployment`, no hay what-if
+- **Sin artefactos**: no se publica nada
+- **Concurrency**: `cancel-in-progress: true` agrupado por workflow + PR/ref
+
+#### Job: `validate`
+
+- `runs-on: ubuntu-latest`
+- `timeout-minutes: 10`
+- Checkout con `fetch-depth: 0` (historial completo necesario para `git diff --check`)
+- Bash estricto (`set -Eeuo pipefail`) en todos los pasos
+
+#### Bicep CLI
+
+- **Versión fijada**: `0.45.15`
+- **SHA-256**: `ff5b194b042c220df4a50d6768ed1d6c39a32894bfdc4ff83d62b115d966a7ce`
+- El SHA fue verificado localmente durante la auditoría del repositorio
+- Descarga temporal a `$RUNNER_TEMP/bicep/bicep` con `curl` estricto (`--fail`, `--show-error`, `--silent`, `--location`, `--retry 3`, `--retry-all-errors`, `--proto '=https'`, `--tlsv1.2`)
+- Validación del archivo con `sha256sum --check --strict`
+- Se agrega al `PATH` mediante `GITHUB_PATH`
+- No se instala globalmente, no se usa `sudo`, no se consulta la API de GitHub
+
+#### Validaciones realizadas
+
+1. **Compilación Bicep estricta**: `bicep build infra/main.bicep --stdout` y `bicep build-params infra/environments/{dev,test,prod}.bicepparam --stdout`. stdout va a `/dev/null`, stderr se captura en `RUNNER_TEMP`. Falla si exit code != 0 o si hay cualquier diagnóstico/warning en stderr.
+
+2. **Placeholder `DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED`**: Falla si no está presente en exactamente `infra/README.md`, `infra/environments/dev.bicepparam`, `infra/environments/test.bicepparam`, `infra/environments/prod.bicepparam`. Falla si aparece en cualquier otro archivo.
+
+3. **Archivos ARM JSON**: Falla si existe cualquier archivo `*.json` dentro de `infra/` que no sea `infra/bicepconfig.json`.
+
+4. **Secretos prohibidos**: Analiza `*.bicep` y `*.bicepparam`. Patrones prohibidos: `Jwt__Secret`, `AzureCosmosDb__Key`, `AZUREAPPSERVICE_CLIENTID`, `AZUREAPPSERVICE_TENANTID`, `AZUREAPPSERVICE_SUBSCRIPTIONID`, `clientSecret`, `tenantSecret`, `subscriptionSecret`. No analiza README.
+
+5. **Outputs de `main.bicep`**: Falla si cualquier nombre de output contiene (case-insensitive): `secret`, `password`, `token`, `key`, `connectionstring`, `instrumentationkey`, `credential`.
+
+6. **`git diff --check`**: En `pull_request` compara `base.sha` vs `head.sha`. En `workflow_dispatch` compara `HEAD^` vs `HEAD`.
+
+#### Resultado de validación local
+
+- **actionlint**: 0 errores estructurales en los 7 workflows
+- **Bicep build**: `infra/main.bicep` + 3 `bicepparam` → sin errores ni warnings
+- **Build .NET**: `dotnet build --configuration Release` → correcto
+- **Pruebas**: 317/317 correctas
+- **Paquetes NuGet**: 0 vulnerabilidades
+- **Archivos modificados**: solo `.github/workflows/infra-validation.yml`, `AGENTS.md`, `docs/BACKEND_AUDIT.md`, `infra/README.md`
+- **Bicep no modificado**: ningún `.bicep` ni `.bicepparam` fue alterado
+- **Código C#**: no modificado
+- **appsettings**: no modificados
+
 ## Historial de versiones del documento
 
 | Versión | Fecha | Cambios |
@@ -372,3 +439,4 @@ En Ronda 4 se reescribió `code-quality-roslyn.yml` para:
 | 1.5 | — | Ronda 4 (continuación): Roslyn estricto — `|| echo` eliminado, `fetch-depth: 0`, detección de archivos C# modificados por evento, `dotnet format --include` solo sobre cambios, sin ocultar fallos. CodeQL timeout ya configurado (15 min) |
 | 1.6 | — | Ronda 5: Azure IaC Foundation — Bicep `targetScope='subscription'`, módulos monitoring + app-service, 3 ambientes, naming determinista, sin secretos, sin deployment. 317 pruebas, NuGet sin vulnerabilidades |
 | 1.7 | — | Ronda 5.1 (endurecimiento): `XDT_MicrosoftApplicationInsights_Mode=recommended` agregado. README corregido — se eliminó la referencia a un supuesto comando de importación directa de despliegues y la referencia incorrecta a una consulta individual de recursos como entrada directa de decompilación, se documentó `az group export` + `az bicep decompile`, "Bicep: Insert Resource" y palabra clave `existing`. Sin cambios en workflows, C# ni appsettings |
+| 1.8 | — | Ronda 6: Azure IaC Validation. Workflow `infra-validation.yml` creado. Bicep 0.45.15 fijado con SHA-256. Sin Azure login, sin OIDC, sin despliegue. 6 validaciones: compilación estricta, placeholder, ARM JSON, secretos prohibidos, outputs, git diff. 7 workflows. 317 pruebas. actionlint 0 errores |

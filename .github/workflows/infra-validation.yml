@@ -1,0 +1,192 @@
+name: Bicep Infrastructure Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'infra/**'
+      - '.github/workflows/infra-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Bicep
+        env:
+          BICEP_VERSION: 0.45.15
+          BICEP_SHA256: ff5b194b042c220df4a50d6768ed1d6c39a32894bfdc4ff83d62b115d966a7ce
+          BICEP_PATH: ${{ runner.temp }}/bicep/bicep
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$(dirname "${BICEP_PATH}")"
+          curl \
+            --fail \
+            --show-error \
+            --silent \
+            --location \
+            --retry 3 \
+            --retry-all-errors \
+            --proto '=https' \
+            --tlsv1.2 \
+            --output "${BICEP_PATH}" \
+            "https://github.com/Azure/bicep/releases/download/v${BICEP_VERSION}/bicep-linux-x64"
+          echo "${BICEP_SHA256}  ${BICEP_PATH}" | sha256sum --check --strict -
+          chmod +x "${BICEP_PATH}"
+          echo "$(dirname "${BICEP_PATH}")" >> "${GITHUB_PATH}"
+          bicep --version
+
+      - name: Build Bicep files
+        run: |
+          set -Eeuo pipefail
+
+          validate_bicep() {
+            local label="$1"
+            shift
+
+            local stderr_file
+            stderr_file=$(mktemp "${RUNNER_TEMP}/bicep-errors.XXXXXX")
+
+            if ! "$@" > /dev/null 2> "${stderr_file}"; then
+              echo "::error ::${label}: compilation failed"
+              cat "${stderr_file}" >&2
+              rm -f "${stderr_file}"
+              exit 1
+            fi
+
+            if [ -s "${stderr_file}" ]; then
+              echo "::error ::${label}: compilation produced diagnostics or warnings"
+              cat "${stderr_file}" >&2
+              rm -f "${stderr_file}"
+              exit 1
+            fi
+
+            rm -f "${stderr_file}"
+            echo "✓ ${label}: compilation successful"
+          }
+
+          validate_bicep \
+            "infra/main.bicep" \
+            bicep build infra/main.bicep --stdout
+
+          validate_bicep \
+            "infra/environments/dev.bicepparam" \
+            bicep build-params infra/environments/dev.bicepparam --stdout
+
+          validate_bicep \
+            "infra/environments/test.bicepparam" \
+            bicep build-params infra/environments/test.bicepparam --stdout
+
+          validate_bicep \
+            "infra/environments/prod.bicepparam" \
+            bicep build-params infra/environments/prod.bicepparam --stdout
+
+      - name: Verify placeholder presence
+        run: |
+          set -Eeuo pipefail
+          EXPECTED_FILE="${RUNNER_TEMP}/placeholder-expected.txt"
+          ACTUAL_FILE="${RUNNER_TEMP}/placeholder-actual.txt"
+          trap 'rm -f "${EXPECTED_FILE}" "${ACTUAL_FILE}"' EXIT
+
+          printf '%s\n' \
+            'infra/README.md' \
+            'infra/environments/dev.bicepparam' \
+            'infra/environments/test.bicepparam' \
+            'infra/environments/prod.bicepparam' |
+            sort -u > "${EXPECTED_FILE}"
+
+          grep -r -l \
+            'DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED' \
+            infra/ |
+            sort -u > "${ACTUAL_FILE}"
+
+          if ! diff "${EXPECTED_FILE}" "${ACTUAL_FILE}"; then
+            echo "::error ::Placeholder DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED found in unexpected files or missing from expected files"
+            exit 1
+          fi
+
+          echo "✓ Placeholder present in all expected files and absent from all others"
+
+      - name: Verify no ARM JSON files
+        run: |
+          set -Eeuo pipefail
+          mapfile -t FILES < <(
+            find infra/ -type f -name '*.json' \
+              ! -path 'infra/bicepconfig.json' \
+              -print | sort
+          )
+          if (( ${#FILES[@]} > 0 )); then
+            echo "::error ::Unexpected JSON files found in infra/:"
+            printf '  %s\n' "${FILES[@]}"
+            exit 1
+          fi
+          echo "✓ No ARM JSON files in infra/ (only bicepconfig.json)"
+
+      - name: Check forbidden secrets
+        run: |
+          set -Eeuo pipefail
+          BAD_PATTERNS="Jwt__Secret|AzureCosmosDb__Key|AZUREAPPSERVICE_CLIENTID|AZUREAPPSERVICE_TENANTID|AZUREAPPSERVICE_SUBSCRIPTIONID|clientSecret|tenantSecret|subscriptionSecret"
+          FOUND_FILE=$(mktemp "${RUNNER_TEMP}/forbidden-secrets.XXXXXX")
+          trap 'rm -f "${FOUND_FILE}"' EXIT
+          set +e
+          grep -RInE "${BAD_PATTERNS}" infra/ \
+            --include='*.bicep' \
+            --include='*.bicepparam' > "${FOUND_FILE}"
+          GREP_STATUS=$?
+          set -e
+          if [ "${GREP_STATUS}" -eq 0 ]; then
+            echo "::error ::Forbidden patterns found in Bicep files:"
+            cat "${FOUND_FILE}"
+            exit 1
+          elif [ "${GREP_STATUS}" -ne 1 ]; then
+            echo "::error ::grep failed while checking forbidden patterns"
+            exit "${GREP_STATUS}"
+          fi
+          echo "✓ No forbidden secrets in Bicep files"
+
+      - name: Check output names for secrets
+        run: |
+          set -Eeuo pipefail
+          FOUND_FILE=$(mktemp "${RUNNER_TEMP}/output-secrets.XXXXXX")
+          trap 'rm -f "${FOUND_FILE}"' EXIT
+          set +e
+          grep -i -n -E 'output\s+\w*(secret|password|token|key|connectionstring|instrumentationkey|credential)\w*' \
+            infra/main.bicep > "${FOUND_FILE}"
+          GREP_STATUS=$?
+          set -e
+          if [ "${GREP_STATUS}" -eq 0 ]; then
+            echo "::error ::Output names in infra/main.bicep contain forbidden terms:"
+            cat "${FOUND_FILE}"
+            exit 1
+          elif [ "${GREP_STATUS}" -ne 1 ]; then
+            echo "::error ::grep failed while checking output names"
+            exit "${GREP_STATUS}"
+          fi
+          echo "✓ All output names in infra/main.bicep are safe"
+
+      - name: Git diff check
+        run: |
+          set -Eeuo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="HEAD^"
+            HEAD="HEAD"
+          fi
+          git diff --check "${BASE}" "${HEAD}"
+          echo "✓ git diff --check passed"

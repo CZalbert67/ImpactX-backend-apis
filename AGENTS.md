@@ -115,7 +115,7 @@ if (app.Environment.IsDevelopment())
 - **Integration tests** (16 files in `ImpactX.Tests/Integration/`): `CustomWebApplicationFactory<Program>` forces `UseCosmosDb=false` + `UseInMemoryDatabase=true`, injects test JWT secret
 - API project exposes `partial class Program` for `WebApplicationFactory<Program>`
 
-## CI/CD — 6 GitHub Actions workflows
+## CI/CD — 7 GitHub Actions workflows
 1. **dotnet-ci.yml** — Pipeline principal de CI:
    - `push` a `main`, `leo-desarrollo`, `feat/**`
    - `pull_request` hacia `main`
@@ -128,6 +128,7 @@ if (app.Environment.IsDevelopment())
 4. **secret-scanning.yml** — Gitleaks credential scan. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 10 min. Permissions: `contents: read`.
 5. **codeql-analysis.yml** — CodeQL SAST (C#, security-extended). Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read, security-events: write`.
 6. **code-quality-roslyn.yml** — Roslyn format estricto solo sobre archivos C# modificados. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read`. No oculta fallos (sin `|| echo`, `|| true` ni `continue-on-error`). Si no hay C# modificados, termina correctamente sin ejecutar `dotnet format`. La deuda histórica de 14.673 errores ENDOFLINE/FINALNEWLINE en archivos no modificados no afecta este check.
+7. **infra-validation.yml** — Bicep Infrastructure Validation. Triggers: `pull_request` a `main` solo cuando cambian `infra/**` o el propio workflow, y `workflow_dispatch`. Permissions: `contents: read` (sin OIDC, sin Azure login). Concurrency con cancelación automática. Bicep 0.45.15 descargado temporalmente con SHA-256 fijado y verificado durante auditoría. Sin Azure login. Sin despliegue. Validaciones: compilación estricta de `infra/main.bicep` + `dev/test/prod.bicepparam` (sin errores ni warnings), presencia exacta del placeholder `DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED`, ausencia de ARM JSON (solo `bicepconfig.json`), prohibición de secretos en archivos Bicep, revisión de nombres de outputs, y `git diff --check` con rango completo.
 
 ## Dev server
 - HTTP: `http://localhost:5000` / `http://localhost:5161`

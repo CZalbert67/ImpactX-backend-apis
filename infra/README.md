@@ -220,6 +220,72 @@ Antes de desplegar, revisar:
 3. Capacidad necesaria (instancias y tier).
 4. Restricciones del SKU Free/Shared (sin alwaysOn, sin SSL personalizado, etc).
 
+## Validación automática (GitHub Actions)
+
+El workflow `.github/workflows/infra-validation.yml` valida
+automáticamente los archivos Bicep en cada Pull Request que modifique la
+carpeta `infra/` o el propio workflow.
+
+### Cuándo se ejecuta
+
+- **Pull Requests** hacia `main` que modifiquen archivos en `infra/` o
+  `.github/workflows/infra-validation.yml`.
+- **Ejecución manual** mediante `workflow_dispatch`.
+
+### Qué NO hace
+
+- No se conecta a Azure.
+- No ejecuta `az`.
+- No ejecuta `what-if`.
+- No despliega recursos.
+- No publica ARM JSON en el repositorio ni como artefactos.
+- No necesita OIDC, secrets, ni credenciales.
+
+### Validaciones
+
+1. **Compilación Bicep estricta**: `infra/main.bicep` y los 3 archivos
+   `bicepparam` (`dev`, `test`, `prod`) se compilan con `bicep build` /
+   `bicep build-params`. Falla si hay errores o warnings.
+2. **Placeholder**: Verifica que
+   `DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED` esté presente exactamente en
+   `infra/README.md` y los 3 `bicepparam`, y en ningún otro archivo.
+3. **Archivos ARM JSON**: Falla si existe cualquier `*.json` fuera de
+   `infra/bicepconfig.json`.
+4. **Secretos prohibidos**: Escanea `*.bicep` y `*.bicepparam` en busca de
+   patrones de credenciales (`Jwt__Secret`, `AzureCosmosDb__Key`, etc.).
+5. **Outputs seguros**: Verifica que ningún nombre de `output` en
+   `main.bicep` contenga términos sensibles (`secret`, `key`, `token`,
+   `password`, etc.).
+6. **Git diff**: Ejecuta `git diff --check` con el rango completo del
+   Pull Request para detectar problemas de whitespace.
+
+### Instalación de Bicep
+
+El workflow descarga temporalmente **Bicep 0.45.15** en `$RUNNER_TEMP`
+con el SHA-256 fijado:
+
+```
+ff5b194b042c220df4a50d6768ed1d6c39a32894bfdc4ff83d62b115d966a7ce
+```
+
+Este SHA fue verificado localmente durante la auditoría del repositorio.
+La versión y el SHA están fijados para garantizar reproducibilidad. No
+se usa `latest`, no se consulta la API de GitHub, no se instala
+globalmente.
+
+### Cómo actualizar la versión de Bicep
+
+Para actualizar Bicep a una nueva versión:
+
+1. Descargar el binario `bicep-linux-x64` de la nueva versión desde
+   https://github.com/Azure/bicep/releases.
+2. Calcular el SHA-256 localmente:
+   ```bash
+   sha256sum bicep-linux-x64
+   ```
+3. Actualizar `BICEP_VERSION` y `BICEP_SHA256` en el paso `Install Bicep`
+   del workflow. Ambas variables deben actualizarse conjuntamente.
+
 ## Separación entre IaC y despliegue de aplicación
 
 Esta plantilla se ocupa **exclusivamente** de la infraestructura: Resource
