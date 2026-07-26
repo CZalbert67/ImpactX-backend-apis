@@ -12,6 +12,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read #This is required for actions/checkout
 
@@ -22,7 +23,6 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-          include-prerelease: true
 
       - name: Build with dotnet
         run: dotnet build ImpactXv1/ImpactX.Api.csproj --configuration Release
@@ -38,6 +38,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: build
     permissions:
       id-token: write #This is required for requesting the JWT

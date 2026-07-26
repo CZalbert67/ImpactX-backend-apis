@@ -228,6 +228,67 @@ Los errores se concentran en `ViajeService.cs` (16 líneas), `WearableService.cs
 | `code-quality-roslyn.yml` | `include-prerelease: true` obsoleto; 14.673 errores ENDOFLINE/FINALNEWLINE |
 | `secret-scanning.yml` | Sin problemas detectados |
 
+### Ronda 4 — Secondary Workflows Foundation (fix/secondary-workflows-foundation)
+
+| Archivo | Acción |
+|---|---|
+| `.github/workflows/api-security-audit.yml` | ✅ Eliminado `include-prerelease: true`. Agregado `workflow_dispatch`. Agregado `timeout-minutes: 15`. Permisos `contents: read` |
+| `.github/workflows/codeql-analysis.yml` | ✅ Eliminado `include-prerelease: true`. Agregado `workflow_dispatch`. Conserva `timeout-minutes: 15`. Permisos `contents: read, security-events: write` |
+| `.github/workflows/code-quality-roslyn.yml` | ✅ Eliminado `include-prerelease: true`. Agregado `workflow_dispatch`. Agregado `timeout-minutes: 15`. Permisos `contents: read`. Eliminados ocultadores de error (`|| echo`). Agregado `fetch-depth: 0`. Implementada detección de archivos C# modificados según evento (`pull_request`/`push`/`workflow_dispatch`). `dotnet format` solo se ejecuta sobre archivos C# modificados. Si no hay cambios, termina correctamente sin ejecutar `dotnet format` |
+| `.github/workflows/main_impactx-api-backend.yml` | ✅ Eliminado `include-prerelease: true`. Agregado `timeout-minutes: 15` (build) y `timeout-minutes: 20` (deploy). Permisos: `build: contents: read`, `deploy: id-token: write + contents: read` |
+| `.github/workflows/secret-scanning.yml` | ✅ Agregado `workflow_dispatch`. Agregado `timeout-minutes: 10`. Permisos `contents: read` |
+| `.github/workflows/dotnet-ci.yml` | ✅ Sin cambios (no modificado) |
+| `AGENTS.md` | ✅ Actualizado con detalles de los 6 workflows |
+| `docs/BACKEND_AUDIT.md` | ✅ Documentación de Ronda 4 |
+
+#### Correcciones aplicadas
+
+1. **Eliminación de `include-prerelease: true`**: No es una entrada válida de `actions/setup-dotnet@v4`. Se eliminó de `api-security-audit.yml`, `codeql-analysis.yml`, `code-quality-roslyn.yml` y `main_impactx-api-backend.yml`.
+
+2. **Timeouts**: Se agregaron timeouts a jobs que no tenían:
+   - `api-security-audit.yml`: 15 min
+   - `code-quality-roslyn.yml`: 15 min
+   - `main_impactx-api-backend.yml`: build 15 min, deploy 20 min
+   - `secret-scanning.yml`: 10 min
+
+3. **`workflow_dispatch`**: Agregado a `api-security-audit.yml`, `codeql-analysis.yml`, `code-quality-roslyn.yml` y `secret-scanning.yml`. `main_impactx-api-backend.yml` ya lo tenía.
+
+4. **Permisos mínimos**: CodeQL conserva `security-events: write`. Azure deploy conserva `id-token: write + contents: read`. El resto usa `contents: read`.
+
+5. **Versiones de acciones**: Todas conservadas — `actions/checkout@v4`, `setup-dotnet@v4`, `upload-artifact@v4`, `download-artifact@v4`, `github/codeql-action/init@v3`, `github/codeql-action/analyze@v3`, `azure/login@v2`, `azure/webapps-deploy@v3`, `gitleaks/gitleaks-action@v2`.
+
+#### Resultado de actionlint
+
+```
+actionlint .github/workflows/*.yml
+→ 0 errores estructurales en los 6 workflows
+```
+
+#### Roslyn estricto sobre archivos modificados
+
+En Ronda 4 se reescribió `code-quality-roslyn.yml` para:
+- Eliminar `|| echo` que ocultaba errores de `dotnet format`.
+- Agregar `fetch-depth: 0` en `actions/checkout@v4`.
+- Detectar archivos C# modificados según el tipo de evento:
+  - `pull_request`: compara `github.event.pull_request.base.sha` con `GITHUB_SHA`
+  - `push`: compara `github.event.before` con `GITHUB_SHA`
+  - `workflow_dispatch`: compara `HEAD^` con `HEAD`
+- Si `BASE` es un SHA compuesto completamente por ceros, usar `HEAD^` como fallback.
+- Filtrar solo archivos `*.cs` con estados Added, Copied, Modified o Renamed (`--diff-filter=ACMR`).
+- Si no hay archivos C# modificados, terminar correctamente (`exit 0`) sin ejecutar `dotnet format`.
+- Si hay archivos modificados, ejecutar estrictamente:
+  ```
+  dotnet format ImpactX.slnx --verify-no-changes --no-restore --include "${CS_FILES[@]}"
+  ```
+  sin ocultar fallos (sin `|| echo`, `|| true` ni `continue-on-error`).
+- La deuda histórica de 14.673 errores ENDOFLINE/FINALNEWLINE en archivos no modificados no afecta este check.
+- CodeQL ya tenía `timeout-minutes: 15` configurado desde rondas anteriores.
+
+#### Deuda pendiente
+
+- La deuda histórica completa de 14.673 errores ENDOFLINE/FINALNEWLINE sigue pendiente, pero está acotada a los archivos legacy no modificados. El workflow `code-quality-roslyn.yml` ya no falla por archivos que no forman parte del cambio.
+- Roslyn ya no oculta fallos. El workflow valida estrictamente solo los archivos C# modificados. Si no hay cambios C#, el check termina correctamente.
+
 ## Historial de versiones del documento
 
 | Versión | Fecha | Cambios |
@@ -236,3 +297,5 @@ Los errores se concentran en `ViajeService.cs` (16 líneas), `WearableService.cs
 | 1.1 | — | Ronda 1: health checks, Swagger UI, 315 pruebas |
 | 1.2 | — | Ronda 2: `.gitattributes`, OpenAPI global, 317 pruebas |
 | 1.3 | — | Ronda 3: Pipeline Foundation — sin Docker, smoke test con dotnet publish y ejecución directa de `ImpactX.Api.dll`, 4 endpoints, 317 pruebas |
+| 1.4 | — | Ronda 4: Secondary Workflows Foundation — `include-prerelease` eliminado, timeouts, `workflow_dispatch`, permisos mínimos, actionlint 0 errores |
+| 1.5 | — | Ronda 4 (continuación): Roslyn estricto — `|| echo` eliminado, `fetch-depth: 0`, detección de archivos C# modificados por evento, `dotnet format --include` solo sobre cambios, sin ocultar fallos. CodeQL timeout ya configurado (15 min) |
