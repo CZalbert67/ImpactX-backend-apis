@@ -5,6 +5,7 @@ on:
     branches: [ main, leo-desarrollo ]
   pull_request:
     branches: [ main, leo-desarrollo ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,6 +14,7 @@ jobs:
   owasp-audit:
     name: OWASP API Top 10 Security Verification
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Code
@@ -22,7 +24,6 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-          include-prerelease: true
 
       - name: Restore Solution & Audit Packages
         run: |

@@ -123,11 +123,11 @@ if (app.Environment.IsDevelopment())
    - **Job `build-and-test`** (15 min): checkout → setup-dotnet 10.0.x → restore con NuGet audit → build Release → test (317, TRX + XPlat Code Coverage) → publica TRX + cobertura
    - **Job `smoke-test`** (5 min, depende de build-and-test): checkout → setup-dotnet → restore API → publish Release → ejecución directa de `ImpactX.Api.dll` con `dotnet`, usando `UseCosmosDb=false`, `UseInMemoryDatabase=true`, `ASPNETCORE_ENVIRONMENT=CI`, `ASPNETCORE_URLS=http://127.0.0.1:5055`, JWT de test → valida 4 endpoints (`/health`, `/health/live`, `/health/ready`, `/openapi/v1.json`) con Python 3 (status, service, environment, timestamp, schema) → verifica Swagger 404 → publica log de arranque
    - **Sin Docker**: el smoke test ejecuta `dotnet publish` + `ImpactX.Api.dll` directamente
-2. **main_impactx-api-backend.yml** — push to `main` only: build → publish → deploy to Azure Web App `impactx-api-backend` (oidc login)
-3. **api-security-audit.yml** — OWASP API security scan
-4. **secret-scanning.yml** — Gitleaks credential scan
-5. **codeql-analysis.yml** — CodeQL SAST (C#, security-extended)
-6. **code-quality-roslyn.yml** — `dotnet format --verify-no-changes` (workflow separado porque `dotnet format` falla con 14.673 errores ENDOFLINE/FINALNEWLINE preexistentes en checkout limpio)
+2. **main_impactx-api-backend.yml** — push to `main` only + `workflow_dispatch`: build (15 min) → publish → deploy (20 min, oidc) to Azure Web App `impactx-api-backend`. Permissions: `build: contents: read`, `deploy: id-token: write + contents: read`
+3. **api-security-audit.yml** — OWASP API security scan. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read`.
+4. **secret-scanning.yml** — Gitleaks credential scan. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 10 min. Permissions: `contents: read`.
+5. **codeql-analysis.yml** — CodeQL SAST (C#, security-extended). Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read, security-events: write`.
+6. **code-quality-roslyn.yml** — Roslyn format estricto solo sobre archivos C# modificados. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read`. No oculta fallos (sin `|| echo`, `|| true` ni `continue-on-error`). Si no hay C# modificados, termina correctamente sin ejecutar `dotnet format`. La deuda histórica de 14.673 errores ENDOFLINE/FINALNEWLINE en archivos no modificados no afecta este check.
 
 ## Dev server
 - HTTP: `http://localhost:5000` / `http://localhost:5161`

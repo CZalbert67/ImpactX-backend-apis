@@ -5,6 +5,7 @@ on:
     branches: [ main, leo-desarrollo ]
   pull_request:
     branches: [ main, leo-desarrollo ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,21 +14,52 @@ jobs:
   roslyn-analysis:
     name: Roslyn Code Analysis & Style Enforcer
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-          include-prerelease: true
 
-      - name: Run .NET Format & Quality Check
-        run: |
-          dotnet format ImpactX.slnx --verify-no-changes --verbosity diagnostic || echo "Format check completed with stylistic recommendations."
+      - name: Restore Solution
+        run: dotnet restore ImpactX.slnx
 
-      - name: Execute Code Standard Inspection
+      - name: Determine Changed C# Files and Run Format
         run: |
-          echo "Roslyn static code analysis completed successfully."
+          set -Eeuo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.sha }}"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          else
+            BASE="HEAD^"
+            HEAD="HEAD"
+          fi
+
+          if [[ "$BASE" =~ ^0+$ ]]; then
+            BASE="HEAD^"
+          fi
+
+          mapfile -t CS_FILES < <(git diff --diff-filter=ACMR --name-only "$BASE" "$HEAD" -- '*.cs')
+
+          if [[ ${#CS_FILES[@]} -eq 0 ]]; then
+            echo "No C# files modified. Skipping dotnet format."
+            exit 0
+          fi
+
+          echo "Modified C# files:"
+          printf '  %s\n' "${CS_FILES[@]}"
+
+          dotnet format ImpactX.slnx \
+            --verify-no-changes \
+            --no-restore \
+            --include "${CS_FILES[@]}"
