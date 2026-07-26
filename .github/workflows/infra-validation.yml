@@ -101,16 +101,24 @@ jobs:
           EXPECTED_FILE="${RUNNER_TEMP}/placeholder-expected.txt"
           ACTUAL_FILE="${RUNNER_TEMP}/placeholder-actual.txt"
           trap 'rm -f "${EXPECTED_FILE}" "${ACTUAL_FILE}"' EXIT
+
           printf '%s\n' \
             'infra/README.md' \
             'infra/environments/dev.bicepparam' \
             'infra/environments/test.bicepparam' \
-            'infra/environments/prod.bicepparam' > "${EXPECTED_FILE}"
-          grep -r -l 'DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED' infra/ | sort -u > "${ACTUAL_FILE}"
+            'infra/environments/prod.bicepparam' |
+            sort -u > "${EXPECTED_FILE}"
+
+          grep -r -l \
+            'DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED' \
+            infra/ |
+            sort -u > "${ACTUAL_FILE}"
+
           if ! diff "${EXPECTED_FILE}" "${ACTUAL_FILE}"; then
             echo "::error ::Placeholder DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED found in unexpected files or missing from expected files"
             exit 1
           fi
+
           echo "✓ Placeholder present in all expected files and absent from all others"
 
       - name: Verify no ARM JSON files
