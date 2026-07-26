@@ -289,6 +289,77 @@ En Ronda 4 se reescribió `code-quality-roslyn.yml` para:
 - La deuda histórica completa de 14.673 errores ENDOFLINE/FINALNEWLINE sigue pendiente, pero está acotada a los archivos legacy no modificados. El workflow `code-quality-roslyn.yml` ya no falla por archivos que no forman parte del cambio.
 - Roslyn ya no oculta fallos. El workflow valida estrictamente solo los archivos C# modificados. Si no hay cambios C#, el check termina correctamente.
 
+### Ronda 5 — Azure IaC Foundation (feat/azure-iac-foundation)
+
+| Archivo | Acción |
+|---|---|
+| `infra/main.bicep` | ✅ Creado — `targetScope='subscription'`, Resource Group, 2 módulos, 11 parámetros, 8 outputs seguros |
+| `infra/bicepconfig.json` | ✅ Creado — linter habilitado, 3 reglas en nivel error |
+| `infra/modules/monitoring.bicep` | ✅ Creado — Log Analytics + Application Insights workspace-based, 5 outputs |
+| `infra/modules/app-service.bicep` | ✅ Creado — Linux App Service Plan + Web App + System-Assigned MI, 4 app settings, 6 outputs |
+| `infra/environments/dev.bicepparam` | ✅ Creado — F1 Free, eastus2, retention 30 días |
+| `infra/environments/test.bicepparam` | ✅ Creado — B1 Basic, eastus2, retention 30 días |
+| `infra/environments/prod.bicepparam` | ✅ Creado — P1v3 PremiumV3, eastus2, retention 365 días |
+| `infra/README.md` | ✅ Creado — documentación completa con advertencia de no despliegue |
+| `AGENTS.md` | ✅ Modificado — sección Azure IaC añadida |
+| `docs/BACKEND_AUDIT.md` | ✅ Modificado — documentación de Ronda 5 |
+
+#### Recursos creados
+
+- Resource Group (`Microsoft.Resources/resourceGroups`)
+- Log Analytics Workspace (`Microsoft.OperationalInsights/workspaces`)
+- Application Insights workspace-based (`Microsoft.Insights/components`)
+- Linux App Service Plan (`Microsoft.Web/serverfarms`)
+- Linux Web App con System-Assigned Managed Identity (`Microsoft.Web/sites`)
+
+#### Recursos excluidos
+
+- Cosmos DB (queda fuera)
+- Key Vault (queda fuera)
+- Machine Learning (queda fuera)
+- Storage Accounts, VNets, Private Endpoints
+- Alertas, availability tests, diagnostic settings
+- Slots, autoscale, backup policies
+- Certificados, dominios, CDN, Front Door, API Management
+- Role assignments, Azure AD configuration
+- Cualquier secreto, JWT, connection string de base de datos
+
+#### Decisiones de diseño
+
+1. **Scope subscription**: `targetScope = 'subscription'` permite que `main.bicep` cree su propio Resource Group, sin depender de uno preexistente.
+2. **Naming determinista**: `uniqueString(subscription().id, resourceGroupName)` genera el mismo sufijo siempre para el mismo par suscripción + resource group, evitando colisiones globales.
+3. **Sin secretos en outputs**: Application Insights connection string fluye internamente entre módulos pero no aparece en los outputs de `main.bicep`.
+4. **AlwaysOn condicional**: Se desactiva solo cuando el SKU es Free (F1) o Shared (D1).
+5. **Health check path**: Configurado en `/health/ready`, el endpoint existente de la aplicación.
+6. **App settings mínimos**: Solo `ASPNETCORE_ENVIRONMENT`, `APPLICATIONINSIGHTS_CONNECTION_STRING`, `ApplicationInsightsAgent_EXTENSION_VERSION=~3`, `XDT_MicrosoftApplicationInsights_Mode=recommended` y `WEBSITE_HEALTHCHECK_MAXPINGFAILURES`. Sin Cosmos DB ni JWT en esta fase. La Web App queda preparada para autoinstrumentación administrada por App Service.
+
+#### Estado de validación
+
+- Bicep build: `infra/main.bicep` → sin errores ni warnings
+- Bicep build-params: `dev`, `test`, `prod` → sin errores ni warnings
+- Compilación .NET: `dotnet build --configuration Release` → correcta
+- Pruebas: 317/317 correctas
+- Paquetes NuGet: 0 vulnerabilidades
+- Archivos modificados: solo `infra/`, `AGENTS.md`, `docs/BACKEND_AUDIT.md`
+- Workflows de GitHub Actions: no modificados
+- Código C#: no modificado
+- appsettings: no modificados
+- Secretos en infra/: ninguno
+
+#### Endurecimiento (Ronda 5.1)
+
+- Se agregó `XDT_MicrosoftApplicationInsights_Mode=recommended` como app setting para habilitar la autoinstrumentación administrada por App Service.
+- Se reescribió la sección de adopción de recursos existentes en README.md eliminando la referencia a un supuesto comando de importación directa de despliegues y la referencia incorrecta a una consulta individual de recursos como entrada directa de decompilación. Ahora documenta correctamente `az group export` + `az bicep decompile`, "Bicep: Insert Resource" en VS Code, y la palabra clave `existing`.
+- No se modificaron workflows, C# ni appsettings.
+
+#### Notas
+
+- `linuxFxVersion` usa `DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED` como marcador de posición. Debe sustituirse antes de cualquier what-if o deployment.
+- Los SKU (F1, B1, P1v3) son ejemplos. Deben revisarse por disponibilidad regional y costo.
+- La pila .NET debe verificarse con `az webapp list-runtimes --os linux | grep DOTNET` antes de desplegar.
+- Los recursos existentes (Web App `impactx-api-backend`, Cosmos DB, etc.) no fueron importados ni validados.
+- No se ejecutó `az deployment`. No se modificaron workflows de GitHub Actions.
+
 ## Historial de versiones del documento
 
 | Versión | Fecha | Cambios |
@@ -299,3 +370,5 @@ En Ronda 4 se reescribió `code-quality-roslyn.yml` para:
 | 1.3 | — | Ronda 3: Pipeline Foundation — sin Docker, smoke test con dotnet publish y ejecución directa de `ImpactX.Api.dll`, 4 endpoints, 317 pruebas |
 | 1.4 | — | Ronda 4: Secondary Workflows Foundation — `include-prerelease` eliminado, timeouts, `workflow_dispatch`, permisos mínimos, actionlint 0 errores |
 | 1.5 | — | Ronda 4 (continuación): Roslyn estricto — `|| echo` eliminado, `fetch-depth: 0`, detección de archivos C# modificados por evento, `dotnet format --include` solo sobre cambios, sin ocultar fallos. CodeQL timeout ya configurado (15 min) |
+| 1.6 | — | Ronda 5: Azure IaC Foundation — Bicep `targetScope='subscription'`, módulos monitoring + app-service, 3 ambientes, naming determinista, sin secretos, sin deployment. 317 pruebas, NuGet sin vulnerabilidades |
+| 1.7 | — | Ronda 5.1 (endurecimiento): `XDT_MicrosoftApplicationInsights_Mode=recommended` agregado. README corregido — se eliminó la referencia a un supuesto comando de importación directa de despliegues y la referencia incorrecta a una consulta individual de recursos como entrada directa de decompilación, se documentó `az group export` + `az bicep decompile`, "Bicep: Insert Resource" y palabra clave `existing`. Sin cambios en workflows, C# ni appsettings |

@@ -153,6 +153,20 @@ if (app.Environment.IsDevelopment())
 - `Prueba1.Tests/` directory leftover (only bin/obj, no source)
 - `CosmosTest.csproj` standalone project at root (not in solution)
 
+## Azure IaC — Bicep foundation (`infra/`)
+- **Scope**: `targetScope = 'subscription'` — each deployment creates its own Resource Group
+- **Modules**: `modules/monitoring.bicep` (Log Analytics + Application Insights workspace-based), `modules/app-service.bicep` (Linux App Service Plan + Web App + System-Assigned Managed Identity, preconfigured with App Service managed auto-instrumentation via `APPLICATIONINSIGHTS_CONNECTION_STRING`, `ApplicationInsightsAgent_EXTENSION_VERSION=~3`, `XDT_MicrosoftApplicationInsights_Mode=recommended`)
+- **Environments**: `infra/environments/{dev,test,prod}.bicepparam` — parameter files using `../main.bicep`
+- **No secrets**: No JWT, Cosmos DB keys, connection strings, or credentials are defined in `infra/`. The Application Insights connection string is passed internally between modules but is never exposed as a `main.bicep` output.
+- **No deployment**: Resources have not been created. No `what-if` has been run. No GitHub Actions workflows were modified.
+- **Validation** (requires Bicep CLI, not `az`):
+  ```
+  bicep build infra/main.bicep
+  bicep build-params infra/environments/{dev,test,prod}.bicepparam
+  ```
+- **Before first deploy**: Install Azure CLI, authenticate, verify .NET runtime (`az webapp list-runtimes --os linux | grep DOTNET`), replace `DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED`, review SKU/region, run what-if, get approval.
+- **Allowed modifications**: Only files under `infra/`, `AGENTS.md`, `docs/BACKEND_AUDIT.md`. No C#, no workflows, no appsettings.
+
 ## Rules
 - **No commits or pushes without explicit authorization**
 - **Trabajar siempre en una rama feature y utilizar Pull Request. No hacer push directo a main.**
