@@ -76,9 +76,9 @@ public class NotificationService : INotificationService
     }
 
     public async Task SendPushNotificationAsync(
-        Guid usuarioId, 
-        string titulo, 
-        string mensaje, 
+        Guid usuarioId,
+        string titulo,
+        string mensaje,
         Dictionary<string, string>? datos = null)
     {
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
