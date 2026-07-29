@@ -43,6 +43,42 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Inicialización de Firebase Admin SDK (Notificaciones Push)
+try
+{
+    var firebaseCredentialsFile = builder.Configuration["Firebase:CredentialsPath"] ?? "firebase-credentials.json";
+    var firebaseCredentialsPath = Path.Combine(builder.Environment.ContentRootPath, firebaseCredentialsFile);
+
+    if (File.Exists(firebaseCredentialsPath))
+    {
+        FirebaseAdmin.FirebaseApp.Create(new FirebaseAdmin.AppOptions()
+        {
+            Credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromFile(firebaseCredentialsPath)
+        });
+        Console.WriteLine($"[Firebase] Inicializado con éxito desde archivo: {firebaseCredentialsPath}");
+    }
+    else
+    {
+        var credentialsEnv = Environment.GetEnvironmentVariable("FIREBASE_CREDENTIALS");
+        if (!string.IsNullOrEmpty(credentialsEnv))
+        {
+            FirebaseAdmin.FirebaseApp.Create(new FirebaseAdmin.AppOptions()
+            {
+                Credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromJson(credentialsEnv)
+            });
+            Console.WriteLine("[Firebase] Inicializado con éxito desde variable de entorno.");
+        }
+        else
+        {
+            Console.WriteLine($"[Firebase] ADVERTENCIA: Archivo de credenciales no encontrado en '{firebaseCredentialsPath}' ni en variable de entorno. Las notificaciones push de Firebase no se enviarán.");
+        }
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"[Firebase] Error crítico al inicializar Firebase Admin SDK: {ex.Message}");
+}
+
 var app = builder.Build();
 
 await app.SeedDatabaseAsync(useCosmosDb, useInMemory);

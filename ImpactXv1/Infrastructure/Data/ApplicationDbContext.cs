@@ -38,6 +38,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(u => u.Telefono).HasMaxLength(20);
             entity.Property(u => u.PasswordHash).HasMaxLength(500).IsRequired();
             entity.Property(u => u.PlanActivo).HasMaxLength(50);
+            entity.Property(u => u.FcmToken).HasMaxLength(1000);
 
             entity.OwnsOne(u => u.PerfilConduccion, p =>
             {

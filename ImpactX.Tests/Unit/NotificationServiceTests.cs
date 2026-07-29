@@ -11,13 +11,15 @@ namespace ImpactX.Tests.Unit;
 public class NotificationServiceTests
 {
     private readonly Mock<INotificacionRepository> _notificacionRepo;
+    private readonly Mock<IUsuarioRepository> _usuarioRepo;
     private readonly NotificationService _notificationService;
 
     public NotificationServiceTests()
     {
         _notificacionRepo = new Mock<INotificacionRepository>();
+        _usuarioRepo = new Mock<IUsuarioRepository>();
         var logger = Mock.Of<ILogger<NotificationService>>();
-        _notificationService = new NotificationService(_notificacionRepo.Object, logger);
+        _notificationService = new NotificationService(_notificacionRepo.Object, _usuarioRepo.Object, logger);
     }
 
     [Fact]

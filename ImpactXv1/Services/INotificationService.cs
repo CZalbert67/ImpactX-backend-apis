@@ -10,4 +10,5 @@ public interface INotificationService
     Task MarkAllAsReadAsync(Guid usuarioId);
     Task DeleteAsync(Guid usuarioId, Guid notificacionId);
     Task DeleteAllAsync(Guid usuarioId);
+    Task SendPushNotificationAsync(Guid usuarioId, string titulo, string mensaje, Dictionary<string, string>? datos = null);
 }

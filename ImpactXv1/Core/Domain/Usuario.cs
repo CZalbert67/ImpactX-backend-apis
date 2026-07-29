@@ -53,6 +53,10 @@ public class Usuario
     [JsonPropertyName("emailConfirmed")]
     public bool EmailConfirmed { get; set; }
 
+    [JsonProperty("fcmToken")]
+    [JsonPropertyName("fcmToken")]
+    public string? FcmToken { get; set; }
+
     [JsonProperty("planActivo")]
     [JsonPropertyName("planActivo")]
     public string? PlanActivo { get; set; }
