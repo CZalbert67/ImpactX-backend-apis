@@ -15,4 +15,5 @@ public interface IAuthService
     Task DeleteSessionAsync(Guid usuarioId, Guid sessionId);
     Task DeleteAccountAsync(Guid usuarioId);
     Task<ExportAccountDto> ExportAccountAsync(Guid usuarioId);
+    Task<AuthResponse> RefreshTokenAsync(RefreshTokenRequest request, string? ipAddress = null, CancellationToken cancellationToken = default);
 }

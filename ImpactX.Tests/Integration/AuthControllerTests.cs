@@ -218,4 +218,98 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal("Flow User", export!.Nombre);
         Assert.Equal(email, export.Correo);
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshToken_WithValidToken_ReturnsOk()
+    {
+        var email = $"refresh_{Guid.NewGuid()}@test.com";
+        var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            nombre = "Refresh User",
+            correo = email,
+            password = "Password123!"
+        });
+        var registerResult = await registerResponse.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(registerResult!.RefreshToken);
+
+        var response = await _client.PostAsJsonAsync("/api/auth/refresh", new
+        {
+            refreshToken = registerResult.RefreshToken
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(result);
+        Assert.True(result!.Success);
+        Assert.NotNull(result.Token);
+        Assert.NotNull(result.RefreshToken);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshToken_WithInvalidToken_ReturnsUnauthorized()
+    {
+        var response = await _client.PostAsJsonAsync("/api/auth/refresh", new
+        {
+            refreshToken = "nonexistent-refresh-token"
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshToken_WithEmptyRequest_ReturnsBadRequest()
+    {
+        var response = await _client.PostAsJsonAsync("/api/auth/refresh", new { });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshToken_WithExpiredToken_ReturnsUnauthorized()
+    {
+        var email = $"expired_{Guid.NewGuid()}@test.com";
+        var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            nombre = "Expired User",
+            correo = email,
+            password = "Password123!"
+        });
+        var registerResult = await registerResponse.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(registerResult!.RefreshToken);
+
+        // First use - rotates and invalidates the original token
+        var firstRefresh = await _client.PostAsJsonAsync("/api/auth/refresh", new
+        {
+            refreshToken = registerResult.RefreshToken
+        });
+        Assert.Equal(HttpStatusCode.OK, firstRefresh.StatusCode);
+
+        // Second use with the same (now revoked) token should fail
+        var secondRefresh = await _client.PostAsJsonAsync("/api/auth/refresh", new
+        {
+            refreshToken = registerResult.RefreshToken
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, secondRefresh.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshToken_ReturnsGenericUnauthorized_NoInternalInfo()
+    {
+        var response = await _client.PostAsJsonAsync("/api/auth/refresh", new
+        {
+            refreshToken = "bogus-token"
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Autenticación fallida", body);
+        Assert.DoesNotContain("expirado", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("revocado", body, StringComparison.OrdinalIgnoreCase);
+    }
 }

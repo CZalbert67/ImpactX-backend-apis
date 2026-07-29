@@ -305,6 +305,49 @@ public class AuthService : IAuthService
         };
     }
 
+    public async Task<AuthResponse> RefreshTokenAsync(RefreshTokenRequest request, string? ipAddress = null, CancellationToken cancellationToken = default)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.RefreshToken))
+        {
+            return new AuthResponse
+            {
+                Success = false,
+                Mensaje = "Autenticación fallida."
+            };
+        }
+
+        var existingToken = await _refreshTokenRepository.GetByTokenAsync(request.RefreshToken);
+
+        if (existingToken is null || existingToken.IsExpired || existingToken.RevokedAt is not null)
+        {
+            return new AuthResponse
+            {
+                Success = false,
+                Mensaje = "Autenticación fallida."
+            };
+        }
+
+        var usuario = await _usuarioRepository.GetByIdAsync(existingToken.UsuarioId);
+
+        if (usuario is null || !usuario.IsActive)
+        {
+            return new AuthResponse
+            {
+                Success = false,
+                Mensaje = "Autenticación fallida."
+            };
+        }
+
+        // Rotación: revocar token anterior y crear uno nuevo
+        existingToken.RevokedAt = DateTime.UtcNow;
+        await _refreshTokenRepository.UpdateAsync(existingToken);
+
+        var accessToken = _tokenService.GenerateAccessToken(usuario);
+        var newRefreshToken = await CreateRefreshTokenAsync(usuario);
+
+        return CreateAuthResponse(usuario, accessToken, newRefreshToken, "Sesión renovada exitosamente.");
+    }
+
     private async Task<string> CreateRefreshTokenAsync(Usuario usuario)
     {
         var token = _tokenService.GenerateRefreshToken();

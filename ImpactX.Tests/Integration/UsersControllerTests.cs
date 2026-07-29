@@ -197,4 +197,105 @@ public class UsersControllerTests : IClassFixture<CustomWebApplicationFactory>
         var response = await _client.PutAsJsonAsync("/api/users/me", new { nombre = "Test" });
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task UpdateFcmToken_WithAuth_ReturnsNoContent()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var response = await _client.PutAsJsonAsync("/api/users/me/fcm-token", new
+        {
+            token = "valid-fcm-token-12345"
+        });
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Empty(body);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task UpdateFcmToken_WithoutAuth_ReturnsUnauthorized()
+    {
+        var response = await _client.PutAsJsonAsync("/api/users/me/fcm-token", new
+        {
+            token = "some-token"
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task UpdateFcmToken_WithEmptyToken_ReturnsBadRequest()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var response = await _client.PutAsJsonAsync("/api/users/me/fcm-token", new
+        {
+            token = ""
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task UpdateFcmToken_TokenNotInResponse()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var response = await _client.PutAsJsonAsync("/api/users/me/fcm-token", new
+        {
+            token = "secret-fcm-token"
+        });
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("secret-fcm-token", body);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task DeleteFcmToken_WithAuth_ReturnsNoContent()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var response = await _client.DeleteAsync("/api/users/me/fcm-token");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task DeleteFcmToken_WithoutAuth_ReturnsUnauthorized()
+    {
+        var response = await _client.DeleteAsync("/api/users/me/fcm-token");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task DeleteFcmToken_SecondCallRemainsIdempotent()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var first = await _client.DeleteAsync("/api/users/me/fcm-token");
+        Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
+
+        var second = await _client.DeleteAsync("/api/users/me/fcm-token");
+        Assert.Equal(HttpStatusCode.NoContent, second.StatusCode);
+    }
 }

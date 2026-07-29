@@ -374,4 +374,184 @@ public class AuthServiceTests
         Assert.Equal("Premium", export.PlanActivo);
         Assert.True(export.EmailConfirmed);
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshTokenAsync_WithValidToken_ReturnsSuccess()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, IsActive = true, Nombre = "Test", Correo = "test@test.com" };
+        var refreshToken = new RefreshToken
+        {
+            Token = "valid-refresh-token",
+            UsuarioId = usuarioId,
+            ExpiresAt = DateTime.UtcNow.AddDays(7)
+        };
+
+        _refreshTokenRepo.Setup(r => r.GetByTokenAsync("valid-refresh-token")).ReturnsAsync(refreshToken);
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+        _tokenService.Setup(t => t.GenerateAccessToken(usuario)).Returns("new-access-token");
+        _tokenService.Setup(t => t.GenerateRefreshToken()).Returns("new-refresh-token");
+
+        var result = await _authService.RefreshTokenAsync(new RefreshTokenRequest
+        {
+            RefreshToken = "valid-refresh-token"
+        });
+
+        Assert.True(result.Success);
+        Assert.Equal("Sesión renovada exitosamente.", result.Mensaje);
+        Assert.Equal("new-access-token", result.Token);
+        Assert.Equal("new-refresh-token", result.RefreshToken);
+        Assert.NotNull(refreshToken.RevokedAt);
+        _refreshTokenRepo.Verify(r => r.UpdateAsync(refreshToken), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshTokenAsync_WithNullRequest_ReturnsUnauthorized()
+    {
+        var result = await _authService.RefreshTokenAsync(null!);
+
+        Assert.False(result.Success);
+        Assert.Equal("Autenticación fallida.", result.Mensaje);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshTokenAsync_WithEmptyToken_ReturnsUnauthorized()
+    {
+        var result = await _authService.RefreshTokenAsync(new RefreshTokenRequest
+        {
+            RefreshToken = string.Empty
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal("Autenticación fallida.", result.Mensaje);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshTokenAsync_WithNonExistentToken_ReturnsUnauthorized()
+    {
+        _refreshTokenRepo.Setup(r => r.GetByTokenAsync("invalid-token")).ReturnsAsync((RefreshToken?)null);
+
+        var result = await _authService.RefreshTokenAsync(new RefreshTokenRequest
+        {
+            RefreshToken = "invalid-token"
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal("Autenticación fallida.", result.Mensaje);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshTokenAsync_WithExpiredToken_ReturnsUnauthorized()
+    {
+        var expiredToken = new RefreshToken
+        {
+            Token = "expired-token",
+            UsuarioId = Guid.NewGuid(),
+            ExpiresAt = DateTime.UtcNow.AddHours(-1)
+        };
+
+        _refreshTokenRepo.Setup(r => r.GetByTokenAsync("expired-token")).ReturnsAsync(expiredToken);
+
+        var result = await _authService.RefreshTokenAsync(new RefreshTokenRequest
+        {
+            RefreshToken = "expired-token"
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal("Autenticación fallida.", result.Mensaje);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshTokenAsync_WithRevokedToken_ReturnsUnauthorized()
+    {
+        var revokedToken = new RefreshToken
+        {
+            Token = "revoked-token",
+            UsuarioId = Guid.NewGuid(),
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            RevokedAt = DateTime.UtcNow.AddHours(-1)
+        };
+
+        _refreshTokenRepo.Setup(r => r.GetByTokenAsync("revoked-token")).ReturnsAsync(revokedToken);
+
+        var result = await _authService.RefreshTokenAsync(new RefreshTokenRequest
+        {
+            RefreshToken = "revoked-token"
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal("Autenticación fallida.", result.Mensaje);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshTokenAsync_WithNonExistentUser_ReturnsUnauthorized()
+    {
+        var usuarioId = Guid.NewGuid();
+        var refreshToken = new RefreshToken
+        {
+            Token = "orphan-token",
+            UsuarioId = usuarioId,
+            ExpiresAt = DateTime.UtcNow.AddDays(7)
+        };
+
+        _refreshTokenRepo.Setup(r => r.GetByTokenAsync("orphan-token")).ReturnsAsync(refreshToken);
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync((Usuario?)null);
+
+        var result = await _authService.RefreshTokenAsync(new RefreshTokenRequest
+        {
+            RefreshToken = "orphan-token"
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal("Autenticación fallida.", result.Mensaje);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshTokenAsync_WithInactiveUser_ReturnsUnauthorized()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, IsActive = false };
+        var refreshToken = new RefreshToken
+        {
+            Token = "inactive-user-token",
+            UsuarioId = usuarioId,
+            ExpiresAt = DateTime.UtcNow.AddDays(7)
+        };
+
+        _refreshTokenRepo.Setup(r => r.GetByTokenAsync("inactive-user-token")).ReturnsAsync(refreshToken);
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+
+        var result = await _authService.RefreshTokenAsync(new RefreshTokenRequest
+        {
+            RefreshToken = "inactive-user-token"
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal("Autenticación fallida.", result.Mensaje);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RefreshTokenAsync_WhenValidationFails_DoesNotGenerateToken()
+    {
+        _refreshTokenRepo.Setup(r => r.GetByTokenAsync("invalid")).ReturnsAsync((RefreshToken?)null);
+
+        var result = await _authService.RefreshTokenAsync(new RefreshTokenRequest
+        {
+            RefreshToken = "invalid"
+        });
+
+        Assert.False(result.Success);
+        _tokenService.Verify(t => t.GenerateAccessToken(It.IsAny<Usuario>()), Times.Never);
+        _tokenService.Verify(t => t.GenerateRefreshToken(), Times.Never);
+        _refreshTokenRepo.Verify(r => r.AddAsync(It.IsAny<RefreshToken>()), Times.Never);
+    }
 }

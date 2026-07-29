@@ -440,3 +440,102 @@ En Ronda 4 se reescribió `code-quality-roslyn.yml` para:
 | 1.6 | — | Ronda 5: Azure IaC Foundation — Bicep `targetScope='subscription'`, módulos monitoring + app-service, 3 ambientes, naming determinista, sin secretos, sin deployment. 317 pruebas, NuGet sin vulnerabilidades |
 | 1.7 | — | Ronda 5.1 (endurecimiento): `XDT_MicrosoftApplicationInsights_Mode=recommended` agregado. README corregido — se eliminó la referencia a un supuesto comando de importación directa de despliegues y la referencia incorrecta a una consulta individual de recursos como entrada directa de decompilación, se documentó `az group export` + `az bicep decompile`, "Bicep: Insert Resource" y palabra clave `existing`. Sin cambios en workflows, C# ni appsettings |
 | 1.8 | — | Ronda 6: Azure IaC Validation. Workflow `infra-validation.yml` creado. Bicep 0.45.15 fijado con SHA-256. Sin Azure login, sin OIDC, sin despliegue. 6 validaciones: compilación estricta, placeholder, ARM JSON, secretos prohibidos, outputs, git diff. 7 workflows. 317 pruebas. actionlint 0 errores |
+| 1.9 | — | Ronda 8: Backend Functional Readiness y Security Regression. POST `/api/auth/refresh` con rotación de refresh token. PUT y DELETE `/api/users/me/fcm-token` (un token por usuario). Pruebas unitarias e integración. Pruebas marcadas `Category=Security`. Pipeline `dotnet-ci.yml` fortalecido con paso `Run security regression tests`, validación TRX con Python y artifact `security-regression-results`. 7 workflows intactos. Documentación DevSecOps. Firebase no conectado a AlertService. Secreto JWT pendiente. Recuperación de contraseña pendiente. Sin cambios en Azure, Cosmos DB real, appsettings, Bicep ni otros workflows. |
+
+## Ronda 8 — Backend Functional Readiness y Security Regression
+
+### Endpoints agregados
+
+#### POST /api/auth/refresh
+
+Renovación de sesión mediante refresh token con rotación.
+
+- **Request body**: `{ "refreshToken": "string" }` (obligatorio)
+- **200**: `AuthResponse` con nuevo `Token`, nuevo `RefreshToken`, datos del usuario
+- **400**: modelo inválido (refresh token vacío)
+- **401**: genérico — no distingue entre token inexistente, expirado, revocado, usuario inexistente o inactivo
+- **500**: solo mediante middleware global
+- **No requiere** access token válido
+- **Rotación**: el refresh token anterior se revoca (`RevokedAt`) y se genera uno nuevo
+
+#### PUT /api/users/me/fcm-token
+
+Registra el token FCM del usuario autenticado.
+
+- **Request body**: `{ "token": "string" }` (obligatorio, máximo 1000 caracteres)
+- **Requiere autenticación**: `[Authorize]`
+- **204**: sin body — el token no se devuelve en la respuesta
+- **400**: token vacío o mayor a 1000 caracteres
+- **401**: sin JWT
+- **404**: usuario autenticado no existe
+- No acepta `IdUsuario` del request — usa exclusivamente claims
+- No valida contra Firebase
+- No realiza llamadas de red
+- Se almacena en `Usuario.FcmToken` (nullable, `HasMaxLength(1000)`)
+
+#### DELETE /api/users/me/fcm-token
+
+Elimina el token FCM del usuario autenticado.
+
+- **Requiere autenticación**: `[Authorize]`
+- **204**: sin body — token eliminado
+- **401**: sin JWT
+- **404**: usuario autenticado no existe
+- **Idempotente**: segundo DELETE también retorna 204
+
+### Persistencia
+
+- `Usuario.FcmToken` ya existía como `string?` con `HasMaxLength(1000)` en `ApplicationDbContext`
+- No requiere migración
+- Cosmos puede leer documentos antiguos sin `fcmToken` (propiedad nullable)
+- `UpdateAsync` conserva todos los demás datos del usuario
+- **Deuda técnica**: `CosmosUsuarioRepository.AddAsync` no fue corregido en este PR
+
+### Pruebas
+
+- **Unitarias**: 10 nuevas para refresh token (válido, nulo, vacío, inexistente, expirado, revocado, usuario inexistente, inactivo, generación de token, validación fallida)
+- **Unitarias**: 5 nuevas para FCM token (válido, usuario inexistente, elimina token, usuario inexistente en delete, idempotente)
+- **Integración**: 6 nuevas para refresh token (200, 400, 401 inválido, 401 expirado, 401 genérica sin info interna)
+- **Integración**: 7 nuevas para FCM (204 auth, 400 vacío, 401 sin JWT, token no en response, DELETE 204, DELETE 401, DELETE idempotente)
+- Todas las pruebas nuevas están marcadas con `[Trait("Category", "Security")]`
+- Categoría `Category=Security` ahora tiene un conjunto real y no vacío de pruebas
+
+### Pipeline
+
+- `dotnet-ci.yml` fortalecido con paso `Run security regression tests`
+- Ejecuta `dotnet test --filter "Category=Security"` después de las pruebas completas
+- Valida TRX con Python: falla si total = 0 o si failed > 0
+- Publica artifact `security-regression-results` (14 días, `if-no-files-found: error`)
+- Conserva intactos: triggers, permissions, concurrency, build-and-test, smoke-test, NuGet audit, cobertura, artifacts existentes
+- No usa `|| true`, `|| echo`, `continue-on-error` ni `eval`
+- No contiene secretos ni llamadas externas
+
+### Actionlint
+
+- 7 workflows continúan siendo válidos estructuralmente
+
+### DevSecOps
+
+- Matriz de controles documentada en `docs/DEVSECOPS_EVIDENCE.md`
+- Incluye: Build Release, pruebas, smoke test, cobertura, security regression, CodeQL, Gitleaks, OWASP, NuGet audit, Roslyn, Bicep, OIDC
+- Flujo DevSecOps del PR documentado
+- Limitaciones honestas documentadas
+
+### No se modificó
+
+- Program.cs
+- NotificationService
+- AlertService
+- appsettings
+- Bicep
+- Workflows distintos de `dotnet-ci.yml`
+- Azure
+- Cosmos DB real
+
+### Pendiente
+
+- Firebase no conectado a AlertService
+- Secreto JWT pendiente de externalización
+- Recuperación de contraseña pendiente de endurecimiento
+- Rate limiting
+- Múltiples dispositivos FCM
