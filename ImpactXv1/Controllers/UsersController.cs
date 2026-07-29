@@ -82,6 +82,28 @@ public class UsersController : ControllerBase
         return Ok(medical);
     }
 
+    [HttpPut("me/fcm-token")]
+    public async Task<IActionResult> UpdateFcmToken([FromBody] UpdateFcmTokenRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Token))
+            return BadRequest(new { mensaje = "El token FCM es obligatorio." });
+
+        if (request.Token.Length > 1000)
+            return BadRequest(new { mensaje = "El token FCM no puede exceder los 1000 caracteres." });
+
+        var usuarioId = GetUsuarioId();
+        await _userService.UpdateFcmTokenAsync(usuarioId, request);
+        return NoContent();
+    }
+
+    [HttpDelete("me/fcm-token")]
+    public async Task<IActionResult> DeleteFcmToken()
+    {
+        var usuarioId = GetUsuarioId();
+        await _userService.DeleteFcmTokenAsync(usuarioId);
+        return NoContent();
+    }
+
     [HttpGet("search")]
     public async Task<IActionResult> SearchUsers([FromQuery] string q)
     {

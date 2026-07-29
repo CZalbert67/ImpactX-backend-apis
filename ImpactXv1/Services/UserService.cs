@@ -140,6 +140,26 @@ public class UserService : IUserService
         return MapToMedicalProfileDto(usuario.FichaMedica) ?? new MedicalProfileDto();
     }
 
+    public async Task UpdateFcmTokenAsync(Guid usuarioId, UpdateFcmTokenRequest request)
+    {
+        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
+        if (usuario is null)
+            throw new NotFoundException("Usuario no encontrado.");
+
+        usuario.FcmToken = request.Token;
+        await _usuarioRepository.UpdateAsync(usuario);
+    }
+
+    public async Task DeleteFcmTokenAsync(Guid usuarioId)
+    {
+        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
+        if (usuario is null)
+            throw new NotFoundException("Usuario no encontrado.");
+
+        usuario.FcmToken = null;
+        await _usuarioRepository.UpdateAsync(usuario);
+    }
+
     public async Task<List<UserSearchResultDto>> SearchUsersAsync(string query, Guid? excludeUserId = null)
     {
         var users = await _usuarioRepository.SearchAsync(query);

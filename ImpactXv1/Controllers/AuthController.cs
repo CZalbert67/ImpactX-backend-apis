@@ -84,6 +84,18 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPost("refresh")]
+    public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
+    {
+        var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var result = await _authService.RefreshTokenAsync(request, ipAddress);
+
+        if (!result.Success)
+            return Unauthorized(result);
+
+        return Ok(result);
+    }
+
     [Authorize]
     [HttpGet("sessions")]
     public async Task<IActionResult> GetSessions()

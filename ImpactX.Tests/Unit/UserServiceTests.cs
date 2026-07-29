@@ -348,4 +348,77 @@ public class UserServiceTests
         Assert.True(result.Permisos?.Web?.Notificaciones);
         Assert.True(result.Settings?.TwoFactorEnabled);
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task UpdateFcmTokenAsync_WithValidToken_UpdatesAndPersists()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, Nombre = "Test", FcmToken = null };
+
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+
+        await _userService.UpdateFcmTokenAsync(usuarioId, new UpdateFcmTokenRequest
+        {
+            Token = "valid-fcm-token-123"
+        });
+
+        Assert.Equal("valid-fcm-token-123", usuario.FcmToken);
+        _usuarioRepo.Verify(r => r.UpdateAsync(usuario), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task UpdateFcmTokenAsync_WithNonExistentUser_ThrowsNotFound()
+    {
+        var usuarioId = Guid.NewGuid();
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync((Usuario?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            _userService.UpdateFcmTokenAsync(usuarioId, new UpdateFcmTokenRequest
+            {
+                Token = "some-token"
+            }));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task DeleteFcmTokenAsync_WithExistingUser_ClearsToken()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, FcmToken = "existing-token" };
+
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+
+        await _userService.DeleteFcmTokenAsync(usuarioId);
+
+        Assert.Null(usuario.FcmToken);
+        _usuarioRepo.Verify(r => r.UpdateAsync(usuario), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task DeleteFcmTokenAsync_WithNonExistentUser_ThrowsNotFound()
+    {
+        var usuarioId = Guid.NewGuid();
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync((Usuario?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            _userService.DeleteFcmTokenAsync(usuarioId));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task DeleteFcmTokenAsync_WhenAlreadyNull_RemainsIdempotent()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, FcmToken = null };
+
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+
+        await _userService.DeleteFcmTokenAsync(usuarioId);
+
+        Assert.Null(usuario.FcmToken);
+        _usuarioRepo.Verify(r => r.UpdateAsync(usuario), Times.Once);
+    }
 }

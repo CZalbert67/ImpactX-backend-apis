@@ -52,6 +52,38 @@ jobs:
           --collect "XPlat Code Coverage"
           --results-directory "${{ runner.temp }}/TestResults"
 
+      - name: Run security regression tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          dotnet test ImpactX.Tests/ImpactX.Tests.csproj \
+            --configuration Release \
+            --no-build \
+            --filter "Category=Security" \
+            --logger "trx;LogFileName=security-regression.trx" \
+            --results-directory "${{ runner.temp }}/TestResults/Security" \
+            --collect:"XPlat Code Coverage"
+
+          TRX_FILE=$(find "${{ runner.temp }}/TestResults/Security" -name 'security-regression.trx' -print -quit)
+          if [ -z "$TRX_FILE" ]; then
+            echo "::error::security-regression.trx not found"
+            exit 1
+          fi
+
+          python3 -c "import sys, xml.etree.ElementTree as ET; t = ET.parse('${TRX_FILE}'); r = t.getroot(); ns = {'x': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}; c = r.find('.//x:ResultSummary/x:Counters', ns); sys.exit(1) if c is None else None; total = int(c.get('total', '0')); executed = int(c.get('executed', '0')); passed = int(c.get('passed', '0')); failed = int(c.get('failed', '0')); skipped = total - executed; print(f'Total: {total}, Passed: {passed}, Failed: {failed}, Skipped: {skipped}'); sys.exit(1) if total == 0 else None; sys.exit(1) if failed > 0 else sys.exit(0)"
+
+      - name: Upload security-regression-results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-regression-results
+          path: |
+            ${{ runner.temp }}/TestResults/Security/**/*.trx
+            ${{ runner.temp }}/TestResults/Security/**/coverage.cobertura.xml
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload TRX Artifact
         uses: actions/upload-artifact@v4
         if: always()

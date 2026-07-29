@@ -14,4 +14,6 @@ public interface IUserService
     Task<MedicalProfileDto> GetMedicalProfileAsync(Guid usuarioId);
     Task<MedicalProfileDto> UpdateMedicalProfileAsync(Guid usuarioId, UpdateMedicalProfileRequest request);
     Task<List<UserSearchResultDto>> SearchUsersAsync(string query, Guid? excludeUserId = null);
+    Task UpdateFcmTokenAsync(Guid usuarioId, UpdateFcmTokenRequest request);
+    Task DeleteFcmTokenAsync(Guid usuarioId);
 }

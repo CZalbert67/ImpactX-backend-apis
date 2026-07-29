@@ -30,8 +30,8 @@ dotnet add package <PackageName>
 - CORS policy `AllowLocalhost` (all origins, all headers/methods, credentials)
 
 ## Implemented features (15 controllers, 14+ services)
-- **Auth** (register, login, logout, recover/reset password, sessions, account export/delete)
-- **Users** (profile CRUD, driver profile, medical profile, preferences, permissions, settings)
+- **Auth** (register, login, logout, recover/reset password, sessions, account export/delete, **refresh token**)
+- **Users** (profile CRUD, driver profile, medical profile, preferences, permissions, settings, **FCM token** PUT/DELETE)
 - **Plans + Subscriptions + Payments**
 - **Contacts** (emergency contacts CRUD)
 - **Monitors**
@@ -110,17 +110,18 @@ if (app.Environment.IsDevelopment())
 - Response writer in `Program.cs::WriteHealthCheckResponse` — safe, no internals exposed
 - No authentication, no authorization on any health endpoint
 
-## Tests — 317 total (xUnit + Moq + WebApplicationFactory)
-- **Unit tests** (14 files in `ImpactX.Tests/Unit/`): pure Moq per service
-- **Integration tests** (16 files in `ImpactX.Tests/Integration/`): `CustomWebApplicationFactory<Program>` forces `UseCosmosDb=false` + `UseInMemoryDatabase=true`, injects test JWT secret
+## Tests — 343 total (xUnit + Moq + WebApplicationFactory)
+- **Unit tests** (files in `ImpactX.Tests/Unit/`): pure Moq per service
+- **Integration tests** (files in `ImpactX.Tests/Integration/`): `CustomWebApplicationFactory<Program>` forces `UseCosmosDb=false` + `UseInMemoryDatabase=true`, injects test JWT secret
 - API project exposes `partial class Program` for `WebApplicationFactory<Program>`
+- **Category=Security**: 26 pruebas de autenticación, refresh token, autorización, FCM, validación de límites, 401, sesiones expiradas/revocadas. Se ejecutan filtradas en CI como regression de seguridad.
 
-## CI/CD — 7 GitHub Actions workflows
-1. **dotnet-ci.yml** — Pipeline principal de CI:
+## CI/CD — 7 GitHub Actions workflows (se conservan)
+1. **dotnet-ci.yml** — Pipeline principal de CI (fortalecido con security regression):
    - `push` a `main`, `leo-desarrollo`, `feat/**`
    - `pull_request` hacia `main`
    - `workflow_dispatch`
-   - **Job `build-and-test`** (15 min): checkout → setup-dotnet 10.0.x → restore con NuGet audit → build Release → test (317, TRX + XPlat Code Coverage) → publica TRX + cobertura
+   - **Job `build-and-test`** (15 min): checkout → setup-dotnet 10.0.x → restore con NuGet audit → build Release → test (TRX + XPlat Code Coverage) → **Run security regression tests** (filtro `Category=Security`, validación TRX con Python, fallo si 0 pruebas o fallos) → publica TRX, cobertura y **security-regression-results** (14 días)
    - **Job `smoke-test`** (5 min, depende de build-and-test): checkout → setup-dotnet → restore API → publish Release → ejecución directa de `ImpactX.Api.dll` con `dotnet`, usando `UseCosmosDb=false`, `UseInMemoryDatabase=true`, `ASPNETCORE_ENVIRONMENT=CI`, `ASPNETCORE_URLS=http://127.0.0.1:5055`, JWT de test → valida 4 endpoints (`/health`, `/health/live`, `/health/ready`, `/openapi/v1.json`) con Python 3 (status, service, environment, timestamp, schema) → verifica Swagger 404 → publica log de arranque
    - **Sin Docker**: el smoke test ejecuta `dotnet publish` + `ImpactX.Api.dll` directamente
 2. **main_impactx-api-backend.yml** — push to `main` only + `workflow_dispatch`: build (15 min) → publish → deploy (20 min, oidc) to Azure Web App `impactx-api-backend`. Permissions: `build: contents: read`, `deploy: id-token: write + contents: read`
