@@ -130,36 +130,28 @@ public class AuthService : IAuthService
         return CreateAuthResponse(usuario, accessToken, refreshToken, "Inicio de sesión exitoso.");
     }
 
-    public async Task<AuthResponse> RecoverPasswordAsync(RecoverPasswordRequest request)
+    public async Task<RecoverPasswordResponse> RecoverPasswordAsync(RecoverPasswordRequest request)
     {
         var usuario = await _usuarioRepository.GetByCorreoAsync(request.Correo);
 
-        if (usuario is null)
+        if (usuario is not null)
         {
-            return new AuthResponse
+            var token = _tokenService.GeneratePasswordResetToken();
+            var resetToken = new PasswordResetToken
             {
-                Success = true,
-                Mensaje = "Si el correo existe, recibirás un enlace de recuperación."
+                UsuarioId = usuario.Id,
+                Token = token,
+                ExpiresAt = DateTime.UtcNow.AddHours(1)
             };
+
+            await _passwordResetTokenRepository.AddAsync(resetToken);
+            await _emailService.SendPasswordResetEmailAsync(usuario.Correo, token);
         }
 
-        var token = _tokenService.GeneratePasswordResetToken();
-        var resetToken = new PasswordResetToken
-        {
-            UsuarioId = usuario.Id,
-            Token = token,
-            ExpiresAt = DateTime.UtcNow.AddHours(1)
-        };
-
-        await _passwordResetTokenRepository.AddAsync(resetToken);
-
-        await _emailService.SendPasswordResetEmailAsync(usuario.Correo, token);
-
-        return new AuthResponse
+        return new RecoverPasswordResponse
         {
             Success = true,
-            Mensaje = "Si el correo existe, recibirás un enlace de recuperación.",
-            ResetToken = token
+            Mensaje = "Si la cuenta existe, se enviaron instrucciones para restablecer la contraseña."
         };
     }
 
@@ -188,8 +180,11 @@ public class AuthService : IAuthService
                 Mensaje = "Usuario no encontrado."
             };
         }
+
         usuario.PasswordHash = _encryptionService.HashPassword(request.NewPassword);
         await _usuarioRepository.UpdateAsync(usuario);
+
+        await _refreshTokenRepository.RevokeAllByUsuarioIdAsync(usuario.Id, DateTime.UtcNow);
 
         return new AuthResponse
         {
@@ -222,6 +217,8 @@ public class AuthService : IAuthService
 
         usuario.PasswordHash = _encryptionService.HashPassword(request.NewPassword);
         await _usuarioRepository.UpdateAsync(usuario);
+
+        await _refreshTokenRepository.RevokeAllByUsuarioIdAsync(usuario.Id, DateTime.UtcNow);
 
         return new AuthResponse
         {
@@ -280,6 +277,7 @@ public class AuthService : IAuthService
         {
             usuario.IsActive = false;
             await _usuarioRepository.UpdateAsync(usuario);
+            await _refreshTokenRepository.RevokeAllByUsuarioIdAsync(usuarioId, DateTime.UtcNow);
         }
     }
 

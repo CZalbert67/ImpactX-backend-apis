@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Services;
+using ImpactX.Infrastructure.Security;
 
 namespace ImpactX.Infrastructure.Security;
 
@@ -20,12 +21,7 @@ public class JwtTokenService : ITokenService
 
     private string GetJwtSecret()
     {
-        var secret = _configuration["Jwt:Secret"] ?? _configuration["Jwt:SecretKey"];
-        if (string.IsNullOrEmpty(secret) || secret.Length < 16)
-        {
-            return "ImpactX_Super_Secret_JWT_Key_2026_Executive_Key_V12!";
-        }
-        return secret;
+        return JwtSecurityConfiguration.GetRequiredSecret(_configuration);
     }
 
     public string GenerateAccessToken(Usuario usuario)

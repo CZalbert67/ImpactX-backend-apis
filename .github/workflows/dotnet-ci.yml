@@ -27,6 +27,31 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Run hardcoded secrets policy tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover \
+            -s scripts/security/tests \
+            -p "test_*.py" \
+            -v
+
+      - name: Check hardcoded secrets policy
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/security/check_hardcoded_secrets.py \
+            --report "${{ runner.temp }}/hardcoded-secrets-policy.txt"
+
+      - name: Upload hardcoded-secrets-policy-report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hardcoded-secrets-policy-report
+          path: ${{ runner.temp }}/hardcoded-secrets-policy.txt
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Restore and Audit Dependencies
         run: |
           dotnet restore ImpactX.slnx \
@@ -111,10 +136,16 @@ jobs:
       ASPNETCORE_URLS: http://127.0.0.1:5055
       UseCosmosDb: "false"
       UseInMemoryDatabase: "true"
-      Jwt__Secret: ImpactX_CI_Test_Secret_2026_Only_For_Automated_Tests_123456
       Jwt__Issuer: ImpactX-CI
       Jwt__Audience: ImpactX-CI-Client
     steps:
+      - name: Generate ephemeral JWT secret
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+          echo "Jwt__Secret=${SECRET}" >> "$GITHUB_ENV"
+
       - name: Checkout Code
         uses: actions/checkout@v4
 

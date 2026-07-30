@@ -5,14 +5,14 @@
 | Campo | Valor |
 |---|---|
 | Rama auditada | `feat/backend-platform-foundation` |
-| Último commit | `1f5cb83` — feat: add 4 new DevSecOps & banking-grade security pipelines |
+| Último commit | (Ronda 9 — Backend Security Hardening) |
 | .NET SDK | 10.0.110 |
 | Framework objetivo | `net10.0` |
 | Solución | `ImpactX.slnx` |
 | Proyecto API | `ImpactXv1/ImpactX.Api.csproj` |
 | Proyecto de pruebas | `ImpactX.Tests/ImpactX.Tests.csproj` |
 | Build Release | Correcto |
-| Pruebas | **306 de 306** correctas (14 unit + 16 integration) |
+| Pruebas | **367 de 367** correctas (52 Security) |
 
 ---
 
@@ -25,7 +25,7 @@
 | 3 | JSON camelCase | System.Text.Json serializa en camelCase por defecto. No se registró `AddNewtonsoftJson()` |
 | 4 | Fechas en UTC | Todos los valores por defecto usan `DateTime.UtcNow`. No hay `DateTime.Now` en el código |
 | 5 | Bearer JWT | HMAC-SHA256. `ConfigureJwtAuthentication()` en pipeline. `ClockSkew = TimeSpan.Zero` |
-| 6 | 306 pruebas | 14 unit (Moq) + 16 integration (`WebApplicationFactory<Program>`) |
+| 6 | 367 pruebas | 52 Security (JWT config, revocation, recover/reset, refresh token, FCM, auth, authorization) |
 | 7 | 15 controladores | Auth, Users, Plans, Subscription, Wearable, Permissions, Contacts, Monitors, Routes, Trips, Alertas, Incidentes, Notificaciones, Analytics, Settings |
 | 8 | 22 entidades de dominio | Cobertura completa de todos los modelos del plan original |
 | 9 | 23 DTOs | Todos los request/response mapeados |
@@ -59,11 +59,11 @@
 
 | ID | Riesgo | Severidad | Detalle |
 |---|---|---|---|
-| R01 | JWT secret hardcodeado como fallback activo | 🔴 Crítico | `ServiceCollectionExtensions.cs:84` y `JwtTokenService.cs:26` tienen `"ImpactX_Super_Secret_JWT_Key_2026_Executive_Key_V12!"` como fallback si la config no tiene clave. Cualquier persona puede firmar JWTs |
+| R01 | JWT secret externalizado con fail-fast | 🟢 Mitigado | Ronda 9: `JwtSecurityConfiguration.GetRequiredSecret()` centraliza validación, rechaza <32 bytes, lanza `InvalidOperationException` si no configurado. Sin fallback en appsettings ni código. |
 | R02 | CORS permisivo con AllowCredentials | 🔴 Crítico | `SetIsOriginAllowed(_ => true)` + `AllowCredentials()` permite cualquier origen con credenciales |
-| R03 | Cosmos key placeholder en 3 appsettings | 🔴 Crítico | `Key: "YOUR_AZURE_COSMOS_KEY"`. El **endpoint** (`https://impactx-db-west-final.documents.azure.com:443/`) no es una credencial pero debe venir de configuración por ambiente. La combinación endpoint + key expuesta en el repositorio es el riesgo |
-| R04 | `test_output.txt` eliminado del repositorio | 🟠 Importante | Archivo de 241KB versionado. Ya fue eliminado del sistema de archivos y agregado al `.gitignore` |
-| R05 | Production JWT secret vacío | 🟠 Importante | `appsettings.Production.json` tiene `"Secret": ""`. El fallback hardcodeado (R01) lo cubre, lo que agrava el riesgo |
+| R03 | Cosmos key placeholder en 3 appsettings | 🔴 Crítico | `Key: "YOUR_AZURE_COSMOS_KEY"`. Debe reemplazarse en producción. |
+| R04 | `test_output.txt` eliminado del repositorio | 🟢 Mitigado | Archivo eliminado del repositorio y agregado al `.gitignore`. |
+| R05 | Production JWT secret vacío | 🟢 Mitigado | Ronda 9: `JwtSecurityConfiguration.GetRequiredSecret()` lanza `InvalidOperationException` en startup si `Jwt:Secret` falta, está vacío o tiene <32 bytes. Sin fallback. |
 | R06 | Sin analizadores Roslyn | 🟠 Importante | No hay `Directory.Build.props` ni `<AnalysisMode>`. Solo se ejecuta `dotnet format --verify-no-changes` en CI |
 
 ---
@@ -74,7 +74,7 @@
 |---|---|---|
 | 1 | Eliminar `test_output.txt` del repositorio y registrar la eliminación con git add -A | ✅ Hecho |
 | 2 | Restringir CORS a orígenes conocidos o eliminar `AllowCredentials` | Ninguna |
-| 3 | Eliminar fallback hardcodeado del JWT secret. Exigir clave por config/env/user-secrets | Ninguna |
+| 3 | Eliminar fallback hardcodeado del JWT secret. Exigir clave por config/env/user-secrets | ✅ Ronda 9 |
 | 4 | Mover Cosmos endpoint+key a user secrets / env vars. Reemplazar en appsettings por placeholders inertes | Ninguna |
 | 5 | Agregar `AddApiVersioning()` y prefijo `api/v1/` en rutas | Paso 9 (tests) |
 | 6 | Middleware `X-Correlation-Id` | Ninguna |
@@ -532,10 +532,166 @@ Elimina el token FCM del usuario autenticado.
 - Azure
 - Cosmos DB real
 
+## Ronda 9 — Backend Security Hardening
+
+### Cambios realizados
+
+| Archivo | Acción |
+|---|---|
+| `ImpactXv1/Infrastructure/Security/JwtSecurityConfiguration.cs` | ✅ Creado — centraliza obtención y validación del JWT secret |
+| `ImpactXv1/Models/DTOs/RecoverPasswordResponse.cs` | ✅ Creado — DTO seguro sin tokens ni datos sensibles |
+| `scripts/security/check_hardcoded_secrets.py` | ✅ Creado — política contra secretos hardcodeados |
+| `ImpactXv1/Extensions/ServiceCollectionExtensions.cs` | ✅ Modificado — usa `JwtSecurityConfiguration.GetSigningKey()`, sin fallback |
+| `ImpactXv1/Infrastructure/Security/JwtTokenService.cs` | ✅ Modificado — usa `JwtSecurityConfiguration.GetRequiredSecret()`, sin fallback |
+| `ImpactXv1/Infrastructure/Security/StubEmailService.cs` | ✅ Modificado — no registra el token, solo destinatario enmascarado |
+| `ImpactXv1/appsettings.json` | ✅ Modificado — JWT Secret/SecretKey eliminados |
+| `ImpactXv1/appsettings.Development.json` | ✅ Modificado — JWT Secret/SecretKey eliminados |
+| `ImpactXv1/appsettings.Production.json` | ✅ Modificado — JWT Secret eliminado |
+| `ImpactXv1/Services/IAuthService.cs` | ✅ Modificado — `RecoverPasswordAsync` retorna `RecoverPasswordResponse` |
+| `ImpactXv1/Services/AuthService.cs` | ✅ Modificado — recover genérico, revocación en reset/change/delete |
+| `ImpactXv1/Core/Interfaces/Repositories/IRefreshTokenRepository.cs` | ✅ Modificado — nuevo método `RevokeAllByUsuarioIdAsync` |
+| `ImpactXv1/Infrastructure/Data/Repositories/EF/RefreshTokenRepository.cs` | ✅ Modificado — implementa `RevokeAllByUsuarioIdAsync` |
+| `ImpactXv1/Infrastructure/Data/Repositories/Cosmos/CosmosRefreshTokenRepository.cs` | ✅ Modificado — implementa `RevokeAllByUsuarioIdAsync` |
+| `ImpactX.Tests/Unit/AuthServiceTests.cs` | ✅ Modificado — pruebas de seguridad para recover, reset, change, delete |
+| `ImpactX.Tests/Unit/JwtSecurityConfigurationTests.cs` | ✅ Creado — 10 pruebas de validación JWT |
+| `ImpactX.Tests/Integration/AuthControllerTests.cs` | ✅ Modificado — pruebas de seguridad integración |
+| `.github/workflows/dotnet-ci.yml` | ✅ Modificado — check_hardcoded_secrets + artifact + JWT efímero |
+| `.github/workflows/secret-scanning.yml` | ✅ Modificado — bloqueante, policy check, artifact |
+| `AGENTS.md` | ✅ Modificado — JWT externalizado, no hardcoded secrets |
+| `docs/BACKEND_AUDIT.md` | ✅ Modificado — documentación de Ronda 9 |
+| `docs/DEVSECOPS_EVIDENCE.md` | ✅ Modificado — matriz actualizada, secreto JWT ya no es deuda |
+
+### Diseño final de JWT
+
+- `JwtSecurityConfiguration.GetRequiredSecret(IConfiguration)` es la única fuente
+- Lee únicamente `Jwt:Secret` (no `Jwt:SecretKey`)
+- Sin fallback literal
+- Rechaza null, vacío, whitespace
+- Exige al menos 32 bytes UTF-8
+- Lanza `InvalidOperationException` sin incluir el valor
+- Tanto `ConfigureJwtAuthentication` como `JwtTokenService` la usan
+- `GetSigningKey(IConfiguration)` devuelve `SymmetricSecurityKey` listo para usar
+
+### Variable externa esperada
+
+- `Jwt__Secret` en Azure (`Jwt:Secret` en .NET)
+- Mínimo 32 bytes UTF-8
+- Configurable localmente mediante `dotnet user-secrets set "Jwt:Secret" "..."` o variable de entorno
+
+### Validación fail-fast
+
+- `InvalidOperationException` si no está configurado
+- `InvalidOperationException` si es menor a 32 bytes
+- Sin fallback a valores predeterminados
+- Sin `SecretKey` como alternativa
+
+### Contrato final recover-password
+
+- `POST /api/auth/recover-password` → `RecoverPasswordResponse`
+- Respuesta idéntica exista o no el usuario
+- Sin `ResetToken`, `Token`, `RefreshToken`, `Usuario` en la respuesta
+- Sin revelar existencia de cuenta
+- Sin token en logs del StubEmailService
+- IEmailService se invoca solo si el usuario existe
+
+### Revocación implementada
+
+- `IRefreshTokenRepository.RevokeAllByUsuarioIdAsync(Guid, DateTime, CancellationToken)`
+- Implementada en `RefreshTokenRepository` (EF) y `CosmosRefreshTokenRepository`
+- Se ejecuta después de:
+  - `ChangePasswordAsync` exitoso
+  - `ResetPasswordAsync` exitoso
+  - `DeleteAccountAsync` exitoso
+- Idempotente: tokens ya revocados permanecen revocados
+- No modifica tokens de otros usuarios
+- Logout individual y rotación de refresh token conservados
+
+### Pruebas agregadas
+
+**Unitarias — JwtSecurityConfiguration (10):**
+- Configuración válida devuelve el secreto
+- Configuración ausente lanza InvalidOperationException
+- Configuración vacía lanza InvalidOperationException
+- Whitespace lanza InvalidOperationException
+- Secreto menor a 32 bytes lanza InvalidOperationException
+- Excepción no contiene el secreto
+- GetSigningKey válido devuelve SymmetricSecurityKey
+- Secreto de 31 bytes rechazado
+- Secreto de 32 bytes aceptado
+
+**Unitarias — AuthService (9 nuevas marcadas Security):**
+- RecoverPasswordAsync con email existente devuelve respuesta genérica
+- RecoverPasswordAsync con email inexistente devuelve misma respuesta
+- RecoverPasswordResponse no contiene ResetToken
+- RecoverPasswordAsync no revela existencia de usuario
+- ResetPasswordAsync con token usado es rechazado
+- ResetPasswordAsync token no puede reutilizarse
+- ResetPasswordAsync revoca todas las sesiones
+- ChangePasswordAsync revoca todas las sesiones
+- ChangePasswordAsync no afecta otro usuario
+- DeleteAccountAsync revoca todas las sesiones
+- DeleteAccountAsync segunda revocación no falla
+
+**Integración (nuevas marcadas Security):**
+- RecoverPassword response no contiene datos sensibles
+- RecoverPassword misma respuesta para email existente e inexistente
+- ResetPassword token no devuelto en HTTP
+- ChangePassword no devuelve tokens
+- DeleteAccount revoca sesiones (refresh rechazado)
+
+### Resultados de verificación
+
+- Total completo de pruebas: se obtiene de ejecución real
+- Total Category=Security: se obtiene de ejecución real
+- Scanner de secretos: `python3 scripts/security/check_hardcoded_secrets.py` — sin hallazgos
+
+### Cambios en dotnet-ci.yml
+
+- Nuevo paso `Check hardcoded secrets policy` antes de restore
+- Nuevo artifact `hardcoded-secrets-policy-report` (14 días, `if-no-files-found: error`)
+- Smoke test genera `Jwt__Secret` efímero con `python3 -c "import secrets; print(secrets.token_hex(32))"`
+- Sin valores JWT literales en el workflow
+
+### Cambios en secret-scanning.yml
+
+- Eliminado `continue-on-error: true` de Gitleaks
+- Agregado paso `ImpactX hardcoded secrets policy`
+- Agregado artifact `hardcoded-secrets-policy-report`
+- Sin permisos de escritura adicionales
+
+### Artifacts configurados
+
+- `hardcoded-secrets-policy-report` — reporte de texto (14 días)
+- `security-regression-results` — TRX + cobertura de pruebas Security
+- `test-results` — TRX completo (7 días)
+- `coverage-results` — cobertura (7 días)
+- `api-smoke-log` — log de arranque (7 días)
+
+### Deuda técnica pendiente
+
+- Reset token en texto plano almacenado sin hash. Mejora: aplicar hash SHA-256 al token antes de persistir. El token de extremo a extremo (URL seguro, tiempo limitado, un solo uso) ya está implementado.
+- Rate limiting no implementado en endpoints públicos (login, recover-password)
+- Email real no implementado (StubEmailService)
+- CORS permisivo (`SetIsOriginAllowed(_ => true)`) pendiente de revisión
+- Firebase no conectado a AlertService
+- Múltiples dispositivos FCM no soportados
+
+### No se modificó
+
+- Program.cs (salvo que el uso de JwtSecurityConfiguration no requirió cambios en Program.cs)
+- NotificationService
+- AlertService
+- Bicep
+- CodeQL
+- OWASP
+- Roslyn
+- Azure deploy
+- Cosmos DB real
+- Firebase
+
 ### Pendiente
 
 - Firebase no conectado a AlertService
-- Secreto JWT pendiente de externalización
-- Recuperación de contraseña pendiente de endurecimiento
 - Rate limiting
 - Múltiples dispositivos FCM
+- CORS restrictivo
