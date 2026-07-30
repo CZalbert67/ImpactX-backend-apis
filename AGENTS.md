@@ -69,8 +69,9 @@ dotnet add package <PackageName>
 
 ## JWT auth
 - HMAC-SHA256 symmetric signing via `JwtTokenService` (`ITokenService`)
-- Config section `Jwt:{Secret,Issuer,Audience}` — reads `Secret` then falls back to `SecretKey`
-- **Hardcoded fallback** in code if config value missing or <16 chars: `"ImpactX_Super_Secret_JWT_Key_2026_Executive_Key_V12!"`
+- Config section `Jwt:{Secret,Issuer,Audience,ExpirationMinutes}`
+- Single source: `JwtSecurityConfiguration.GetRequiredSecret(IConfiguration)` reads only `Jwt:Secret`
+- **No fallback** — `InvalidOperationException` if missing, empty, or <32 bytes UTF-8
 - Default issuer: `"ImpactXApi"`, audience: `"ImpactXClients"`
 - `ClockSkew = TimeSpan.Zero`
 - User ID from `ClaimTypes.NameIdentifier`
@@ -110,22 +111,23 @@ if (app.Environment.IsDevelopment())
 - Response writer in `Program.cs::WriteHealthCheckResponse` — safe, no internals exposed
 - No authentication, no authorization on any health endpoint
 
-## Tests — 343 total (xUnit + Moq + WebApplicationFactory)
+## Tests
 - **Unit tests** (files in `ImpactX.Tests/Unit/`): pure Moq per service
 - **Integration tests** (files in `ImpactX.Tests/Integration/`): `CustomWebApplicationFactory<Program>` forces `UseCosmosDb=false` + `UseInMemoryDatabase=true`, injects test JWT secret
 - API project exposes `partial class Program` for `WebApplicationFactory<Program>`
-- **Category=Security**: 26 pruebas de autenticación, refresh token, autorización, FCM, validación de límites, 401, sesiones expiradas/revocadas. Se ejecutan filtradas en CI como regression de seguridad.
+- **Category=Security**: pruebas de autenticación, refresh token, autorización, FCM, JWT config, recover/reset password, revocación de sesiones, 401. Se ejecutan filtradas en CI como regression de seguridad.
 
 ## CI/CD — 7 GitHub Actions workflows (se conservan)
 1. **dotnet-ci.yml** — Pipeline principal de CI (fortalecido con security regression):
    - `push` a `main`, `leo-desarrollo`, `feat/**`
    - `pull_request` hacia `main`
    - `workflow_dispatch`
-   - **Job `build-and-test`** (15 min): checkout → setup-dotnet 10.0.x → restore con NuGet audit → build Release → test (TRX + XPlat Code Coverage) → **Run security regression tests** (filtro `Category=Security`, validación TRX con Python, fallo si 0 pruebas o fallos) → publica TRX, cobertura y **security-regression-results** (14 días)
-   - **Job `smoke-test`** (5 min, depende de build-and-test): checkout → setup-dotnet → restore API → publish Release → ejecución directa de `ImpactX.Api.dll` con `dotnet`, usando `UseCosmosDb=false`, `UseInMemoryDatabase=true`, `ASPNETCORE_ENVIRONMENT=CI`, `ASPNETCORE_URLS=http://127.0.0.1:5055`, JWT de test → valida 4 endpoints (`/health`, `/health/live`, `/health/ready`, `/openapi/v1.json`) con Python 3 (status, service, environment, timestamp, schema) → verifica Swagger 404 → publica log de arranque
+   - **Job `build-and-test`** (15 min): checkout → setup-dotnet 10.0.x → **Run hardcoded secrets policy tests** → **Check hardcoded secrets policy** → restore con NuGet audit → build Release → test (TRX + XPlat Code Coverage) → **Run security regression tests** (filtro `Category=Security`, validación TRX con Python, fallo si 0 pruebas o fallos) → publica TRX, cobertura, **hardcoded-secrets-policy-report** y **security-regression-results** (14 días)
+   - **Job `smoke-test`** (5 min, depende de build-and-test): genera Jwt__Secret efímero con Python secrets → checkout → setup-dotnet → restore API → publish Release → ejecución directa de `ImpactX.Api.dll` con `dotnet`, usando `UseCosmosDb=false`, `UseInMemoryDatabase=true`, `ASPNETCORE_ENVIRONMENT=CI`, `ASPNETCORE_URLS=http://127.0.0.1:5055` → valida 4 endpoints (`/health`, `/health/live`, `/health/ready`, `/openapi/v1.json`) con Python 3 (status, service, environment, timestamp, schema) → verifica Swagger 404 → publica log de arranque
    - **Sin Docker**: el smoke test ejecuta `dotnet publish` + `ImpactX.Api.dll` directamente
 2. **main_impactx-api-backend.yml** — push to `main` only + `workflow_dispatch`: build (15 min) → publish → deploy (20 min, oidc) to Azure Web App `impactx-api-backend`. Permissions: `build: contents: read`, `deploy: id-token: write + contents: read`
 3. **api-security-audit.yml** — OWASP API security scan. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read`.
+4. **secret-scanning.yml** — Gitleaks credential scan + hardcoded secrets policy tests + policy scanner. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 10 min. Permissions: `contents: read`.
 4. **secret-scanning.yml** — Gitleaks credential scan. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 10 min. Permissions: `contents: read`.
 5. **codeql-analysis.yml** — CodeQL SAST (C#, security-extended). Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read, security-events: write`.
 6. **code-quality-roslyn.yml** — Roslyn format estricto solo sobre archivos C# modificados. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read`. No oculta fallos (sin `|| echo`, `|| true` ni `continue-on-error`). Si no hay C# modificados, termina correctamente sin ejecutar `dotnet format`. La deuda histórica de 14.673 errores ENDOFLINE/FINALNEWLINE en archivos no modificados no afecta este check.
@@ -142,12 +144,12 @@ if (app.Environment.IsDevelopment())
 ## Configuration & secrets
 - `UserSecretsId`: `45e9cf43-58e6-44b4-9a33-3a4988095b2d` — use `dotnet user-secrets set ...`
 - Cosmos key: must be set via `AzureCosmosDb:Key` in config, env var `COSMOS_KEY`, or user secrets
-- JWT secret: hardcoded fallback in code — **not a placeholder**, this is a real risk
+- JWT secret: must be set externally via `Jwt__Secret` env var, `dotnet user-secrets`, or Azure Key Vault. Minimum 32 bytes UTF-8.
 - Dev ignores `appsettings.Local.json` (gitignored)
-- Production JWT secret is empty in `appsettings.Production.json` — **must be set via env vars or Azure Key Vault**
+- Production JWT secret must be set via `Jwt__Secret` env var or Azure Key Vault
 
 ## Risks
-- **JWT secret hardcoded** in `ServiceCollectionExtensions.cs` line 84 — not a placeholder, active fallback
+- **JWT secret externalized** — no longer hardcoded. Required via `Jwt__Secret` env var, user secrets, or Azure Key Vault. `JwtSecurityConfiguration.GetRequiredSecret()` enforces fail-fast with 32-byte minimum.
 - **Cosmos key placeholder** `"YOUR_AZURE_COSMOS_KEY"` in 3 appsettings files — real endpoint exposed
 - **CORS policy** allows all origins with credentials (`SetIsOriginAllowed(_ => true)`)
 - No rate limiting, no CSRF protection
@@ -174,3 +176,5 @@ if (app.Environment.IsDevelopment())
 - **Trabajar siempre en una rama feature y utilizar Pull Request. No hacer push directo a main.**
 - **No Docker** in dev tasks unless explicitly requested
 - **Run `dotnet restore`, `dotnet build`, `dotnet test` after each batch of changes**
+- **JWT secret must be set externally** — `Jwt__Secret` via env var or `dotnet user-secrets set "Jwt:Secret" "..."`. Minimum 32 bytes UTF-8.
+- **No hardcoded secrets** — `scripts/security/check_hardcoded_secrets.py` scans for violations. Run `python3 scripts/security/check_hardcoded_secrets.py` before PR.

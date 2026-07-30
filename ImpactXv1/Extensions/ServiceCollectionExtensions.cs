@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
 using ImpactX.Infrastructure.Data;
@@ -78,12 +77,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection ConfigureJwtAuthentication(
         this IServiceCollection services, IConfiguration configuration)
     {
-        var jwtSecret = configuration["Jwt:Secret"] ?? configuration["Jwt:SecretKey"];
-        if (string.IsNullOrEmpty(jwtSecret) || jwtSecret.Length < 16)
-        {
-            jwtSecret = "ImpactX_Super_Secret_JWT_Key_2026_Executive_Key_V12!";
-        }
-
+        var signingKey = JwtSecurityConfiguration.GetSigningKey(configuration);
         var issuer = configuration["Jwt:Issuer"] ?? "ImpactXApi";
         var audience = configuration["Jwt:Audience"] ?? "ImpactXClients";
 
@@ -102,8 +96,7 @@ public static class ServiceCollectionExtensions
                 ValidateIssuerSigningKey = true,
                 ValidIssuer = issuer,
                 ValidAudience = audience,
-                IssuerSigningKey = new SymmetricSecurityKey(
-                    Encoding.UTF8.GetBytes(jwtSecret)),
+                IssuerSigningKey = signingKey,
                 ClockSkew = TimeSpan.Zero
             };
         });

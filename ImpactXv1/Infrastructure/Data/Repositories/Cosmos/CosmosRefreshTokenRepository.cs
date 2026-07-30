@@ -64,4 +64,27 @@ public class CosmosRefreshTokenRepository : IRefreshTokenRepository
             refreshToken.Id.ToString(),
             new PartitionKey(refreshToken.UsuarioId.ToString()));
     }
+
+    public async Task RevokeAllByUsuarioIdAsync(Guid usuarioId, DateTime revokedAt, CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId AND c.revokedAt = null")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        var tokens = new List<RefreshToken>();
+        using var iterator = _container.GetItemQueryIterator<RefreshToken>(query);
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync(cancellationToken);
+            tokens.AddRange(response);
+        }
+
+        foreach (var token in tokens)
+        {
+            token.RevokedAt = revokedAt;
+            await _container.UpsertItemAsync(token,
+                new PartitionKey(token.UsuarioId.ToString()),
+                cancellationToken: cancellationToken);
+        }
+    }
 }

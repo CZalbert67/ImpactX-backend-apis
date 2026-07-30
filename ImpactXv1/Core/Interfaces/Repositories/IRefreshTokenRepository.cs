@@ -9,4 +9,5 @@ public interface IRefreshTokenRepository
     Task AddAsync(RefreshToken refreshToken);
     Task UpdateAsync(RefreshToken refreshToken);
     Task DeleteAsync(RefreshToken refreshToken);
+    Task RevokeAllByUsuarioIdAsync(Guid usuarioId, DateTime revokedAt, CancellationToken cancellationToken = default);
 }

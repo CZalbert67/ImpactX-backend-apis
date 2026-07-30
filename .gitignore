@@ -53,3 +53,7 @@ appsettings.*.local.json
 # Test results
 TestResults/
 test_output*.txt
+
+# Python cache
+__pycache__/
+*.py[cod]

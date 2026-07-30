@@ -202,7 +202,8 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task RecoverPasswordAsync_WithExistingEmail_ReturnsSuccess()
+    [Trait("Category", "Security")]
+    public async Task RecoverPasswordAsync_WithExistingEmail_ReturnsGenericResponse()
     {
         var usuario = new Usuario { Id = Guid.NewGuid(), Correo = "test@test.com" };
         _usuarioRepo.Setup(r => r.GetByCorreoAsync("test@test.com")).ReturnsAsync(usuario);
@@ -214,13 +215,14 @@ public class AuthServiceTests
         });
 
         Assert.True(result.Success);
-        Assert.Equal("reset-token", result.ResetToken);
+        Assert.Equal("Si la cuenta existe, se enviaron instrucciones para restablecer la contraseña.", result.Mensaje);
         _passwordResetTokenRepo.Verify(r => r.AddAsync(It.IsAny<PasswordResetToken>()), Times.Once);
         _emailService.Verify(e => e.SendPasswordResetEmailAsync("test@test.com", "reset-token"), Times.Once);
     }
 
     [Fact]
-    public async Task RecoverPasswordAsync_WithNonExistentEmail_ReturnsGenericMessage()
+    [Trait("Category", "Security")]
+    public async Task RecoverPasswordAsync_WithNonExistentEmail_ReturnsSameGenericResponse()
     {
         _usuarioRepo.Setup(r => r.GetByCorreoAsync("unknown@test.com")).ReturnsAsync((Usuario?)null);
 
@@ -230,7 +232,8 @@ public class AuthServiceTests
         });
 
         Assert.True(result.Success);
-        Assert.Equal("Si el correo existe, recibirás un enlace de recuperación.", result.Mensaje);
+        Assert.Equal("Si la cuenta existe, se enviaron instrucciones para restablecer la contraseña.", result.Mensaje);
+        _emailService.Verify(e => e.SendPasswordResetEmailAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
@@ -553,5 +556,217 @@ public class AuthServiceTests
         _tokenService.Verify(t => t.GenerateAccessToken(It.IsAny<Usuario>()), Times.Never);
         _tokenService.Verify(t => t.GenerateRefreshToken(), Times.Never);
         _refreshTokenRepo.Verify(r => r.AddAsync(It.IsAny<RefreshToken>()), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RecoverPasswordResponse_DoesNotContainResetToken()
+    {
+        var usuario = new Usuario { Id = Guid.NewGuid(), Correo = "test@test.com" };
+        _usuarioRepo.Setup(r => r.GetByCorreoAsync("test@test.com")).ReturnsAsync(usuario);
+        _tokenService.Setup(t => t.GeneratePasswordResetToken()).Returns("reset-token");
+
+        var result = await _authService.RecoverPasswordAsync(new RecoverPasswordRequest
+        {
+            Correo = "test@test.com"
+        });
+
+        Assert.IsType<RecoverPasswordResponse>(result);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RecoverPasswordAsync_DoesNotRevealUserExistence()
+    {
+        var usuario = new Usuario { Id = Guid.NewGuid(), Correo = "test@test.com" };
+        _usuarioRepo.Setup(r => r.GetByCorreoAsync("test@test.com")).ReturnsAsync(usuario);
+        _tokenService.Setup(t => t.GeneratePasswordResetToken()).Returns("reset-token");
+
+        var existingResult = await _authService.RecoverPasswordAsync(new RecoverPasswordRequest
+        {
+            Correo = "test@test.com"
+        });
+
+        _usuarioRepo.Setup(r => r.GetByCorreoAsync("unknown@test.com")).ReturnsAsync((Usuario?)null);
+
+        var missingResult = await _authService.RecoverPasswordAsync(new RecoverPasswordRequest
+        {
+            Correo = "unknown@test.com"
+        });
+
+        Assert.Equal(existingResult.Mensaje, missingResult.Mensaje);
+        Assert.Equal(existingResult.Success, missingResult.Success);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ResetPasswordAsync_WithUsedToken_ReturnsError()
+    {
+        var resetToken = new PasswordResetToken
+        {
+            Token = "used-token",
+            ExpiresAt = DateTime.UtcNow.AddHours(1),
+            UsedAt = DateTime.UtcNow.AddHours(-1)
+        };
+
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenAsync("used-token")).ReturnsAsync(resetToken);
+
+        var result = await _authService.ResetPasswordAsync(new ResetPasswordRequest
+        {
+            Token = "used-token",
+            NewPassword = "new-password"
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal("El token de recuperación es inválido o ha expirado.", result.Mensaje);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ResetPasswordAsync_TokenCannotBeReused()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, PasswordHash = "old-hash" };
+        var resetToken = new PasswordResetToken
+        {
+            Token = "single-use-token",
+            UsuarioId = usuarioId,
+            ExpiresAt = DateTime.UtcNow.AddHours(1)
+        };
+
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenAsync("single-use-token")).ReturnsAsync(resetToken);
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+        _encryptionService.Setup(e => e.HashPassword("new-password")).Returns("new-hash");
+
+        var firstResult = await _authService.ResetPasswordAsync(new ResetPasswordRequest
+        {
+            Token = "single-use-token",
+            NewPassword = "new-password"
+        });
+
+        Assert.True(firstResult.Success);
+        Assert.NotNull(resetToken.UsedAt);
+
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenAsync("single-use-token")).ReturnsAsync(resetToken);
+
+        var secondResult = await _authService.ResetPasswordAsync(new ResetPasswordRequest
+        {
+            Token = "single-use-token",
+            NewPassword = "another-password"
+        });
+
+        Assert.False(secondResult.Success);
+        Assert.Equal("El token de recuperación es inválido o ha expirado.", secondResult.Mensaje);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ResetPasswordAsync_RevokesAllSessions()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, PasswordHash = "old-hash" };
+        var resetToken = new PasswordResetToken
+        {
+            Token = "reset-revoke-token",
+            UsuarioId = usuarioId,
+            ExpiresAt = DateTime.UtcNow.AddHours(1)
+        };
+
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenAsync("reset-revoke-token")).ReturnsAsync(resetToken);
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+        _encryptionService.Setup(e => e.HashPassword("new-password")).Returns("new-hash");
+
+        var result = await _authService.ResetPasswordAsync(new ResetPasswordRequest
+        {
+            Token = "reset-revoke-token",
+            NewPassword = "new-password"
+        });
+
+        Assert.True(result.Success);
+        _refreshTokenRepo.Verify(r => r.RevokeAllByUsuarioIdAsync(usuarioId, It.IsAny<DateTime>(), default), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ChangePasswordAsync_RevokesAllSessions()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario
+        {
+            Id = usuarioId,
+            PasswordHash = "current-hash"
+        };
+
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+        _encryptionService.Setup(e => e.VerifyPassword("current", "current-hash")).Returns(true);
+
+        var result = await _authService.ChangePasswordAsync(usuarioId, new ChangePasswordRequest
+        {
+            CurrentPassword = "current",
+            NewPassword = "new-password"
+        });
+
+        Assert.True(result.Success);
+        _refreshTokenRepo.Verify(r => r.RevokeAllByUsuarioIdAsync(usuarioId, It.IsAny<DateTime>(), default), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ChangePasswordAsync_DoesNotAffectOtherUserSessions()
+    {
+        var usuarioId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var usuario = new Usuario
+        {
+            Id = usuarioId,
+            PasswordHash = "current-hash"
+        };
+
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+        _encryptionService.Setup(e => e.VerifyPassword("current", "current-hash")).Returns(true);
+
+        var result = await _authService.ChangePasswordAsync(usuarioId, new ChangePasswordRequest
+        {
+            CurrentPassword = "current",
+            NewPassword = "new-password"
+        });
+
+        Assert.True(result.Success);
+        _refreshTokenRepo.Verify(r => r.RevokeAllByUsuarioIdAsync(usuarioId, It.IsAny<DateTime>(), default), Times.Once);
+        _refreshTokenRepo.Verify(r => r.RevokeAllByUsuarioIdAsync(otherUserId, It.IsAny<DateTime>(), default), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task DeleteAccountAsync_RevokesAllSessions()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, IsActive = true };
+
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+
+        await _authService.DeleteAccountAsync(usuarioId);
+
+        Assert.False(usuario.IsActive);
+        _refreshTokenRepo.Verify(r => r.RevokeAllByUsuarioIdAsync(usuarioId, It.IsAny<DateTime>(), default), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task DeleteAccountAsync_SecondRevocationDoesNotFail()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, IsActive = true };
+
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+
+        await _authService.DeleteAccountAsync(usuarioId);
+
+        var mismoUsuario = new Usuario { Id = usuarioId, IsActive = false };
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(mismoUsuario);
+
+        await _authService.DeleteAccountAsync(usuarioId);
+
+        _refreshTokenRepo.Verify(r => r.RevokeAllByUsuarioIdAsync(usuarioId, It.IsAny<DateTime>(), default), Times.Exactly(2));
     }
 }
