@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -8,6 +9,7 @@ namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/monitors")]
+[Route("api/v1/monitors")]
 [Authorize]
 public class MonitorsController : ControllerBase
 {
@@ -27,6 +29,8 @@ public class MonitorsController : ControllerBase
     }
 
     [HttpPost("invite")]
+    [EnableRateLimiting("monitor-invite-create")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Invite([FromBody] InviteMonitorRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -35,6 +39,7 @@ public class MonitorsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/resend")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ResendInvite(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -43,6 +48,7 @@ public class MonitorsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/restore")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> RestoreMonitor(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -51,6 +57,7 @@ public class MonitorsController : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> RevokeMonitor(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -60,6 +67,8 @@ public class MonitorsController : ControllerBase
 
     [AllowAnonymous]
     [HttpPost("invite/details")]
+    [EnableRateLimiting("monitor-invite-details")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> GetInvitation([FromBody] InvitationTokenRequest request)
     {
         var info = await _monitorService.GetInvitationByTokenAsync(request.Token);
@@ -67,6 +76,8 @@ public class MonitorsController : ControllerBase
     }
 
     [HttpPost("invite/accept")]
+    [EnableRateLimiting("monitor-invitation-action")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> AcceptInvitation([FromBody] InvitationTokenRequest request)
     {
         var monitorUsuarioId = GetUsuarioId();
@@ -75,6 +86,8 @@ public class MonitorsController : ControllerBase
     }
 
     [HttpPost("invite/reject")]
+    [EnableRateLimiting("monitor-invitation-action")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> RejectInvitation([FromBody] InvitationTokenRequest request)
     {
         var monitorUsuarioId = GetUsuarioId();

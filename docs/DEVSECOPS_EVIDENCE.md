@@ -120,3 +120,25 @@ Código
 | 9 | Actionlint | `actionlint .github/workflows/*.yml` | Sin errores en workflows |
 | 10 | git diff --check | `git diff --check` | Sin errores de whitespace |
 | 11 | No se modificaron archivos prohibidos | `git diff --name-only` | Azure, Bicep, CodeQL, OWASP, Roslyn, Azure Deploy, JWT no tocados |
+
+### PR 1A — API Contracts V1 (completado 2026-07-30)
+
+| # | Control | Prueba/Workflow | Qué valida |
+|---|---|---|---|
+| 1 | Problem Details RFC 7807 | `ProblemDetailsContractTests` (18 tests), `ProblemDetailsError500Tests` (2 tests) | Status, type, title, detail, instance, traceId, correlationId. Sin stacktrace. 401/403/404/409/500. Mapeo correcto. InvalidOperationException → 500. |
+| 2 | CORS configurable | `ApiContractV1CorsTests` (4 tests) | Origen permitido retorna ACAO. Origen atacante no retorna ACAO. Preflight funciona. Producción vacío cierra CORS. Sin AllowAnyOrigin. |
+| 3 | Rate limiting por configuración | `RateLimitingContractTests` (5 tests) | 2do request supera límite → 429. Content-Type problem+json. Retry-After. Health exento. Sin partitionKey. Fábricas aisladas por test. |
+| 4 | Auth V1 minúsculas | `AllOpenApiV1Paths_AreLowercase`, `OpenApiAuthPaths_AreLowercase` | Todas las rutas V1 sin mayúsculas en segmentos. |
+| 5 | Duplicado V1 → 409 ProblemDetails | `V1Auth_DuplicateRegister_Returns409ProblemDetails`, `LegacyAuth_DuplicateRegister_ReturnsConflictObject`, `Conflict_Returns409` | V1: 409 problem+json. Legacy: 409 ConflictObjectResult. |
+| 6 | OpenAPI Bearer por operación | `OpenApi_BearerSecurity_OnProtectedOperations`, `OpenApi_AnonymousOperations_DoNotRequireBearer` | Profile/monitors/trips/active requieren Bearer. Register/login/recover-password/invite/details no. |
+| 7 | Invitaciones token en JSON body | Revisión manual + `OpenApiDocument_DoesNotContainLegacyPaths` | Sin `{token}` en rutas. Sin query string. POST body. |
+| 8 | Error 500 real (mock) | `InternalServerError_Real500_ReturnsProblemDetails` | ITokenService mock lanza InvalidOperationException → 500 problem+json. Sin stacktrace, sin mensaje interno. |
+| 9 | OpenAPI 409 documentado | `OpenApi_RegisterRoute_Includes409`, `OpenApi_ConflictResponse_UsesProblemDetails`, `OpenApi_RouteWithoutConflict_DoesNotInclude409` | 23 endpoints V1 con `[ProducesResponseType(409)]`. 409 usa `application/problem+json` con `$ref ProblemDetails`. Operación sin conflicto no documenta 409. |
+| 10 | Security regression | `Category=Security` (115 tests) | 115 pruebas de seguridad. 0 fallos. |
+| 11 | Contrato V1 | `dotnet test` con filtro (75 tests) | 75 pruebas de contrato. 0 fallos. |
+| 12 | Secret scanner | `check_hardcoded_secrets.py` | 234 archivos, 0 violaciones. |
+| 13 | NuGet audit | `dotnet list package --vulnerable` | 0 vulnerables. |
+| 14 | Actionlint | `actionlint .github/workflows/*.yml` | 7 workflows, 0 errores. |
+| 15 | git diff --check | `git diff --check` | Solo advertencias LF/CRLF. Sin errores. |
+| 16 | Python tests | `python3 -m unittest discover scripts/security/tests` | 19 tests, 0 fallos. |
+| 17 | **490 pruebas totales** | `dotnet test ImpactX.slnx --configuration Release` | 0 fallos. Sin commits. |

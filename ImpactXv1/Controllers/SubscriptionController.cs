@@ -19,6 +19,7 @@ public class SubscriptionController : ControllerBase
     }
 
     [HttpGet]
+    [HttpGet("/api/v1/subscriptions")]
     public async Task<IActionResult> GetCurrentSubscription()
     {
         var usuarioId = GetUsuarioId();
@@ -29,6 +30,7 @@ public class SubscriptionController : ControllerBase
     }
 
     [HttpGet("history")]
+    [HttpGet("/api/v1/subscriptions/history")]
     public async Task<IActionResult> GetSubscriptionHistory()
     {
         var usuarioId = GetUsuarioId();
@@ -37,6 +39,8 @@ public class SubscriptionController : ControllerBase
     }
 
     [HttpPost("change-plan")]
+    [HttpPost("/api/v1/subscriptions/change-plan")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ChangePlan([FromBody] ChangePlanRequest request)
     {
         try
@@ -56,6 +60,8 @@ public class SubscriptionController : ControllerBase
     }
 
     [HttpPost("cancel")]
+    [HttpPost("/api/v1/subscriptions/cancel")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> CancelSubscription([FromBody] CancelSubscriptionRequest? request)
     {
         try
@@ -71,6 +77,7 @@ public class SubscriptionController : ControllerBase
     }
 
     [HttpGet("payments")]
+    [HttpGet("/api/v1/subscriptions/payments")]
     public async Task<IActionResult> GetPayments()
     {
         var usuarioId = GetUsuarioId();
@@ -80,6 +87,7 @@ public class SubscriptionController : ControllerBase
 
     [HttpGet("payments/{id:guid}/receipt")]
     [HttpGet("/api/payments/{id:guid}/receipt")]
+    [HttpGet("/api/v1/subscriptions/payments/{id:guid}/receipt")]
     public async Task<IActionResult> GetPaymentReceipt(Guid id)
     {
         var usuarioId = GetUsuarioId();

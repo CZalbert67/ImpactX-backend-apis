@@ -8,6 +8,7 @@ namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/permissions")]
+[Route("api/v1/permissions")]
 [Authorize]
 public class PermissionsController : ControllerBase
 {

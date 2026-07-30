@@ -128,7 +128,6 @@ if (app.Environment.IsDevelopment())
 2. **main_impactx-api-backend.yml** — push to `main` only + `workflow_dispatch`: build (15 min) → publish → deploy (20 min, oidc) to Azure Web App `impactx-api-backend`. Permissions: `build: contents: read`, `deploy: id-token: write + contents: read`
 3. **api-security-audit.yml** — OWASP API security scan. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read`.
 4. **secret-scanning.yml** — Gitleaks credential scan + hardcoded secrets policy tests + policy scanner. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 10 min. Permissions: `contents: read`.
-4. **secret-scanning.yml** — Gitleaks credential scan. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 10 min. Permissions: `contents: read`.
 5. **codeql-analysis.yml** — CodeQL SAST (C#, security-extended). Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read, security-events: write`.
 6. **code-quality-roslyn.yml** — Roslyn format estricto solo sobre archivos C# modificados. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read`. No oculta fallos (sin `|| echo`, `|| true` ni `continue-on-error`). Si no hay C# modificados, termina correctamente sin ejecutar `dotnet format`. La deuda histórica de 14.673 errores ENDOFLINE/FINALNEWLINE en archivos no modificados no afecta este check.
 7. **infra-validation.yml** — Bicep Infrastructure Validation. Triggers: `pull_request` a `main` solo cuando cambian `infra/**` o el propio workflow, y `workflow_dispatch`. Permissions: `contents: read` (sin OIDC, sin Azure login). Concurrency con cancelación automática. Bicep 0.45.15 descargado temporalmente con SHA-256 fijado y verificado durante auditoría. Sin Azure login. Sin despliegue. Validaciones: compilación estricta de `infra/main.bicep` + `dev/test/prod.bicepparam` (sin errores ni warnings), presencia exacta del placeholder `DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED`, ausencia de ARM JSON (solo `bicepconfig.json`), prohibición de secretos en archivos Bicep, revisión de nombres de outputs, y `git diff --check` con rango completo.
@@ -170,6 +169,22 @@ if (app.Environment.IsDevelopment())
   ```
 - **Before first deploy**: Install Azure CLI, authenticate, verify .NET runtime (`az webapp list-runtimes --os linux | grep DOTNET`), replace `DONT_DEPLOY_UNTIL_RUNTIME_IS_VERIFIED`, review SKU/region, run what-if, get approval.
 - **Allowed modifications**: Only files under `infra/`, `AGENTS.md`, `docs/BACKEND_AUDIT.md`. No C#, no workflows, no appsettings.
+
+## R0.2 — PR 1A API Contracts V1 (implementado)
+- **Branch**: `feat/backend-api-contracts-v1`, base `27e17857da216e0d80482a12b7759551785f4020`
+- **Problem Details (RFC 7807)**: Middleware propio `ProblemDetailsMiddleware` reemplaza `ExceptionHandlingMiddleware`. Mapeo de excepciones: BadRequestException→400, ArgumentException→400 (segura), UnauthorizedAccessException→401, ForbiddenException→403, NotFoundException→404, KeyNotFoundException→404, ConflictException→409, excepción inesperada→500. **No** mapea InvalidOperationException a 409.
+- **CORS**: Configurable por `Cors:AllowedOrigins` (formato jerárquico `Cors:AllowedOrigins:0`). Producción con lista vacía cierra CORS. No usa `AllowAnyOrigin` ni `SetIsOriginAllowed`.
+- **Rate Limiting**: 13 políticas nombradas (auth-register, auth-login, auth-refresh, auth-recover, auth-reset, monitor-invite-details, monitor-invitation-action, monitor-invite-create, fcm-token, telemetry-ingestion, incident-create, alert-detect, alert-sos). Límites por configuración. `RejectionStatusCode=429`.
+- **Rutas V1**: Todos los controladores tienen rutas V1 (15 controllers). Auth usa `[Route("api/v1/auth")]` en minúsculas (no `[controller]`). Users y Subscription usan rutas absolutas. No hay `api/v1/vehicles` (domain no existe).
+- **Deprecation**: Middleware `LegacyDeprecationMiddleware` agrega headers `Deprecation: true`, `Warning`, `Link` a rutas `/api/` (no V1), excepto health/openapi/swagger.
+- **Correlation ID**: Middleware `CorrelationIdMiddleware` lee/genera `X-Correlation-Id`, sanitiza CR/LF, limita longitud.
+- **OpenAPI V1**: Filtro `ShouldInclude` incluye solo paths que empiezan con `api/v1/`. Document transformer agrega `securitySchemes.Bearer` y `ProblemDetails` schema (type, title, status, detail, instance). Response metadata transformer agrega respuestas 4xx/5xx declaradas vía `[ProducesResponseType]` en endpoints, más reglas automáticas para 400/401/403/404/409/429/500. Operation transformer agrega `security` requirement Bearer en operaciones protegidas.
+- **409 Conflict en OpenAPI**: 23 endpoints V1 ahora declaran `[ProducesResponseType(StatusCodes.Status409Conflict)]` — cada uno con `ConflictException` real en el servicio (auth/register, subscriptions, monitors, contacts, trips, alerts, settings). El response metadata transformer (`OpenApiV1ResponseMetadataTransformer.cs`) los mapea a respuestas `application/problem+json` → `$ref ProblemDetails` en OpenAPI spec.
+- **Legacy**: Contratos legacy conservados. Registro duplicado V1 retorna 409 ProblemDetails; legacy retorna 409 ConflictObjectResult.
+- **Contrato de pruebas**: 75 pruebas de contrato (ApiContractV1: 41 + Cors: 4 + Security: 5 + ProblemDetailsContract: 18 + RateLimitingContract: 5 + Error500: 2). Incluye 3 nuevas OpenAPI 409 tests. Fábricas aisladas para rate limiting y CORS.
+- **Total real**: 490 pruebas, 115 Category=Security, 75 pruebas de contrato, 19 Python, scanner 0 violaciones, NuGet 0 vulnerables, actionlint limpio, git diff --check limpio. Build y tests passes en Debug y Release.
+- **Históricos**: 415/104 → 474/114/58 → 487/115/70 → **490/115/75**.
+- **Pendiente**: PR 1B y PR 1C no implementados. Vehículos no existe. Telemetría ligada a TripId. Límites de rate limiting pendientes de calibrar. Resultados GitHub pendientes.
 
 ## Rules
 - **No commits or pushes without explicit authorization**
