@@ -5,6 +5,7 @@ using ImpactX.Core.Interfaces.Services;
 using ImpactX.Infrastructure.Data;
 using ImpactX.Infrastructure.Data.Repositories.Cosmos;
 using ImpactX.Infrastructure.Data.Repositories.EF;
+using ImpactX.Infrastructure.Notifications;
 using ImpactX.Infrastructure.Security;
 using ImpactX.Services;
 
@@ -53,6 +54,7 @@ public static class ServiceCollectionExtensions
             services.AddScoped<INotificacionRepository, NotificacionRepository>();
         }
 
+        services.AddScoped<IPushNotificationGateway, FirebasePushNotificationGateway>();
         services.AddScoped<IEncryptionService, EncryptionService>();
         services.AddScoped<ITokenService, JwtTokenService>();
         services.AddScoped<IEmailService, StubEmailService>();

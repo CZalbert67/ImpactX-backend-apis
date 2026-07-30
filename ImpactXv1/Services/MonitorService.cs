@@ -3,6 +3,7 @@ using Monitor = ImpactX.Core.Domain.Monitor;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Models.DTOs;
+using Microsoft.Extensions.Logging;
 
 namespace ImpactX.Services;
 
@@ -36,10 +37,10 @@ public class MonitorService : IMonitorService
         var suscripcion = await _planService.GetCurrentSubscriptionAsync(usuarioId);
         var planName = suscripcion?.PlanNombre ?? "Free";
 
-        var maxMonitores = planName switch
+        var maxMonitores = planName?.ToLowerInvariant() switch
         {
-            "Premium" => 5,
-            "Basic" => 2,
+            "premium" => 6,
+            "basic" => 2,
             _ => 0,
         };
 
@@ -178,8 +179,7 @@ public class MonitorService : IMonitorService
         var monitor = await _monitorRepository.GetByTokenAsync(token)
             ?? throw new NotFoundException("Token de invitación inválido o expirado.");
 
-        if (monitor.ProfileId != monitorUsuarioId.ToString())
-            throw new ForbiddenException("Esta invitación no está dirigida a este usuario.");
+        await ValidateInvitationOwnershipAsync(monitor, monitorUsuarioId);
 
         if (monitor.Estado != "Pendiente")
             throw new ConflictException("Esta invitación ya fue procesada.");
@@ -189,10 +189,36 @@ public class MonitorService : IMonitorService
 
         monitor.Estado = "Activo";
         monitor.ConfirmadoEn = DateTime.UtcNow;
+        monitor.ProfileId = monitorUsuarioId.ToString();
         monitor.TokenInvitacion = null;
         await _monitorRepository.UpdateAsync(monitor);
 
-        _logger.LogInformation("Invitación {Token} aceptada por usuario {MonitorUsuarioId}", token, monitorUsuarioId);
+        _logger.LogInformation("Invitación aceptada por usuario {MonitorUsuarioId} para monitor {MonitorId}", monitorUsuarioId, monitor.Id);
+    }
+
+    private async Task ValidateInvitationOwnershipAsync(Monitor monitor, Guid monitorUsuarioId)
+    {
+        if (!string.IsNullOrEmpty(monitor.ProfileId))
+        {
+            if (monitor.ProfileId == monitorUsuarioId.ToString())
+                return;
+            throw new ForbiddenException("Esta invitación no está dirigida a este usuario.");
+        }
+
+        var usuario = await _usuarioRepository.GetByIdAsync(monitorUsuarioId);
+        if (usuario == null)
+            throw new ForbiddenException("Esta invitación no está dirigida a este usuario.");
+
+        var matches =
+            (!string.IsNullOrEmpty(monitor.CorreoInvitado) &&
+             string.Equals(monitor.CorreoInvitado, usuario.Correo, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrEmpty(monitor.Username) &&
+             string.Equals(monitor.Username, usuario.Username, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrEmpty(monitor.AppUserId) &&
+             string.Equals(monitor.AppUserId, usuario.AppId, StringComparison.Ordinal));
+
+        if (!matches)
+            throw new ForbiddenException("Esta invitación no está dirigida a este usuario.");
     }
 
     public async Task RejectInvitationAsync(string token, Guid monitorUsuarioId)
@@ -200,15 +226,17 @@ public class MonitorService : IMonitorService
         var monitor = await _monitorRepository.GetByTokenAsync(token)
             ?? throw new NotFoundException("Token de invitación inválido o expirado.");
 
-        if (monitor.ProfileId != monitorUsuarioId.ToString())
-            throw new ForbiddenException("Esta invitación no está dirigida a este usuario.");
+        await ValidateInvitationOwnershipAsync(monitor, monitorUsuarioId);
 
         if (monitor.Estado != "Pendiente")
             throw new ConflictException("Esta invitación ya fue procesada.");
 
         monitor.Estado = "Rechazado";
+        monitor.ProfileId = monitorUsuarioId.ToString();
         monitor.TokenInvitacion = null;
         await _monitorRepository.UpdateAsync(monitor);
+
+        _logger.LogInformation("Invitación rechazada por usuario {MonitorUsuarioId} para monitor {MonitorId}", monitorUsuarioId, monitor.Id);
     }
 
     private static MonitorDto MapToDto(Monitor m) => new()

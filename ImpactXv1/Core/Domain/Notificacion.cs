@@ -12,4 +12,11 @@ public class Notificacion
     public bool Leida { get; set; }
     public DateTime? LeidaEn { get; set; }
     public DateTime CreadoEn { get; set; } = DateTime.UtcNow;
+    public Guid? AlertaId { get; set; }
+    public string Canal { get; set; } = "Push";
+    public string EstadoEnvio { get; set; } = "Pendiente";
+    public int Intentos { get; set; }
+    public DateTime? UltimoIntentoEn { get; set; }
+    public DateTime? EnviadoEn { get; set; }
+    public string? ClaveIdempotencia { get; set; }
 }

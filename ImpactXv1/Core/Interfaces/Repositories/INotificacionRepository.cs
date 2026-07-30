@@ -7,6 +7,7 @@ public interface INotificacionRepository
     Task<List<Notificacion>> GetByUserAsync(Guid usuarioId);
     Task<Notificacion?> GetByIdAsync(Guid id);
     Task<int> CountUnreadByUserAsync(Guid usuarioId);
+    Task<Notificacion?> GetByIdempotencyKeyAsync(string key, Guid? recipientUserId = null, CancellationToken cancellationToken = default);
     Task AddAsync(Notificacion notificacion);
     Task UpdateAsync(Notificacion notificacion);
     Task MarkAllAsReadAsync(Guid usuarioId);

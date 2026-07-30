@@ -10,17 +10,20 @@ public class AlertService : IAlertService
     private readonly IAlertaRepository _alertaRepository;
     private readonly IIncidenteRepository _incidenteRepository;
     private readonly IPlanService _planService;
+    private readonly INotificationService _notificationService;
     private readonly ILogger<AlertService> _logger;
 
     public AlertService(
         IAlertaRepository alertaRepository,
         IIncidenteRepository incidenteRepository,
         IPlanService planService,
+        INotificationService notificationService,
         ILogger<AlertService> logger)
     {
         _alertaRepository = alertaRepository;
         _incidenteRepository = incidenteRepository;
         _planService = planService;
+        _notificationService = notificationService;
         _logger = logger;
     }
 
@@ -47,6 +50,8 @@ public class AlertService : IAlertService
         await _alertaRepository.AddAsync(alerta);
         _logger.LogInformation("Impacto detectado para usuario {UsuarioId}: severidad={Severidad}, alerta={AlertaId}",
             usuarioId, request.Severidad, alerta.Id);
+
+        await NotifyIfEnviadaAsync(alerta);
 
         return MapToDto(alerta);
     }
@@ -82,6 +87,8 @@ public class AlertService : IAlertService
         await _alertaRepository.AddAsync(alerta);
         _logger.LogWarning("SOS enviado para usuario {UsuarioId}: severidad={Severidad}, canal={Canal}",
             usuarioId, request.Severidad, request.Canal);
+
+        await NotifyIfEnviadaAsync(alerta);
 
         return MapToDto(alerta);
     }
@@ -132,6 +139,8 @@ public class AlertService : IAlertService
         await _alertaRepository.UpdateAsync(alerta);
         _logger.LogCritical("BYPASS CRÍTICO para alerta {AlertaId} del usuario {UsuarioId}", alertaId, usuarioId);
 
+        await NotifyIfEnviadaAsync(alerta);
+
         return new AlertActionResponse
         {
             AlertaId = alerta.Id,
@@ -159,6 +168,8 @@ public class AlertService : IAlertService
         await _alertaRepository.UpdateAsync(alerta);
         _logger.LogInformation("Reintento #{Reintentos} de alerta {AlertaId} para usuario {UsuarioId}",
             alerta.Reintentos, alertaId, usuarioId);
+
+        await _notificationService.RetryAlertNotificationsAsync(alerta);
 
         return new AlertActionResponse
         {
@@ -271,7 +282,36 @@ public class AlertService : IAlertService
         _logger.LogInformation("{Count} alertas offline sincronizadas para usuario {UsuarioId}",
             request.Alertas.Count, usuarioId);
 
+        foreach (var alerta in resultados)
+        {
+            var alertaEntity = new Alerta
+            {
+                Id = alerta.Id,
+                UsuarioId = usuarioId,
+                Tipo = alerta.Tipo,
+                Severidad = alerta.Severidad,
+                Estado = alerta.Estado,
+                CreadoEn = alerta.CreadoEn,
+            };
+            await NotifyIfEnviadaAsync(alertaEntity);
+        }
+
         return resultados;
+    }
+
+    private async Task NotifyIfEnviadaAsync(Alerta alerta)
+    {
+        if (alerta.Estado != "Enviada")
+            return;
+
+        try
+        {
+            await _notificationService.NotifyAlertMonitorsAsync(alerta);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al notificar monitores para alerta {AlertaId}. La alerta no se ve afectada.", alerta.Id);
+        }
     }
 
     private static AlertStatusDto MapToDto(Alerta a) => new()

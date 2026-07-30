@@ -14,6 +14,7 @@ public class MonitorServiceTests
     private readonly Mock<IMonitorRepository> _monitorRepo;
     private readonly Mock<IUsuarioRepository> _usuarioRepo;
     private readonly Mock<IPlanService> _planService;
+    private readonly ListLogger<MonitorService> _logger;
     private readonly MonitorService _monitorService;
 
     public MonitorServiceTests()
@@ -21,8 +22,8 @@ public class MonitorServiceTests
         _monitorRepo = new Mock<IMonitorRepository>();
         _usuarioRepo = new Mock<IUsuarioRepository>();
         _planService = new Mock<IPlanService>();
-        var logger = Mock.Of<ILogger<MonitorService>>();
-        _monitorService = new MonitorService(_monitorRepo.Object, _usuarioRepo.Object, _planService.Object, logger);
+        _logger = new ListLogger<MonitorService>();
+        _monitorService = new MonitorService(_monitorRepo.Object, _usuarioRepo.Object, _planService.Object, _logger);
     }
 
     [Fact]
@@ -61,6 +62,7 @@ public class MonitorServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task InviteAsync_FreePlan_Throws()
     {
         var usuarioId = Guid.NewGuid();
@@ -74,6 +76,7 @@ public class MonitorServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task InviteAsync_OverLimit_Throws()
     {
         var usuarioId = Guid.NewGuid();
@@ -98,6 +101,7 @@ public class MonitorServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task InviteAsync_SelfInvite_Throws()
     {
         var usuarioId = Guid.NewGuid();
@@ -114,6 +118,7 @@ public class MonitorServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task InviteAsync_ExistingInvite_Throws()
     {
         var usuarioId = Guid.NewGuid();
@@ -255,6 +260,7 @@ public class MonitorServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task AcceptInvitationAsync_WrongUser_Throws()
     {
         var monitor = new Monitor
@@ -289,6 +295,7 @@ public class MonitorServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task RevokeMonitorAsync_WrongUser_Throws()
     {
         var usuarioId = Guid.NewGuid();
@@ -298,5 +305,146 @@ public class MonitorServiceTests
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _monitorService.RevokeMonitorAsync(usuarioId, monitor.Id));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task InviteAsync_PremiumAllowsSixMonitors()
+    {
+        var usuarioId = Guid.NewGuid();
+        _planService.Setup(s => s.GetCurrentSubscriptionAsync(usuarioId))
+            .ReturnsAsync(new SuscripcionDto { PlanNombre = "Premium" });
+        _monitorRepo.Setup(r => r.CountActiveByUserAsync(usuarioId)).ReturnsAsync(5);
+        _monitorRepo.Setup(r => r.ExistsByUsernameAsync(usuarioId, "monitor6")).ReturnsAsync(false);
+        _usuarioRepo.Setup(r => r.GetByUsernameAsync("monitor6"))
+            .ReturnsAsync(new Usuario { Id = Guid.NewGuid(), Username = "monitor6", Correo = "m6@test.com" });
+
+        var result = await _monitorService.InviteAsync(usuarioId, new InviteMonitorRequest
+        {
+            Username = "monitor6",
+        });
+
+        Assert.NotNull(result.Token);
+        _monitorRepo.Verify(r => r.AddAsync(It.IsAny<Monitor>()), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task InviteAsync_PremiumRejectsSeventhMonitor()
+    {
+        var usuarioId = Guid.NewGuid();
+        _planService.Setup(s => s.GetCurrentSubscriptionAsync(usuarioId))
+            .ReturnsAsync(new SuscripcionDto { PlanNombre = "Premium" });
+        _monitorRepo.Setup(r => r.CountActiveByUserAsync(usuarioId)).ReturnsAsync(6);
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            _monitorService.InviteAsync(usuarioId, new InviteMonitorRequest { Username = "monitor7" }));
+        _monitorRepo.Verify(r => r.AddAsync(It.IsAny<Monitor>()), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task InviteAsync_BasicKeepsLimitOfTwo()
+    {
+        var usuarioId = Guid.NewGuid();
+        _planService.Setup(s => s.GetCurrentSubscriptionAsync(usuarioId))
+            .ReturnsAsync(new SuscripcionDto { PlanNombre = "Basic" });
+        _monitorRepo.Setup(r => r.CountActiveByUserAsync(usuarioId)).ReturnsAsync(2);
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            _monitorService.InviteAsync(usuarioId, new InviteMonitorRequest { Username = "extra" }));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task InviteAsync_InactiveMonitorsDoNotConsumeQuota()
+    {
+        var usuarioId = Guid.NewGuid();
+        _planService.Setup(s => s.GetCurrentSubscriptionAsync(usuarioId))
+            .ReturnsAsync(new SuscripcionDto { PlanNombre = "Premium" });
+        _monitorRepo.Setup(r => r.CountActiveByUserAsync(usuarioId)).ReturnsAsync(5);
+        _monitorRepo.Setup(r => r.ExistsByUsernameAsync(usuarioId, "newmonitor")).ReturnsAsync(false);
+        _usuarioRepo.Setup(r => r.GetByUsernameAsync("newmonitor"))
+            .ReturnsAsync(new Usuario { Id = Guid.NewGuid(), Username = "newmonitor", Correo = "nm@test.com" });
+
+        var existingInactive = new Monitor { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Revocado" };
+        var result = await _monitorService.InviteAsync(usuarioId, new InviteMonitorRequest
+        {
+            Username = "newmonitor",
+        });
+
+        Assert.NotNull(result.Token);
+        _monitorRepo.Verify(r => r.AddAsync(It.IsAny<Monitor>()), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task InviteAsync_PlanNameCaseInsensitive_IsNotCaseSensitive()
+    {
+        var usuarioId = Guid.NewGuid();
+        _planService.Setup(s => s.GetCurrentSubscriptionAsync(usuarioId))
+            .ReturnsAsync(new SuscripcionDto { PlanNombre = "premium" });
+        _monitorRepo.Setup(r => r.CountActiveByUserAsync(usuarioId)).ReturnsAsync(5);
+        _monitorRepo.Setup(r => r.ExistsByUsernameAsync(usuarioId, "test")).ReturnsAsync(false);
+        _usuarioRepo.Setup(r => r.GetByUsernameAsync("test"))
+            .ReturnsAsync(new Usuario { Id = Guid.NewGuid(), Username = "test", Correo = "t@test.com" });
+
+        var result = await _monitorService.InviteAsync(usuarioId, new InviteMonitorRequest
+        {
+            Username = "test",
+        });
+
+        Assert.NotNull(result.Token);
+        _monitorRepo.Verify(r => r.AddAsync(It.IsAny<Monitor>()), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task TEST_ONLY_INVITATION_TOKEN_DO_NOT_LOG()
+    {
+        var fakeToken = "TEST-" + Guid.NewGuid().ToString("N")[..8];
+        var usuarioId = Guid.NewGuid();
+        var monitorUsuarioId = Guid.NewGuid();
+        var monitorId = Guid.NewGuid();
+
+        var monitor = new Monitor
+        {
+            Id = monitorId,
+            UsuarioId = usuarioId,
+            ProfileId = monitorUsuarioId.ToString(),
+            Estado = "Pendiente",
+            TokenInvitacion = fakeToken,
+            Expiracion = DateTime.UtcNow.AddDays(1),
+        };
+
+        _monitorRepo.Setup(r => r.GetByTokenAsync(fakeToken)).ReturnsAsync(monitor);
+
+        await _monitorService.AcceptInvitationAsync(fakeToken, monitorUsuarioId);
+
+        foreach (var entry in _logger.LogEntries)
+        {
+            Assert.DoesNotContain(fakeToken, entry, StringComparison.OrdinalIgnoreCase);
+        }
+
+        _logger.LogEntries.Clear();
+
+        var monitor2 = new Monitor
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = usuarioId,
+            ProfileId = monitorUsuarioId.ToString(),
+            Estado = "Pendiente",
+            TokenInvitacion = fakeToken,
+            Expiracion = DateTime.UtcNow.AddDays(1),
+        };
+
+        _monitorRepo.Setup(r => r.GetByTokenAsync(fakeToken)).ReturnsAsync(monitor2);
+
+        await _monitorService.RejectInvitationAsync(fakeToken, monitorUsuarioId);
+
+        foreach (var entry in _logger.LogEntries)
+        {
+            Assert.DoesNotContain(fakeToken, entry, StringComparison.OrdinalIgnoreCase);
+        }
     }
 }

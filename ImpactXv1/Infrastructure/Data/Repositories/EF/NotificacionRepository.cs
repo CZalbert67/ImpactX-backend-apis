@@ -32,6 +32,13 @@ public class NotificacionRepository : INotificacionRepository
             .CountAsync(n => n.UsuarioId == usuarioId && !n.Leida);
     }
 
+    public async Task<Notificacion?> GetByIdempotencyKeyAsync(string key, Guid? recipientUserId = null, CancellationToken cancellationToken = default)
+    {
+        return await _context.Notificaciones
+            .Where(n => n.ClaveIdempotencia == key)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task AddAsync(Notificacion notificacion)
     {
         await _context.Notificaciones.AddAsync(notificacion);

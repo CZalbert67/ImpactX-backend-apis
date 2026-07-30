@@ -59,34 +59,34 @@ public class MonitorsController : ControllerBase
     }
 
     [AllowAnonymous]
-    [HttpGet("invite/{token}")]
-    public async Task<IActionResult> GetInvitation(string token)
+    [HttpPost("invite/details")]
+    public async Task<IActionResult> GetInvitation([FromBody] InvitationTokenRequest request)
     {
-        var info = await _monitorService.GetInvitationByTokenAsync(token);
+        var info = await _monitorService.GetInvitationByTokenAsync(request.Token);
         return Ok(info);
     }
 
-    [AllowAnonymous]
-    [HttpPost("invite/{token}/accept")]
-    public async Task<IActionResult> AcceptInvitation(string token)
+    [HttpPost("invite/accept")]
+    public async Task<IActionResult> AcceptInvitation([FromBody] InvitationTokenRequest request)
     {
         var monitorUsuarioId = GetUsuarioId();
-        await _monitorService.AcceptInvitationAsync(token, monitorUsuarioId);
+        await _monitorService.AcceptInvitationAsync(request.Token, monitorUsuarioId);
         return Ok(new { mensaje = "Invitación aceptada." });
     }
 
-    [AllowAnonymous]
-    [HttpPost("invite/{token}/reject")]
-    public async Task<IActionResult> RejectInvitation(string token)
+    [HttpPost("invite/reject")]
+    public async Task<IActionResult> RejectInvitation([FromBody] InvitationTokenRequest request)
     {
         var monitorUsuarioId = GetUsuarioId();
-        await _monitorService.RejectInvitationAsync(token, monitorUsuarioId);
+        await _monitorService.RejectInvitationAsync(request.Token, monitorUsuarioId);
         return Ok(new { mensaje = "Invitación rechazada." });
     }
 
     private Guid GetUsuarioId()
     {
         var claim = User.FindFirst(ClaimTypes.NameIdentifier);
-        return Guid.Parse(claim!.Value);
+        if (claim == null)
+            throw new UnauthorizedAccessException("Usuario no autenticado.");
+        return Guid.Parse(claim.Value);
     }
 }

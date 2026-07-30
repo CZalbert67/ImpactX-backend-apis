@@ -673,7 +673,6 @@ Elimina el token FCM del usuario autenticado.
 - Rate limiting no implementado en endpoints públicos (login, recover-password)
 - Email real no implementado (StubEmailService)
 - CORS permisivo (`SetIsOriginAllowed(_ => true)`) pendiente de revisión
-- Firebase no conectado a AlertService
 - Múltiples dispositivos FCM no soportados
 
 ### No se modificó
@@ -689,9 +688,35 @@ Elimina el token FCM del usuario autenticado.
 - Cosmos DB real
 - Firebase
 
-### Pendiente
+### Ronda 10 — Alert and Monitor Notification Integration (pendiente de PR)
 
-- Firebase no conectado a AlertService
-- Rate limiting
-- Múltiples dispositivos FCM
+| # | Requisito | Verificación |
+|---|---|---|
+| 1 | `IPushNotificationGateway` mockeable | `Core/Interfaces/Services/IPushNotificationGateway.cs` creado. `FirebasePushNotificationGateway` en infraestructura. DI registrado como Scoped. |
+| 2 | `PushGatewayResult` tipado | `sealed record PushGatewayResult(bool Success, string Status, string? ExternalMessageId)`. Estados: Enviado, FirebaseNoConfigurado, Fallido. |
+| 3 | `NotificationDispatchResult` | `sealed record NotificationDispatchResult(Guid NotificationId, Guid RecipientUserId, string Status, bool Sent)`. Sin FcmToken, sin excepciones internas. |
+| 4 | Notificacion extendida | Nuevos campos: `AlertaId`, `Canal="Push"`, `EstadoEnvio`, `Intentos`, `UltimoIntentoEn`, `EnviadoEn`, `ClaveIdempotencia`. EF configurado. |
+| 5 | Idempotencia | Clave: `alert:{AlertaId}:recipient:{UsuarioId}:channel:push`. `GetByIdempotencyKeyAsync` en repositorios EF y Cosmos. |
+| 6 | AlertService → INotificationService | Solo cuando `alerta.Estado == "Enviada"`. Fallos de notificación no eliminan la alerta ni causan 500. DetectAsync, SendSosAsync, BypassCriticalAsync, RetryAsync, SyncOfflineAsync protegidos. ConfirmOkAsync y CloseAsync nunca notifican. |
+| 7 | NotificationService resuelve monitores | Usa `IMonitorRepository.GetActiveByUserAsync`, `ProfileId` para vincular Usuario. Monitores sin ProfileId → DestinatarioNoVinculado. Usuario inactivo → no push. Sin FcmToken → SinToken. |
+| 8 | Gateway mockeable | Firebase detrás de `IPushNotificationGateway`. No se llama Firebase en pruebas. |
+| 9 | Premium 6 monitores | Límite cambiado de 5 a 6. `planName.ToLowerInvariant()` para case-insensitive. |
+| 10 | Auth en invitaciones | `[AllowAnonymous]` eliminado de Accept/Reject. Requieren JWT. 401 sin autenticación. |
+| 11 | Token no expuesto en URL | Rutas cambiadas a `POST /api/monitors/invite/{details,accept,reject}` con token en JSON body. Sin `{token}` en rutas. No se registra en logs, rutas ni scopes. |
+| 12 | 414 pruebas totales | 103 Category=Security. 0 fallos. |
+| 13 | Seguridad de datos | FcmToken no se registra en logs HTTP ni excepciones. Payload push limitado a `alertId`, `alertType`, `severity`, `createdAt`. Sin datos médicos en payload. Tokens de invitación no se registran en logs. |
+
+### Deuda técnica pendiente
+
+- Temporizador de 10 segundos para detección automática
+- Clasificación definitiva leve/grave/fatal de impacto
+- Machine Learning para clasificación de severidad
+- Reset token almacenado en texto plano en `PasswordResetToken`
+- Rate limiting (login/register)
+- Correo real (`StubEmailService`)
 - CORS restrictivo
+- Múltiples tokens FCM por usuario
+- Notificaciones por correo/SMS
+- Transacción alerta/incidente (no atómico)
+- OpenTelemetry / tracing distribuido
+- Problem Details (RFC 7807)

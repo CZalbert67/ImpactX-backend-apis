@@ -27,6 +27,7 @@ public class AlertasControllerTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task Detect_WithoutAuth_ReturnsUnauthorized()
     {
         var response = await _client.PostAsJsonAsync("/api/alerts/detect", new
@@ -93,6 +94,7 @@ public class AlertasControllerTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task SendSos_WithoutAuth_ReturnsUnauthorized()
     {
         var response = await _client.PostAsJsonAsync("/api/alerts/sos", new
@@ -132,6 +134,7 @@ public class AlertasControllerTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task GetStatus_WithoutAuth_ReturnsUnauthorized()
     {
         var response = await _client.GetAsync($"/api/alerts/{Guid.NewGuid()}");
@@ -332,5 +335,74 @@ public class AlertasControllerTests : IClassFixture<CustomWebApplicationFactory>
         var response = await _client.GetAsync($"/api/alerts/{Guid.NewGuid()}");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SendSos_WithoutMonitors_ReturnsOk()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var response = await _client.PostAsJsonAsync("/api/alerts/sos", new
+        {
+            lat = 19.43,
+            lng = -99.13,
+            severidad = "severe",
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task Detect_DoesNotCreateNotificationHistory()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var response = await _client.PostAsJsonAsync("/api/alerts/detect", new
+        {
+            lat = 19.43,
+            lng = -99.13,
+            severidad = "bump",
+            gForce = 2.5,
+            decibeles = 85.0,
+            frecuenciaCardiaca = 95.0,
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var notifResponse = await _client.GetAsync("/api/notifications");
+        var notifs = await notifResponse.Content.ReadFromJsonAsync<List<NotificacionDto>>();
+        Assert.Empty(notifs!);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ConfirmOk_DoesNotGeneratePush()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var sosResponse = await _client.PostAsJsonAsync("/api/alerts/detect", new
+        {
+            lat = 19.43,
+            lng = -99.13,
+            severidad = "crash",
+            gForce = 5.0,
+            decibeles = 110.0,
+            frecuenciaCardiaca = 120.0,
+        });
+        var created = await sosResponse.Content.ReadFromJsonAsync<AlertStatusDto>();
+
+        var confirmResponse = await _client.PostAsync($"/api/alerts/{created!.Id}/confirm-ok", null);
+        Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
+
+        var notifResponse = await _client.GetAsync("/api/notifications");
+        var notifs = await notifResponse.Content.ReadFromJsonAsync<List<NotificacionDto>>();
+        Assert.Empty(notifs!);
     }
 }
