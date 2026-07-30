@@ -27,6 +27,14 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Initialize hardcoded secrets policy report
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "ImpactX Hardcoded Secrets Policy" > "${{ runner.temp }}/hardcoded-secrets-policy.txt"
+          echo "================================" >> "${{ runner.temp }}/hardcoded-secrets-policy.txt"
+          echo "Scanner execution has not completed. Review workflow logs." >> "${{ runner.temp }}/hardcoded-secrets-policy.txt"
+
       - name: Run hardcoded secrets policy tests
         shell: bash
         run: |
@@ -37,6 +45,7 @@ jobs:
             -v
 
       - name: Check hardcoded secrets policy
+        if: always()
         shell: bash
         run: |
           set -Eeuo pipefail

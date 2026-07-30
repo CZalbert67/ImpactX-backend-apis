@@ -13,17 +13,8 @@ public class StubEmailService : IEmailService
 
     public Task SendPasswordResetEmailAsync(string correo, string token)
     {
-        var maskedCorreo = MaskEmail(correo);
         _logger.LogInformation(
-            "[StubEmailService] Password reset requested for {Correo}. Email sending not yet implemented. Token was generated and stored internally.",
-            maskedCorreo);
+            "[StubEmailService] Password reset delivery requested. Email sending is not configured.");
         return Task.CompletedTask;
-    }
-
-    private static string MaskEmail(string email)
-    {
-        var atIndex = email.IndexOf('@');
-        if (atIndex <= 1) return email;
-        return email[..1] + "***" + email[atIndex..];
     }
 }

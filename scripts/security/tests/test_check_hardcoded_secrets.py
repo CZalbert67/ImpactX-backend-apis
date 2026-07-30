@@ -291,7 +291,9 @@ class TestScannerMainExitCodes(unittest.TestCase):
                     scanner.main()
             self.assertEqual(ctx.exception.code, 2)
             self.assertNotIn("TEST_ONLY", stderr.getvalue())
-            self.assertNotIn("secret", stderr.getvalue().lower())
+            err = stderr.getvalue()
+            self.assertIn("unrecognized argument", err)
+            self.assertIn("--invalid-option", err)
 
 
 if __name__ == "__main__":
