@@ -116,7 +116,7 @@ Código
 | 5 | Premium 6 monitores | Pruebas unitarias MonitorService | 6to aceptado, 7mo rechazado, case-insensitive |
 | 6 | Auth en invitaciones | Pruebas integración MonitorsController | 401 sin JWT en Accept/Reject |
 | 7 | Seguridad payload | Pruebas unitarias | Solo alertId, alertType, severity, createdAt |
-| 8 | 414 pruebas (103 Security) | `dotnet test` local | 0 fallos, 0 vulnerabilidades NuGet, 0 secretos |
+| 8 | 415 pruebas (104 Security) | `dotnet test` local | 0 fallos, 0 vulnerabilidades NuGet, 0 secretos |
 | 9 | Actionlint | `actionlint .github/workflows/*.yml` | Sin errores en workflows |
 | 10 | git diff --check | `git diff --check` | Sin errores de whitespace |
 | 11 | No se modificaron archivos prohibidos | `git diff --name-only` | Azure, Bicep, CodeQL, OWASP, Roslyn, Azure Deploy, JWT no tocados |

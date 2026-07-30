@@ -703,7 +703,7 @@ Elimina el token FCM del usuario autenticado.
 | 9 | Premium 6 monitores | Límite cambiado de 5 a 6. `planName.ToLowerInvariant()` para case-insensitive. |
 | 10 | Auth en invitaciones | `[AllowAnonymous]` eliminado de Accept/Reject. Requieren JWT. 401 sin autenticación. |
 | 11 | Token no expuesto en URL | Rutas cambiadas a `POST /api/monitors/invite/{details,accept,reject}` con token en JSON body. Sin `{token}` en rutas. No se registra en logs, rutas ni scopes. |
-| 12 | 414 pruebas totales | 103 Category=Security. 0 fallos. |
+| 12 | 415 pruebas totales | 104 Category=Security. 0 fallos. |
 | 13 | Seguridad de datos | FcmToken no se registra en logs HTTP ni excepciones. Payload push limitado a `alertId`, `alertType`, `severity`, `createdAt`. Sin datos médicos en payload. Tokens de invitación no se registran en logs. |
 
 ### Deuda técnica pendiente
