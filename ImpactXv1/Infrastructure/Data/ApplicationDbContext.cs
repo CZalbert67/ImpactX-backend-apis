@@ -223,7 +223,11 @@ public class ApplicationDbContext : DbContext
             entity.Property(n => n.Tipo).HasMaxLength(50);
             entity.Property(n => n.ReferenciaId).HasMaxLength(100);
             entity.Property(n => n.ReferenciaTipo).HasMaxLength(50);
+            entity.Property(n => n.Canal).HasMaxLength(20);
+            entity.Property(n => n.EstadoEnvio).HasMaxLength(30);
+            entity.Property(n => n.ClaveIdempotencia).HasMaxLength(300);
             entity.HasIndex(n => n.UsuarioId);
+            entity.HasIndex(n => n.ClaveIdempotencia).IsUnique();
         });
     }
 }

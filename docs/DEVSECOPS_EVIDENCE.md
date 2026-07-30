@@ -96,9 +96,27 @@ Código
 - **No existe pentesting real**. No se ha contratado una prueba de penetración externa.
 - **No existe DAST autenticado contra producción**. No hay escaneo dinámico automatizado contra el entorno productivo.
 - **No existe rotación automática de todos los secretos**. La rotación de refresh tokens ocurre en la aplicación, pero no hay rotación automatizada de secrets de infraestructura.
-- **Firebase aún no está conectado a AlertService**. El token FCM se almacena pero no se utiliza para enviar alertas reales.
+- **Firebase conectado a AlertService a través de INotificationService y gateway mockeable**. Las alertas en estado "Enviada" disparan notificaciones push a monitores activos. Solo se probaron mocks; no hay envíos reales a Firebase en las pruebas. Firebase real requiere credenciales configuradas en producción.
+- **Premium ahora permite 6 monitores activos** (desde 5).
+- **Invitaciones protegidas**: AcceptInvitation y RejectInvitation requieren JWT (401 sin autenticación).
 - **Rate limiting pendiente**. No hay límite de tasa configurado en la API.
 - **Reset token en texto plano**. El token de recuperación se almacena sin hash. Mejora pendiente.
 - **No hay pruebas DAST reales**. El escaneo OWASP actual es un escaneo de API estático, no un DAST autenticado contra un entorno desplegado.
 - **El escaneo de secretos Gitleaks complementa pero no sustituye controles en Azure** como Key Vault o Managed Identity para secretos de producción.
 - **JWT secret externalizado pero gestionado por configuración/env vars**, no por Azure Key Vault ni Managed Identity. La generación de secretos efímeros en CI mitaga exposición, pero sigue dependiendo de variables de entorno en producción.
+
+### Ronda 10 — Alert and Monitor Notification Integration (pendiente de PR)
+
+| # | Control | Prueba/Workflow | Qué valida |
+|---|---|---|---|
+| 1 | Gateway mockeable | Pruebas unitarias NotificationService | PushGatewayResult tipado, sin Firebase real |
+| 2 | AlertService no revierte | Pruebas unitarias AlertService | Fallo de NotificationService no elimina alerta |
+| 3 | Resolución de monitores | Pruebas unitarias NotificationService | Solo activos, ProfileId como vínculo |
+| 4 | Historial con idempotencia | Pruebas unitarias | DuplicadoOmitido para envíos repetidos |
+| 5 | Premium 6 monitores | Pruebas unitarias MonitorService | 6to aceptado, 7mo rechazado, case-insensitive |
+| 6 | Auth en invitaciones | Pruebas integración MonitorsController | 401 sin JWT en Accept/Reject |
+| 7 | Seguridad payload | Pruebas unitarias | Solo alertId, alertType, severity, createdAt |
+| 8 | 415 pruebas (104 Security) | `dotnet test` local | 0 fallos, 0 vulnerabilidades NuGet, 0 secretos |
+| 9 | Actionlint | `actionlint .github/workflows/*.yml` | Sin errores en workflows |
+| 10 | git diff --check | `git diff --check` | Sin errores de whitespace |
+| 11 | No se modificaron archivos prohibidos | `git diff --name-only` | Azure, Bicep, CodeQL, OWASP, Roslyn, Azure Deploy, JWT no tocados |

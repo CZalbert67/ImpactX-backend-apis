@@ -29,18 +29,18 @@ dotnet add package <PackageName>
 - Startup seeding via `Extensions/WebApplicationExtensions.cs::SeedDatabaseAsync()` — calls `PlanSeeder` for both modes
 - CORS policy `AllowLocalhost` (all origins, all headers/methods, credentials)
 
-## Implemented features (15 controllers, 14+ services)
+## Implemented features (15 controllers, 15+ services)
 - **Auth** (register, login, logout, recover/reset password, sessions, account export/delete, **refresh token**)
 - **Users** (profile CRUD, driver profile, medical profile, preferences, permissions, settings, **FCM token** PUT/DELETE)
 - **Plans + Subscriptions + Payments**
 - **Contacts** (emergency contacts CRUD)
-- **Monitors**
+- **Monitors** (invite, accept, reject, revoke, restore, **Premium allows 6**)
 - **Routes** (Rutas)
 - **Trips** (Viajes + telemetry)
 - **Wearables**
-- **Alerts** (Alertas)
+- **Alerts** (Alertas + **monitor notification integration**)
 - **Incidents** (Incidentes)
-- **Notifications** (Notificaciones)
+- **Notifications** (Notificaciones + **alert dispatch**, **idempotency**, **push history**)
 - **Analytics**
 - **Settings**
 

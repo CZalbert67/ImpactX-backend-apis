@@ -1,6 +1,7 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Notifications;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 using Microsoft.Extensions.Logging;
@@ -13,6 +14,7 @@ public class AlertServiceTests
     private readonly Mock<IAlertaRepository> _alertaRepo;
     private readonly Mock<IIncidenteRepository> _incidenteRepo;
     private readonly Mock<IPlanService> _planService;
+    private readonly Mock<INotificationService> _notificationService;
     private readonly AlertService _alertService;
 
     public AlertServiceTests()
@@ -20,8 +22,9 @@ public class AlertServiceTests
         _alertaRepo = new Mock<IAlertaRepository>();
         _incidenteRepo = new Mock<IIncidenteRepository>();
         _planService = new Mock<IPlanService>();
+        _notificationService = new Mock<INotificationService>();
         var logger = Mock.Of<ILogger<AlertService>>();
-        _alertService = new AlertService(_alertaRepo.Object, _incidenteRepo.Object, _planService.Object, logger);
+        _alertService = new AlertService(_alertaRepo.Object, _incidenteRepo.Object, _planService.Object, _notificationService.Object, logger);
     }
 
     [Fact]
@@ -123,6 +126,7 @@ public class AlertServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task ConfirmOkAsync_WithClosedAlert_Throws()
     {
         var usuarioId = Guid.NewGuid();
@@ -134,6 +138,7 @@ public class AlertServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task ConfirmOkAsync_WithWrongUser_Throws()
     {
         var usuarioId = Guid.NewGuid();
@@ -160,6 +165,7 @@ public class AlertServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task BypassCriticalAsync_WithClosedAlert_Throws()
     {
         var usuarioId = Guid.NewGuid();
@@ -225,6 +231,7 @@ public class AlertServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task GetStatusAsync_WithWrongUser_Throws()
     {
         var usuarioId = Guid.NewGuid();
@@ -304,6 +311,7 @@ public class AlertServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Security")]
     public async Task CloseAsync_WithWrongUser_Throws()
     {
         var usuarioId = Guid.NewGuid();
@@ -350,5 +358,150 @@ public class AlertServiceTests
         Assert.All(result, r => Assert.Equal("Enviada", r.Estado));
         Assert.All(result, r => Assert.True(r.EsOffline));
         _alertaRepo.Verify(r => r.AddAsync(It.IsAny<Alerta>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task DetectAsync_EstadoPendiente_DoesNotInvokeNotificationService()
+    {
+        var usuarioId = Guid.NewGuid();
+        await _alertService.DetectAsync(usuarioId, new DetectAlertRequest
+        {
+            Lat = 19.43,
+            Lng = -99.13,
+            Severidad = "bump",
+        });
+        _notificationService.Verify(n => n.NotifyAlertMonitorsAsync(It.IsAny<Alerta>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task SendSosAsync_EstadoEnviada_InvokesNotificationService()
+    {
+        var usuarioId = Guid.NewGuid();
+        await _alertService.SendSosAsync(usuarioId, new SosRequest
+        {
+            Lat = 19.43,
+            Lng = -99.13,
+            Severidad = "severe",
+        });
+        _notificationService.Verify(n => n.NotifyAlertMonitorsAsync(It.IsAny<Alerta>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ConfirmOkAsync_DoesNotInvokeNotificationService()
+    {
+        var usuarioId = Guid.NewGuid();
+        var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Pendiente" };
+        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+
+        await _alertService.ConfirmOkAsync(usuarioId, alerta.Id);
+
+        _notificationService.Verify(n => n.NotifyAlertMonitorsAsync(It.IsAny<Alerta>(), It.IsAny<CancellationToken>()), Times.Never);
+        _notificationService.Verify(n => n.RetryAlertNotificationsAsync(It.IsAny<Alerta>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CloseAsync_DoesNotInvokeNotificationService()
+    {
+        var usuarioId = Guid.NewGuid();
+        var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Severidad = "crash", Estado = "Activa" };
+        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+
+        await _alertService.CloseAsync(usuarioId, alerta.Id, new CloseAlertRequest { MetodoCierre = "Atendido" });
+
+        _notificationService.Verify(n => n.NotifyAlertMonitorsAsync(It.IsAny<Alerta>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task BypassCriticalAsync_WithEstadoActiva_DoesNotInvokeNotify()
+    {
+        var usuarioId = Guid.NewGuid();
+        var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Pendiente" };
+        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+
+        await _alertService.BypassCriticalAsync(usuarioId, alerta.Id);
+
+        Assert.Equal("Activa", alerta.Estado);
+        _notificationService.Verify(n => n.NotifyAlertMonitorsAsync(It.IsAny<Alerta>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RetryAsync_InvokesRetryNotifications()
+    {
+        var usuarioId = Guid.NewGuid();
+        var alerta = new Alerta
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = usuarioId,
+            Estado = "Pendiente",
+            Timeline = [["2024-01-01T00:00:00Z", "Impacto detectado: crash"]],
+        };
+        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+
+        await _alertService.RetryAsync(usuarioId, alerta.Id);
+
+        _notificationService.Verify(n => n.RetryAlertNotificationsAsync(It.IsAny<Alerta>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task NotificationServiceFailure_DoesNotDeleteAlert()
+    {
+        var usuarioId = Guid.NewGuid();
+        _notificationService.Setup(n => n.NotifyAlertMonitorsAsync(It.IsAny<Alerta>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Fallo inesperado"));
+
+        var result = await _alertService.SendSosAsync(usuarioId, new SosRequest
+        {
+            Lat = 19.43,
+            Lng = -99.13,
+            Severidad = "severe",
+        });
+
+        Assert.NotNull(result);
+        Assert.Equal("SOS", result.Tipo);
+        _alertaRepo.Verify(r => r.AddAsync(It.IsAny<Alerta>()), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task SendSosAsync_GuardaAlertaAntesDeNotificar()
+    {
+        var usuarioId = Guid.NewGuid();
+        Alerta? savedAlert = null;
+        _alertaRepo.Setup(r => r.AddAsync(It.IsAny<Alerta>()))
+            .Callback<Alerta>(a => savedAlert = a)
+            .Returns(Task.CompletedTask);
+
+        await _alertService.SendSosAsync(usuarioId, new SosRequest
+        {
+            Lat = 19.43,
+            Lng = -99.13,
+            Severidad = "severe",
+        });
+
+        Assert.NotNull(savedAlert);
+        _notificationService.Verify(n => n.NotifyAlertMonitorsAsync(It.Is<Alerta>(a => a.Id == savedAlert!.Id), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task NotifyAlertMonitors_OperationCanceled_DoesNotDeleteAlert()
+    {
+        var usuarioId = Guid.NewGuid();
+        _notificationService.Setup(n => n.NotifyAlertMonitorsAsync(It.IsAny<Alerta>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException());
+
+        var result = await _alertService.SendSosAsync(usuarioId, new SosRequest
+        {
+            Lat = 19.43,
+            Lng = -99.13,
+            Severidad = "severe",
+        });
+
+        Assert.NotNull(result);
+        Assert.Equal("SOS", result.Tipo);
+        _alertaRepo.Verify(r => r.AddAsync(It.IsAny<Alerta>()), Times.Once);
     }
 }
