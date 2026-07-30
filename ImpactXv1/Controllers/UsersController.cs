@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -19,6 +20,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet("me")]
+    [HttpGet("/api/v1/profile")]
     public async Task<IActionResult> GetProfile()
     {
         var usuarioId = GetUsuarioId();
@@ -27,6 +29,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("me")]
+    [HttpPut("/api/v1/profile")]
     public async Task<IActionResult> UpdateProfile([FromBody] UpdateUserProfileRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -35,6 +38,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet("me/preferences")]
+    [HttpGet("/api/v1/profile/preferences")]
     public async Task<IActionResult> GetPreferences()
     {
         var usuarioId = GetUsuarioId();
@@ -43,6 +47,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("me/preferences")]
+    [HttpPut("/api/v1/profile/preferences")]
     public async Task<IActionResult> UpdatePreferences([FromBody] UpdateUserPreferencesRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -51,6 +56,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet("driver-profile")]
+    [HttpGet("/api/v1/profile/driver")]
     public async Task<IActionResult> GetDriverProfile()
     {
         var usuarioId = GetUsuarioId();
@@ -59,6 +65,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("driver-profile")]
+    [HttpPut("/api/v1/profile/driver")]
     public async Task<IActionResult> UpdateDriverProfile([FromBody] UpdateDriverProfileRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -67,6 +74,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet("driver-profile/medical")]
+    [HttpGet("/api/v1/profile/medical")]
     public async Task<IActionResult> GetMedicalProfile()
     {
         var usuarioId = GetUsuarioId();
@@ -75,6 +83,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("driver-profile/medical")]
+    [HttpPut("/api/v1/profile/medical")]
     public async Task<IActionResult> UpdateMedicalProfile([FromBody] UpdateMedicalProfileRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -83,6 +92,8 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("me/fcm-token")]
+    [HttpPut("/api/v1/devices/fcm-token")]
+    [EnableRateLimiting("fcm-token")]
     public async Task<IActionResult> UpdateFcmToken([FromBody] UpdateFcmTokenRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Token))
@@ -97,6 +108,8 @@ public class UsersController : ControllerBase
     }
 
     [HttpDelete("me/fcm-token")]
+    [HttpDelete("/api/v1/devices/fcm-token")]
+    [EnableRateLimiting("fcm-token")]
     public async Task<IActionResult> DeleteFcmToken()
     {
         var usuarioId = GetUsuarioId();
@@ -105,6 +118,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet("search")]
+    [HttpGet("/api/v1/profile/search")]
     public async Task<IActionResult> SearchUsers([FromQuery] string q)
     {
         if (string.IsNullOrWhiteSpace(q) || q.Length < 2)

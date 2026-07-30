@@ -8,6 +8,7 @@ namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/contacts")]
+[Route("api/v1/contacts")]
 [Authorize]
 public class ContactsController : ControllerBase
 {
@@ -35,6 +36,7 @@ public class ContactsController : ControllerBase
     }
 
     [HttpPost]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> CreateContact([FromBody] CreateContactoRequest request)
     {
         var usuarioId = GetUsuarioId();

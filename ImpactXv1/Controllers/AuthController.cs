@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -8,6 +9,7 @@ namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Route("api/v1/auth")]
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
@@ -18,17 +20,22 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
+    [EnableRateLimiting("auth-register")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
         var result = await _authService.RegisterAsync(request);
 
         if (!result.Success)
+        {
             return Conflict(result);
+        }
 
         return Ok(result);
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("auth-login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         var result = await _authService.LoginAsync(request);
@@ -40,6 +47,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("recover-password")]
+    [EnableRateLimiting("auth-recover")]
     public async Task<IActionResult> RecoverPassword([FromBody] RecoverPasswordRequest request)
     {
         var result = await _authService.RecoverPasswordAsync(request);
@@ -53,6 +61,7 @@ public class AuthController : ControllerBase
 
 
     [HttpPost("reset-password")]
+    [EnableRateLimiting("auth-reset")]
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
     {
         var result = await _authService.ResetPasswordAsync(request);
@@ -87,6 +96,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("refresh")]
+    [EnableRateLimiting("auth-refresh")]
     public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
     {
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();

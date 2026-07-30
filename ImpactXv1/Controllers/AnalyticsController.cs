@@ -8,6 +8,7 @@ namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/analytics")]
+[Route("api/v1/analytics")]
 [Authorize]
 public class AnalyticsController : ControllerBase
 {

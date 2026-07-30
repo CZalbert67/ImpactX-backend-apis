@@ -57,9 +57,22 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     {
         builder.UseSetting("UseCosmosDb", "false");
         builder.UseSetting("UseInMemoryDatabase", "true");
-        builder.UseSetting("Jwt:Secret", "test-secret-key-that-is-at-least-32-characters-long-for-hmac");
+        builder.UseSetting("Jwt:Secret", TestJwtConfiguration.Secret);
         builder.UseSetting("Jwt:Issuer", "ImpactX-Test");
         builder.UseSetting("Jwt:Audience", "ImpactX-Client-Test");
+        builder.UseSetting("RateLimiting:Auth:RegisterPerMinute", "1000");
+        builder.UseSetting("RateLimiting:Auth:LoginPerMinute", "1000");
+        builder.UseSetting("RateLimiting:Auth:RefreshPerMinute", "1000");
+        builder.UseSetting("RateLimiting:Auth:RecoverPerWindow", "1000");
+        builder.UseSetting("RateLimiting:Auth:ResetPerWindow", "1000");
+        builder.UseSetting("RateLimiting:Monitors:InviteDetailsPerMinute", "1000");
+        builder.UseSetting("RateLimiting:Monitors:InviteActionPerMinutePerUser", "1000");
+        builder.UseSetting("RateLimiting:Monitors:InviteCreatePerHourPerUser", "1000");
+        builder.UseSetting("RateLimiting:Devices:FcmTokenPerMinutePerUser", "1000");
+        builder.UseSetting("RateLimiting:Telemetry:IngestionPerMinutePerUser", "1000");
+        builder.UseSetting("RateLimiting:Incidents:CreatePerMinutePerUser", "1000");
+        builder.UseSetting("RateLimiting:Alerts:DetectPerMinutePerUser", "1000");
+        builder.UseSetting("RateLimiting:Alerts:SosPerMinutePerUser", "1000");
         builder.ConfigureLogging(logging =>
         {
             logging.ClearProviders();

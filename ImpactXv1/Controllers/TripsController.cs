@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -8,6 +9,7 @@ namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/trips")]
+[Route("api/v1/trips")]
 [Authorize]
 public class TripsController : ControllerBase
 {
@@ -19,6 +21,7 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("start")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Start([FromBody] StartTripRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -27,6 +30,7 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/pause")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Pause(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -35,6 +39,7 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/resume")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Resume(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -43,6 +48,7 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/finish")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Finish(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -51,6 +57,8 @@ public class TripsController : ControllerBase
     }
 
     [HttpPatch("{id:guid}/telemetry")]
+    [EnableRateLimiting("telemetry-ingestion")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> UpdateTelemetry(Guid id, [FromBody] TelemetryUpdateRequest request)
     {
         var usuarioId = GetUsuarioId();

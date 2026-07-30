@@ -8,6 +8,7 @@ namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/settings")]
+[Route("api/v1/settings")]
 [Authorize]
 public class SettingsController : ControllerBase
 {
@@ -35,6 +36,7 @@ public class SettingsController : ControllerBase
     }
 
     [HttpPost("2fa/setup")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Setup2Fa()
     {
         var usuarioId = GetUsuarioId();
@@ -43,6 +45,7 @@ public class SettingsController : ControllerBase
     }
 
     [HttpPost("2fa/enable")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Enable2Fa([FromBody] Enable2FaRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -51,6 +54,7 @@ public class SettingsController : ControllerBase
     }
 
     [HttpDelete("2fa")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Disable2Fa([FromBody] Disable2FaRequest request)
     {
         var usuarioId = GetUsuarioId();

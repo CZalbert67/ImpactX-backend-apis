@@ -441,6 +441,7 @@ En Ronda 4 se reescribió `code-quality-roslyn.yml` para:
 | 1.7 | — | Ronda 5.1 (endurecimiento): `XDT_MicrosoftApplicationInsights_Mode=recommended` agregado. README corregido — se eliminó la referencia a un supuesto comando de importación directa de despliegues y la referencia incorrecta a una consulta individual de recursos como entrada directa de decompilación, se documentó `az group export` + `az bicep decompile`, "Bicep: Insert Resource" y palabra clave `existing`. Sin cambios en workflows, C# ni appsettings |
 | 1.8 | — | Ronda 6: Azure IaC Validation. Workflow `infra-validation.yml` creado. Bicep 0.45.15 fijado con SHA-256. Sin Azure login, sin OIDC, sin despliegue. 6 validaciones: compilación estricta, placeholder, ARM JSON, secretos prohibidos, outputs, git diff. 7 workflows. 317 pruebas. actionlint 0 errores |
 | 1.9 | — | Ronda 8: Backend Functional Readiness y Security Regression. POST `/api/auth/refresh` con rotación de refresh token. PUT y DELETE `/api/users/me/fcm-token` (un token por usuario). Pruebas unitarias e integración. Pruebas marcadas `Category=Security`. Pipeline `dotnet-ci.yml` fortalecido con paso `Run security regression tests`, validación TRX con Python y artifact `security-regression-results`. 7 workflows intactos. Documentación DevSecOps. Firebase no conectado a AlertService. Secreto JWT pendiente. Recuperación de contraseña pendiente. Sin cambios en Azure, Cosmos DB real, appsettings, Bicep ni otros workflows. |
+| 2.0 | — | Ronda 11 / PR 1A API Contracts V1. Problem Details (RFC 7807). CORS configurable. Rate limiting (13 políticas). Auth V1 en minúsculas. OpenAPI V1 con Bearer por operación. Deprecation headers. Correlation ID. 474 pruebas, 114 Security, 58 contrato, 19 Python. Sin Vehicles. Telemetría en TripId. |
 
 ## Ronda 8 — Backend Functional Readiness y Security Regression
 
@@ -706,17 +707,43 @@ Elimina el token FCM del usuario autenticado.
 | 12 | 415 pruebas totales | 104 Category=Security. 0 fallos. |
 | 13 | Seguridad de datos | FcmToken no se registra en logs HTTP ni excepciones. Payload push limitado a `alertId`, `alertType`, `severity`, `createdAt`. Sin datos médicos en payload. Tokens de invitación no se registran en logs. |
 
-### Deuda técnica pendiente
+### Ronda 11 — PR 1A API Contracts V1 (completado 2026-07-30)
 
+| # | Requisito | Verificación |
+|---|---|---|
+| 1 | Problem Details RFC 7807 | Middleware `ProblemDetailsMiddleware` implementado. Mapeo: BadRequest→400, ArgumentException→400 (segura), UnauthorizedAccess→401, ForbiddenException→403, NotFound/KeyNotFound→404, ConflictException→409, inesperadas→500. No mapea InvalidOperationException a 409. |
+| 2 | CORS configurable | `Cors:AllowedOrigins` jerárquico (`Cors:AllowedOrigins:0`). Producción vacío cierra CORS. Sin `AllowAnyOrigin` ni `SetIsOriginAllowed(_ => true)`. |
+| 3 | Rate limiting | 13 políticas nombradas (auth-register, auth-login, auth-refresh, auth-recover, auth-reset, monitor-invite-details, monitor-invitation-action, monitor-invite-create, fcm-token, telemetry-ingestion, incident-create, alert-detect, alert-sos). `RejectionStatusCode=429`. Pruebas con fábricas aisladas. |
+| 4 | Auth V1 en minúsculas | `[Route("api/v1/auth")]` en lugar de `[Route("api/v1/[controller]")]`. Todas las rutas V1 son lower-case. Sin comparaciones case-insensitive. |
+| 5 | Duplicado registrado V1 → 409 | V1 `POST /api/v1/auth/register` retorna 409 Problem Details. Legacy `POST /api/Auth/register` retorna 409 ConflictObjectResult. Preserva compatibilidad. |
+| 6 | OpenAPI V1 | Filtro `ShouldInclude` solo paths `api/v1/`. Bearer security scheme. Operation transformer agrega Bearer security requirement en operaciones protegidas (`[Authorize]` sin `[AllowAnonymous]`). Anónimas sin Bearer. |
+| 7 | Deprecation | Middleware `LegacyDeprecationMiddleware` agrega `Deprecation: true`, `Warning`, `Link` a rutas `/api/` no V1. Exento health/openapi/swagger. |
+| 8 | Correlation ID | `CorrelationIdMiddleware` lee/genera `X-Correlation-Id`, sanitiza CR/LF, limita 100 chars. |
+| 9 | Error 500 real | Prueba con `ThrowingTokenService` (mock que lanza InvalidOperationException). Verifica status 500, problem+json, type internal-server-error, title Internal Server Error, detail genérico, traceId, correlationId, sin stacktrace, sin Exception, sin mensaje interno. |
+| 10 | Invitaciones token en JSON body | `details`, `accept`, `reject` en `POST /api/v1/monitors/invite/details` (AllowAnonymous), `POST /api/v1/monitors/invite/accept` y `POST /api/v1/monitors/invite/reject` (Authorize). Token solo en JSON body. Sin `{token}` en rutas, sin query string. |
+| 11 | Telemetría ligada a TripId | `PATCH /api/trips/{id:guid}/telemetry` en TripsController. Sin controlador separado. |
+| 12 | Vehicles no existe | No hay `api/v1/vehicles` en OpenAPI ni en controladores. |
+| 13 | Legacy preservado | 15 controladores legacy intactos. Rutas duplicadas V1 coexisten. |
+| 14 | **415 pruebas totales** | 104 Category=Security. 0 fallos (base inicial). |
+| 15 | **474 pruebas totales** | 114 Category=Security, 58 pruebas de contrato, 19 Python. 0 fallos. |
+| 16 | **487 pruebas totales** | 115 Category=Security, 70 pruebas de contrato, 19 Python. 0 fallos. |
+| 17 | **490 pruebas totales (actual)** | 115 Category=Security, 75 pruebas de contrato, 19 Python. 0 fallos. |
+| 18 | Scanner 0 violaciones | `check_hardcoded_secrets.py`: 234 archivos escaneados, 0 violaciones. |
+| 19 | NuGet 0 vulnerables | `dotnet list package --vulnerable`: 0 paquetes vulnerables. |
+| 20 | actionlint limpio | Sin errores en 7 workflows. |
+| 21 | git diff --check | Sin errores de whitespace (solo advertencias LF/CRLF). |
+
+### Deuda técnica pendiente de PR 1A
+
+- PR 1B y PR 1C no implementados
+- Límites de rate limiting pendientes de calibrar
+- Resultados GitHub pendientes
 - Temporizador de 10 segundos para detección automática
 - Clasificación definitiva leve/grave/fatal de impacto
 - Machine Learning para clasificación de severidad
 - Reset token almacenado en texto plano en `PasswordResetToken`
-- Rate limiting (login/register)
 - Correo real (`StubEmailService`)
-- CORS restrictivo
 - Múltiples tokens FCM por usuario
 - Notificaciones por correo/SMS
 - Transacción alerta/incidente (no atómico)
 - OpenTelemetry / tracing distribuido
-- Problem Details (RFC 7807)

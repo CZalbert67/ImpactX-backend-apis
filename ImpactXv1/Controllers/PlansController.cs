@@ -6,6 +6,7 @@ namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/plans")]
+[Route("api/v1/plans")]
 public class PlansController : ControllerBase
 {
     private readonly IPlanService _planService;

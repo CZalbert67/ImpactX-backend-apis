@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -8,6 +9,7 @@ namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/alerts")]
+[Route("api/v1/alerts")]
 [Authorize]
 public class AlertasController : ControllerBase
 {
@@ -19,6 +21,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("detect")]
+    [EnableRateLimiting("alert-detect")]
     public async Task<IActionResult> Detect([FromBody] DetectAlertRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -27,6 +30,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("sos")]
+    [EnableRateLimiting("alert-sos")]
     public async Task<IActionResult> SendSos([FromBody] SosRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -35,6 +39,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("{id:guid}/confirm-ok")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ConfirmOk(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -43,6 +48,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("{id:guid}/bypass-critical")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> BypassCritical(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -51,6 +57,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("{id:guid}/retry")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Retry(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -67,6 +74,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("{id:guid}/close")]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Close(Guid id, [FromBody] CloseAlertRequest request)
     {
         var usuarioId = GetUsuarioId();

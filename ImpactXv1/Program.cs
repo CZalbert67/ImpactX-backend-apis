@@ -1,7 +1,12 @@
+using System.Threading.RateLimiting;
+using ImpactX.Configuration;
 using ImpactX.Extensions;
+using ImpactX.Filter;
 using ImpactX.Infrastructure.Data;
 using ImpactX.Middleware;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OpenApi;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Scalar.AspNetCore;
@@ -10,8 +15,42 @@ using System.Text.Json;
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
-builder.Services.AddControllers();
-builder.Services.AddOpenApi();
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<V1ProblemDetailsResultFilter>();
+});
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        var httpContext = context.HttpContext;
+        var correlationId = httpContext.Items["CorrelationId"] as string ?? httpContext.TraceIdentifier;
+        var traceId = System.Diagnostics.Activity.Current?.Id ?? httpContext.TraceIdentifier;
+
+        var problem = ProblemDetailsMiddleware.CreateValidationProblemDetails(
+            context.ModelState,
+            httpContext.Request.Path,
+            traceId,
+            correlationId);
+
+        return new ObjectResult(problem)
+        {
+            StatusCode = 400,
+            ContentTypes = { "application/problem+json" }
+        };
+    };
+});
+builder.Services.AddProblemDetails();
+
+builder.Services.AddOpenApi(options =>
+{
+    options.ShouldInclude = description =>
+        description.RelativePath?.StartsWith("api/v1/", StringComparison.OrdinalIgnoreCase) == true;
+    options.AddDocumentTransformer<OpenApiV1DocumentTransformer>();
+    options.AddOperationTransformer<OpenApiV1OperationTransformer>();
+    options.AddOperationTransformer<OpenApiV1ResponseMetadataTransformer>();
+});
+
 builder.Services.AddHealthChecks()
     .AddCheck("live", () => HealthCheckResult.Healthy(), tags: ["live"])
     .AddCheck("ready", () => HealthCheckResult.Healthy(), tags: ["ready"]);
@@ -32,18 +71,212 @@ else
 
 builder.Services.ConfigureJwtAuthentication(builder.Configuration);
 
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+
+if (corsOrigins.Length == 0 && builder.Environment.IsDevelopment())
+{
+    corsOrigins = ["http://localhost:5173"];
+}
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowLocalhost", policy =>
+    options.AddPolicy("ApiCors", policy =>
     {
-        policy.SetIsOriginAllowed(_ => true)
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+        if (corsOrigins.Length > 0)
+        {
+            policy.WithOrigins(corsOrigins)
+                  .WithHeaders("Authorization", "Content-Type", "X-Correlation-Id", "Idempotency-Key", "traceparent")
+                  .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD");
+        }
     });
 });
 
-// Inicialización de Firebase Admin SDK (Notificaciones Push)
+var rateLimitingOptions = builder.Configuration.GetSection("RateLimiting").Get<RateLimitingOptions>() ?? new();
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = 429;
+
+    options.AddPolicy("auth-register", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Auth.RegisterPerMinute,
+                Window = TimeSpan.FromMinutes(1)
+            }));
+
+    options.AddPolicy("auth-login", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Auth.LoginPerMinute,
+                Window = TimeSpan.FromMinutes(1)
+            }));
+
+    options.AddPolicy("auth-refresh", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Auth.RefreshPerMinute,
+                Window = TimeSpan.FromMinutes(1)
+            }));
+
+    options.AddPolicy("auth-recover", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Auth.RecoverPerWindow,
+                Window = TimeSpan.FromMinutes(rateLimitingOptions.Auth.RecoverEveryMinutes)
+            }));
+
+    options.AddPolicy("auth-reset", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Auth.ResetPerWindow,
+                Window = TimeSpan.FromMinutes(rateLimitingOptions.Auth.ResetEveryMinutes)
+            }));
+
+    options.AddPolicy("monitor-invite-details", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Monitors.InviteDetailsPerMinute,
+                Window = TimeSpan.FromMinutes(1)
+            }));
+
+    options.AddPolicy("monitor-invitation-action", context =>
+    {
+        var userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: userId,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Monitors.InviteActionPerMinutePerUser,
+                Window = TimeSpan.FromMinutes(1)
+            });
+    });
+
+    options.AddPolicy("monitor-invite-create", context =>
+    {
+        var userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: userId,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Monitors.InviteCreatePerHourPerUser,
+                Window = TimeSpan.FromHours(1)
+            });
+    });
+
+    options.AddPolicy("fcm-token", context =>
+    {
+        var userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: userId,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Devices.FcmTokenPerMinutePerUser,
+                Window = TimeSpan.FromMinutes(1)
+            });
+    });
+
+    options.AddPolicy("telemetry-ingestion", context =>
+    {
+        var userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: userId,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Telemetry.IngestionPerMinutePerUser,
+                Window = TimeSpan.FromMinutes(1)
+            });
+    });
+
+    options.AddPolicy("incident-create", context =>
+    {
+        var userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: userId,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Incidents.CreatePerMinutePerUser,
+                Window = TimeSpan.FromMinutes(1)
+            });
+    });
+
+    options.AddPolicy("alert-detect", context =>
+    {
+        var userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: userId,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Alerts.DetectPerMinutePerUser,
+                Window = TimeSpan.FromMinutes(1)
+            });
+    });
+
+    options.AddPolicy("alert-sos", context =>
+    {
+        var userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: userId,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitingOptions.Alerts.SosPerMinutePerUser,
+                Window = TimeSpan.FromMinutes(1)
+            });
+    });
+
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfterValue)
+            ? (int)retryAfterValue.TotalSeconds
+            : 60;
+
+        context.HttpContext.Response.StatusCode = 429;
+        context.HttpContext.Response.ContentType = "application/problem+json";
+        context.HttpContext.Response.Headers.RetryAfter = retryAfter.ToString();
+
+        var correlationId = context.HttpContext.Items["CorrelationId"] as string ?? context.HttpContext.TraceIdentifier;
+        var traceId = System.Diagnostics.Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
+
+        var problem = ProblemDetailsMiddleware.CreateRateLimitProblemDetails(
+            context.HttpContext.Request.Path,
+            traceId,
+            correlationId,
+            retryAfter);
+
+        await context.HttpContext.Response.WriteAsync(
+            JsonSerializer.Serialize(problem, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            }), cancellationToken);
+    };
+});
+
 try
 {
     var firebaseCredentialsFile = builder.Configuration["Firebase:CredentialsPath"] ?? "firebase-credentials.json";
@@ -83,11 +316,15 @@ var app = builder.Build();
 
 await app.SeedDatabaseAsync(useCosmosDb, useInMemory);
 
-app.UseMiddleware<ExceptionHandlingMiddleware>();
+app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<ProblemDetailsMiddleware>();
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<SecurityHeadersMiddleware>();
+app.UseMiddleware<LegacyDeprecationMiddleware>();
 
-app.UseCors("AllowLocalhost");
+app.UseCors("ApiCors");
+
+app.UseRateLimiter();
 
 app.MapOpenApi();
 
