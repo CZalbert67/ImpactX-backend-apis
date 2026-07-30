@@ -209,15 +209,16 @@ public class MonitorService : IMonitorService
         if (usuario == null)
             throw new ForbiddenException("Esta invitación no está dirigida a este usuario.");
 
-        var matches =
-            (!string.IsNullOrEmpty(monitor.CorreoInvitado) &&
-             string.Equals(monitor.CorreoInvitado, usuario.Correo, StringComparison.OrdinalIgnoreCase)) ||
-            (!string.IsNullOrEmpty(monitor.Username) &&
-             string.Equals(monitor.Username, usuario.Username, StringComparison.OrdinalIgnoreCase)) ||
-            (!string.IsNullOrEmpty(monitor.AppUserId) &&
-             string.Equals(monitor.AppUserId, usuario.AppId, StringComparison.Ordinal));
+        var correoCoincide = !string.IsNullOrEmpty(monitor.CorreoInvitado) &&
+            string.Equals(monitor.CorreoInvitado, usuario.Correo, StringComparison.OrdinalIgnoreCase);
 
-        if (!matches)
+        var usernameCoincide = !string.IsNullOrEmpty(monitor.Username) &&
+            string.Equals(monitor.Username, usuario.Username, StringComparison.OrdinalIgnoreCase);
+
+        var appUserIdCoincide = !string.IsNullOrEmpty(monitor.AppUserId) &&
+            string.Equals(monitor.AppUserId, usuario.AppId, StringComparison.Ordinal);
+
+        if (!(correoCoincide || usernameCoincide || appUserIdCoincide))
             throw new ForbiddenException("Esta invitación no está dirigida a este usuario.");
     }
 

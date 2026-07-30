@@ -484,4 +484,24 @@ public class AlertServiceTests
         Assert.NotNull(savedAlert);
         _notificationService.Verify(n => n.NotifyAlertMonitorsAsync(It.Is<Alerta>(a => a.Id == savedAlert!.Id), It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task NotifyAlertMonitors_OperationCanceled_DoesNotDeleteAlert()
+    {
+        var usuarioId = Guid.NewGuid();
+        _notificationService.Setup(n => n.NotifyAlertMonitorsAsync(It.IsAny<Alerta>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException());
+
+        var result = await _alertService.SendSosAsync(usuarioId, new SosRequest
+        {
+            Lat = 19.43,
+            Lng = -99.13,
+            Severidad = "severe",
+        });
+
+        Assert.NotNull(result);
+        Assert.Equal("SOS", result.Tipo);
+        _alertaRepo.Verify(r => r.AddAsync(It.IsAny<Alerta>()), Times.Once);
+    }
 }

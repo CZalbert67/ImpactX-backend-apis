@@ -48,9 +48,14 @@ public class FirebasePushNotificationGateway : IPushNotificationGateway
             _logger.LogWarning("Error categorizado de Firebase al enviar notificación push.");
             return new PushGatewayResult(false, "Fallido");
         }
-        catch (Exception)
+        catch (OperationCanceledException)
         {
-            _logger.LogWarning("Error inesperado de tipo {ExceptionType} en gateway push.", nameof(Exception));
+            _logger.LogWarning("Operación de push cancelada.");
+            return new PushGatewayResult(false, "Cancelado");
+        }
+        catch (ArgumentException)
+        {
+            _logger.LogWarning("Error de argumento en payload de push.");
             return new PushGatewayResult(false, "Fallido");
         }
     }

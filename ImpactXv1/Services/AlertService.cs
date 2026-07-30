@@ -2,6 +2,7 @@ using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Models.DTOs;
+using Microsoft.Extensions.Logging;
 
 namespace ImpactX.Services;
 
@@ -282,17 +283,16 @@ public class AlertService : IAlertService
         _logger.LogInformation("{Count} alertas offline sincronizadas para usuario {UsuarioId}",
             request.Alertas.Count, usuarioId);
 
-        foreach (var alerta in resultados)
+        foreach (var alertaEntity in resultados.Select(a => new Alerta
         {
-            var alertaEntity = new Alerta
-            {
-                Id = alerta.Id,
-                UsuarioId = usuarioId,
-                Tipo = alerta.Tipo,
-                Severidad = alerta.Severidad,
-                Estado = alerta.Estado,
-                CreadoEn = alerta.CreadoEn,
-            };
+            Id = a.Id,
+            UsuarioId = usuarioId,
+            Tipo = a.Tipo,
+            Severidad = a.Severidad,
+            Estado = a.Estado,
+            CreadoEn = a.CreadoEn,
+        }))
+        {
             await NotifyIfEnviadaAsync(alertaEntity);
         }
 
@@ -308,9 +308,13 @@ public class AlertService : IAlertService
         {
             await _notificationService.NotifyAlertMonitorsAsync(alerta);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
         {
-            _logger.LogError(ex, "Error al notificar monitores para alerta {AlertaId}. La alerta no se ve afectada.", alerta.Id);
+            _logger.LogWarning("Notificación de monitores cancelada para alerta {AlertaId}. La alerta no se ve afectada.", alerta.Id);
+        }
+        catch (InvalidOperationException)
+        {
+            _logger.LogError("Error operacional al notificar monitores para alerta {AlertaId}. La alerta no se ve afectada.", alerta.Id);
         }
     }
 
