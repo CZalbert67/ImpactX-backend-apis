@@ -49,8 +49,7 @@ public class AlertService : IAlertService
         };
 
         await _alertaRepository.AddAsync(alerta);
-        _logger.LogInformation("Impacto detectado para usuario {UsuarioId}: severidad={Severidad}, alerta={AlertaId}",
-            usuarioId, request.Severidad, alerta.Id);
+        _logger.LogInformation("Impacto detectado para usuario {UsuarioId}, alerta {AlertaId} creada", usuarioId, alerta.Id);
 
         await NotifyIfEnviadaAsync(alerta);
 
@@ -86,8 +85,7 @@ public class AlertService : IAlertService
         }
 
         await _alertaRepository.AddAsync(alerta);
-        _logger.LogWarning("SOS enviado para usuario {UsuarioId}: severidad={Severidad}, canal={Canal}",
-            usuarioId, request.Severidad, request.Canal);
+        _logger.LogWarning("SOS enviado para usuario {UsuarioId}, alerta {AlertaId} creada", usuarioId, alerta.Id);
 
         await NotifyIfEnviadaAsync(alerta);
 
@@ -239,8 +237,7 @@ public class AlertService : IAlertService
         };
 
         await _incidenteRepository.AddAsync(incidente);
-        _logger.LogInformation("Alerta {AlertaId} cerrada como {MetodoCierre}, incidente {IncidenteId} creado",
-            alertaId, metodoCierre, incidente.Id);
+        _logger.LogInformation("Alerta {AlertaId} cerrada, incidente {IncidenteId} creado", alertaId, incidente.Id);
 
         return new AlertActionResponse
         {

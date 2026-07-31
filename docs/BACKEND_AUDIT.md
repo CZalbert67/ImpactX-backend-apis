@@ -747,3 +747,14 @@ Elimina el token FCM del usuario autenticado.
 - Notificaciones por correo/SMS
 - Transacción alerta/incidente (no atómico)
 - OpenTelemetry / tracing distribuido
+
+### R0.2.1 — Baseline CodeQL (completado 2026-07-30, rama fix/backend-codeql-security-baseline)
+
+| # | Requisito | Verificación |
+|---|---|---|
+| 1 | Log forging corregido | `RequestLoggingMiddleware` ya no registra Method/Path/QueryString/headers/body: solo StatusCode y ElapsedMilliseconds con mensaje constante. `AlertService` ya no registra severidad, canal ni método de cierre provenientes de DTO: solo IDs Guid y contadores, mensajes constantes. |
+| 2 | Middleware muerto eliminado | `ExceptionHandlingMiddleware` (no registrado ni referenciado) eliminado. `ProblemDetailsMiddleware` sigue siendo el único manejador global de excepciones. |
+| 3 | Catch global conservado | `cs/catch-of-all-exceptions` en `ProblemDetailsMiddleware` documentado como excepción intencional: frontera global de excepciones de la API. Sin suppressions en código. |
+| 4 | Fuera de alcance (deuda para PR 1B/1C) | AuthService generic catch, PlanSeeder generic catch, CosmosDbContext generic catch, IncidentService concatenación, alertas LINQ, WearableService, RutaRepository, archivos obj. Sin cambios en esta ronda. |
+| 5 | Resultados locales | 490 pruebas (115 Security), build Release OK, scanner 0 violaciones, NuGet 0 vulnerables, actionlint limpio, Roslyn limpio en C# modificados. |
+| 6 | Resultados GitHub pendientes | CodeQL y demás pipelines por ejecutar en el PR. |

@@ -142,3 +142,19 @@ Código
 | 15 | git diff --check | `git diff --check` | Solo advertencias LF/CRLF. Sin errores. |
 | 16 | Python tests | `python3 -m unittest discover scripts/security/tests` | 19 tests, 0 fallos. |
 | 17 | **490 pruebas totales** | `dotnet test ImpactX.slnx --configuration Release` | 0 fallos. Sin commits. |
+
+### R0.2.1 — Baseline CodeQL (pendiente de PR, rama fix/backend-codeql-security-baseline)
+
+| # | Control | Prueba/Workflow | Qué valida |
+|---|---|---|---|
+| 1 | Log forging | Revisión + `dotnet test` (490) | `RequestLoggingMiddleware` solo StatusCode/ElapsedMs, sin Path/QueryString/headers/body. `AlertService` solo IDs Guid, sin strings de DTO en logs. |
+| 2 | Middleware muerto | `grep -RIn 'ExceptionHandlingMiddleware'` | Clase eliminada; `ProblemDetailsMiddleware` único manejador global (Program.cs). |
+| 3 | Catch global intencional | Revisión de `ProblemDetailsMiddleware` | Catch específico `OperationCanceledException` antes del catch global; 500 genérico `problem+json`; traceId/correlationId; sin `Exception.Message`; logging con mensaje constante. Sin suppressions. |
+| 4 | Fuera de alcance | Revisión | AuthService, PlanSeeder, CosmosDbContext, IncidentService, LINQ alertas, WearableService, RutaRepository, obj: deuda documentada para PR 1B/1C. |
+| 5 | Security regression | `Category=Security` (115) | 115 pruebas de seguridad, 0 fallos. |
+| 6 | Suite completa | `dotnet test ImpactX.slnx --configuration Release` | 490 pruebas, 0 fallos. |
+| 7 | Secret scanner | `check_hardcoded_secrets.py` | 234 archivos, 0 violaciones. |
+| 8 | NuGet audit | `dotnet list package --vulnerable` | 0 vulnerables. |
+| 9 | Actionlint | `actionlint .github/workflows/*.yml` | 7 workflows, 0 errores. |
+| 10 | Roslyn | `dotnet format --verify-no-changes` | Limpio en C# modificados. |
+| 11 | Resultados GitHub pendientes | CodeQL CI | Por ejecutar en el PR. |
