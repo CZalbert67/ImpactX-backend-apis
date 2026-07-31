@@ -14,6 +14,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<Dispositivo> Dispositivos => Set<Dispositivo>();
     public DbSet<Plan> Planes => Set<Plan>();
     public DbSet<Suscripcion> Suscripciones => Set<Suscripcion>();
     public DbSet<Pago> Pagos => Set<Pago>();
@@ -85,8 +86,19 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<PasswordResetToken>(entity =>
         {
             entity.HasKey(p => p.Id);
-            entity.HasIndex(p => p.Token).IsUnique();
-            entity.Property(p => p.Token).HasMaxLength(500).IsRequired();
+            entity.HasIndex(p => p.TokenHash).IsUnique();
+            entity.Property(p => p.TokenHash).HasMaxLength(64).IsRequired();
+        });
+
+        modelBuilder.Entity<Dispositivo>(entity =>
+        {
+            entity.HasKey(d => d.Id);
+            entity.Property(d => d.DeviceId).HasMaxLength(200).IsRequired();
+            entity.Property(d => d.Platform).HasMaxLength(20).IsRequired();
+            entity.Property(d => d.TokenFcm).HasMaxLength(1000).IsRequired();
+            entity.Property(d => d.Nombre).HasMaxLength(200);
+            entity.HasIndex(d => d.UsuarioId);
+            entity.HasIndex(d => new { d.UsuarioId, d.DeviceId }).IsUnique();
         });
 
         modelBuilder.Entity<ContactoEmergencia>(entity =>

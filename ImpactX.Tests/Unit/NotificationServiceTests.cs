@@ -33,6 +33,7 @@ public class NotificationServiceTests
 {
     private readonly Mock<INotificacionRepository> _notificacionRepo;
     private readonly Mock<IUsuarioRepository> _usuarioRepo;
+    private readonly Mock<IDispositivoRepository> _dispositivoRepo;
     private readonly Mock<IMonitorRepository> _monitorRepo;
     private readonly Mock<IPushNotificationGateway> _pushGateway;
     private readonly ListLogger<NotificationService> _logger;
@@ -42,12 +43,14 @@ public class NotificationServiceTests
     {
         _notificacionRepo = new Mock<INotificacionRepository>();
         _usuarioRepo = new Mock<IUsuarioRepository>();
+        _dispositivoRepo = new Mock<IDispositivoRepository>();
         _monitorRepo = new Mock<IMonitorRepository>();
         _pushGateway = new Mock<IPushNotificationGateway>();
         _logger = new ListLogger<NotificationService>();
         _notificationService = new NotificationService(
             _notificacionRepo.Object,
             _usuarioRepo.Object,
+            _dispositivoRepo.Object,
             _monitorRepo.Object,
             _pushGateway.Object,
             _logger);
@@ -660,5 +663,162 @@ public class NotificationServiceTests
         Assert.Single(result);
         Assert.Equal("DestinatarioNoVinculado", result[0].Status);
         _notificacionRepo.Verify(r => r.AddAsync(It.IsAny<Notificacion>()), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task NotifyAlertMonitors_SendsToAllActiveDevices()
+    {
+        var userId = Guid.NewGuid();
+        var monitorUserId = Guid.NewGuid();
+        var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "SOS", Severidad = "severe", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
+        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var usuario = new Usuario { Id = monitorUserId, IsActive = true };
+        var dispositivos = new List<Dispositivo>
+        {
+            new() { Id = Guid.NewGuid(), UsuarioId = monitorUserId, DeviceId = "phone-1", TokenFcm = "token-device-1", Activo = true },
+            new() { Id = Guid.NewGuid(), UsuarioId = monitorUserId, DeviceId = "phone-2", TokenFcm = "token-device-2", Activo = true },
+        };
+
+        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
+        _dispositivoRepo.Setup(r => r.GetActiveByUsuarioIdAsync(monitorUserId)).ReturnsAsync(dispositivos);
+        _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
+        _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PushGatewayResult(true, "Enviado"));
+
+        var result = await _notificationService.NotifyAlertMonitorsAsync(alerta);
+
+        Assert.Single(result);
+        Assert.Equal("Enviado", result[0].Status);
+        Assert.True(result[0].Sent);
+        _pushGateway.Verify(g => g.SendAsync("token-device-1", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _pushGateway.Verify(g => g.SendAsync("token-device-2", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task NotifyAlertMonitors_OneDeviceFailure_DoesNotBlockOthers()
+    {
+        var userId = Guid.NewGuid();
+        var monitorUserId = Guid.NewGuid();
+        var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
+        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var usuario = new Usuario { Id = monitorUserId, IsActive = true };
+        var dispositivos = new List<Dispositivo>
+        {
+            new() { Id = Guid.NewGuid(), UsuarioId = monitorUserId, DeviceId = "phone-1", TokenFcm = "bad-token-1", Activo = true },
+            new() { Id = Guid.NewGuid(), UsuarioId = monitorUserId, DeviceId = "phone-2", TokenFcm = "good-token-2", Activo = true },
+        };
+
+        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
+        _dispositivoRepo.Setup(r => r.GetActiveByUsuarioIdAsync(monitorUserId)).ReturnsAsync(dispositivos);
+        _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
+        _pushGateway.Setup(g => g.SendAsync("bad-token-1", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PushGatewayResult(false, "Fallido"));
+        _pushGateway.Setup(g => g.SendAsync("good-token-2", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PushGatewayResult(true, "Enviado"));
+
+        var result = await _notificationService.NotifyAlertMonitorsAsync(alerta);
+
+        Assert.Single(result);
+        Assert.Equal("Enviado", result[0].Status);
+        Assert.True(result[0].Sent);
+        _pushGateway.Verify(g => g.SendAsync("bad-token-1", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _pushGateway.Verify(g => g.SendAsync("good-token-2", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _notificacionRepo.Verify(r => r.UpdateAsync(It.Is<Notificacion>(n => n.EstadoEnvio == "Enviado")), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task SendPushNotificationAsync_NoActiveDevices_FallsBackToLegacyToken()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, IsActive = true, FcmToken = "legacy-token" };
+
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+        _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PushGatewayResult(true, "Enviado"));
+
+        await _notificationService.SendPushNotificationAsync(usuarioId, "Titulo", "Mensaje");
+
+        _pushGateway.Verify(g => g.SendAsync("legacy-token", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task DispatchToMonitor_DoesNotLogDeviceTokenValues()
+    {
+        var fakeToken = "fcm-dev-" + Guid.NewGuid().ToString("N");
+        var userId = Guid.NewGuid();
+        var monitorUserId = Guid.NewGuid();
+        var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
+        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var usuario = new Usuario { Id = monitorUserId, IsActive = true };
+        var dispositivos = new List<Dispositivo>
+        {
+            new() { Id = Guid.NewGuid(), UsuarioId = monitorUserId, DeviceId = "watch", TokenFcm = fakeToken, Activo = true },
+        };
+
+        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
+        _dispositivoRepo.Setup(r => r.GetActiveByUsuarioIdAsync(monitorUserId)).ReturnsAsync(dispositivos);
+        _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
+        _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PushGatewayResult(true, "Enviado"));
+
+        await _notificationService.NotifyAlertMonitorsAsync(alerta);
+
+        foreach (var entry in _logger.LogEntries)
+        {
+            Assert.DoesNotContain(fakeToken, entry, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task NotifyAlertMonitors_AllDevicesFail_ReturnsFallido()
+    {
+        var userId = Guid.NewGuid();
+        var monitorUserId = Guid.NewGuid();
+        var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
+        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var usuario = new Usuario { Id = monitorUserId, IsActive = true };
+        var dispositivos = new List<Dispositivo>
+        {
+            new() { Id = Guid.NewGuid(), UsuarioId = monitorUserId, DeviceId = "phone-1", TokenFcm = "bad-token-1", Activo = true },
+            new() { Id = Guid.NewGuid(), UsuarioId = monitorUserId, DeviceId = "phone-2", TokenFcm = "bad-token-2", Activo = true },
+        };
+
+        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
+        _dispositivoRepo.Setup(r => r.GetActiveByUsuarioIdAsync(monitorUserId)).ReturnsAsync(dispositivos);
+        _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
+        _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PushGatewayResult(false, "Fallido"));
+
+        var result = await _notificationService.NotifyAlertMonitorsAsync(alerta);
+
+        Assert.Single(result);
+        Assert.Equal("Fallido", result[0].Status);
+        Assert.False(result[0].Sent);
+        _pushGateway.Verify(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _notificacionRepo.Verify(r => r.UpdateAsync(It.Is<Notificacion>(n => n.EstadoEnvio == "Fallido")), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task SendPushNotificationAsync_NoDevicesAndNoLegacyToken_DoesNotSend()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, IsActive = true, FcmToken = null };
+
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+        _dispositivoRepo.Setup(r => r.GetActiveByUsuarioIdAsync(usuarioId)).ReturnsAsync([]);
+
+        await _notificationService.SendPushNotificationAsync(usuarioId, "Titulo", "Mensaje");
+
+        _pushGateway.Verify(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

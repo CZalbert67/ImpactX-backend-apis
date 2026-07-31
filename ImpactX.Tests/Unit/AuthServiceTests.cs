@@ -2,8 +2,10 @@ using Moq;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
+using Microsoft.Azure.Cosmos;
 
 namespace ImpactX.Tests.Unit;
 
@@ -12,11 +14,13 @@ public class AuthServiceTests
     private readonly Mock<IUsuarioRepository> _usuarioRepo;
     private readonly Mock<IRefreshTokenRepository> _refreshTokenRepo;
     private readonly Mock<IPasswordResetTokenRepository> _passwordResetTokenRepo;
+    private readonly Mock<IDispositivoRepository> _dispositivoRepo;
     private readonly Mock<IEncryptionService> _encryptionService;
     private readonly Mock<ITokenService> _tokenService;
     private readonly Mock<IEmailService> _emailService;
     private readonly Mock<IPlanRepository> _planRepo;
     private readonly Mock<ISuscripcionRepository> _suscripcionRepo;
+    private readonly ListLogger<AuthService> _logger;
     private readonly AuthService _authService;
 
     public AuthServiceTests()
@@ -24,21 +28,25 @@ public class AuthServiceTests
         _usuarioRepo = new Mock<IUsuarioRepository>();
         _refreshTokenRepo = new Mock<IRefreshTokenRepository>();
         _passwordResetTokenRepo = new Mock<IPasswordResetTokenRepository>();
+        _dispositivoRepo = new Mock<IDispositivoRepository>();
         _encryptionService = new Mock<IEncryptionService>();
         _tokenService = new Mock<ITokenService>();
         _emailService = new Mock<IEmailService>();
         _planRepo = new Mock<IPlanRepository>();
         _suscripcionRepo = new Mock<ISuscripcionRepository>();
+        _logger = new ListLogger<AuthService>();
 
         _authService = new AuthService(
             _usuarioRepo.Object,
             _refreshTokenRepo.Object,
             _passwordResetTokenRepo.Object,
+            _dispositivoRepo.Object,
             _encryptionService.Object,
             _tokenService.Object,
             _emailService.Object,
             _planRepo.Object,
-            _suscripcionRepo.Object);
+            _suscripcionRepo.Object,
+            _logger);
     }
 
     [Fact]
@@ -246,12 +254,12 @@ public class AuthServiceTests
         };
         var resetToken = new PasswordResetToken
         {
-            Token = "valid-token",
+            TokenHash = PasswordResetTokenHasher.Hash("valid-token"),
             UsuarioId = usuario.Id,
             ExpiresAt = DateTime.UtcNow.AddHours(1)
         };
 
-        _passwordResetTokenRepo.Setup(r => r.GetByTokenAsync("valid-token")).ReturnsAsync(resetToken);
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenHashAsync(resetToken.TokenHash)).ReturnsAsync(resetToken);
         _usuarioRepo.Setup(r => r.GetByIdAsync(usuario.Id)).ReturnsAsync(usuario);
         _encryptionService.Setup(e => e.HashPassword("new-password")).Returns("new-hash");
 
@@ -272,11 +280,11 @@ public class AuthServiceTests
     {
         var resetToken = new PasswordResetToken
         {
-            Token = "expired-token",
+            TokenHash = PasswordResetTokenHasher.Hash("expired-token"),
             ExpiresAt = DateTime.UtcNow.AddHours(-1)
         };
 
-        _passwordResetTokenRepo.Setup(r => r.GetByTokenAsync("expired-token")).ReturnsAsync(resetToken);
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenHashAsync(resetToken.TokenHash)).ReturnsAsync(resetToken);
 
         var result = await _authService.ResetPasswordAsync(new ResetPasswordRequest
         {
@@ -604,12 +612,12 @@ public class AuthServiceTests
     {
         var resetToken = new PasswordResetToken
         {
-            Token = "used-token",
+            TokenHash = PasswordResetTokenHasher.Hash("used-token"),
             ExpiresAt = DateTime.UtcNow.AddHours(1),
             UsedAt = DateTime.UtcNow.AddHours(-1)
         };
 
-        _passwordResetTokenRepo.Setup(r => r.GetByTokenAsync("used-token")).ReturnsAsync(resetToken);
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenHashAsync(resetToken.TokenHash)).ReturnsAsync(resetToken);
 
         var result = await _authService.ResetPasswordAsync(new ResetPasswordRequest
         {
@@ -629,12 +637,12 @@ public class AuthServiceTests
         var usuario = new Usuario { Id = usuarioId, PasswordHash = "old-hash" };
         var resetToken = new PasswordResetToken
         {
-            Token = "single-use-token",
+            TokenHash = PasswordResetTokenHasher.Hash("single-use-token"),
             UsuarioId = usuarioId,
             ExpiresAt = DateTime.UtcNow.AddHours(1)
         };
 
-        _passwordResetTokenRepo.Setup(r => r.GetByTokenAsync("single-use-token")).ReturnsAsync(resetToken);
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenHashAsync(resetToken.TokenHash)).ReturnsAsync(resetToken);
         _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
         _encryptionService.Setup(e => e.HashPassword("new-password")).Returns("new-hash");
 
@@ -647,7 +655,7 @@ public class AuthServiceTests
         Assert.True(firstResult.Success);
         Assert.NotNull(resetToken.UsedAt);
 
-        _passwordResetTokenRepo.Setup(r => r.GetByTokenAsync("single-use-token")).ReturnsAsync(resetToken);
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenHashAsync(resetToken.TokenHash)).ReturnsAsync(resetToken);
 
         var secondResult = await _authService.ResetPasswordAsync(new ResetPasswordRequest
         {
@@ -667,12 +675,12 @@ public class AuthServiceTests
         var usuario = new Usuario { Id = usuarioId, PasswordHash = "old-hash" };
         var resetToken = new PasswordResetToken
         {
-            Token = "reset-revoke-token",
+            TokenHash = PasswordResetTokenHasher.Hash("reset-revoke-token"),
             UsuarioId = usuarioId,
             ExpiresAt = DateTime.UtcNow.AddHours(1)
         };
 
-        _passwordResetTokenRepo.Setup(r => r.GetByTokenAsync("reset-revoke-token")).ReturnsAsync(resetToken);
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenHashAsync(resetToken.TokenHash)).ReturnsAsync(resetToken);
         _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
         _encryptionService.Setup(e => e.HashPassword("new-password")).Returns("new-hash");
 
@@ -749,6 +757,7 @@ public class AuthServiceTests
 
         Assert.False(usuario.IsActive);
         _refreshTokenRepo.Verify(r => r.RevokeAllByUsuarioIdAsync(usuarioId, It.IsAny<DateTime>(), default), Times.Once);
+        _dispositivoRepo.Verify(r => r.DeleteAllByUsuarioIdAsync(usuarioId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -768,5 +777,184 @@ public class AuthServiceTests
         await _authService.DeleteAccountAsync(usuarioId);
 
         _refreshTokenRepo.Verify(r => r.RevokeAllByUsuarioIdAsync(usuarioId, It.IsAny<DateTime>(), default), Times.Exactly(2));
+        _dispositivoRepo.Verify(r => r.DeleteAllByUsuarioIdAsync(usuarioId, It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RecoverPasswordAsync_StoresOnlyTokenHash_NotPlainText()
+    {
+        var usuario = new Usuario { Id = Guid.NewGuid(), Correo = "hash@test.com" };
+        PasswordResetToken? stored = null;
+
+        _usuarioRepo.Setup(r => r.GetByCorreoAsync("hash@test.com")).ReturnsAsync(usuario);
+        _tokenService.Setup(t => t.GeneratePasswordResetToken()).Returns("raw-reset-token");
+        _passwordResetTokenRepo.Setup(r => r.AddAsync(It.IsAny<PasswordResetToken>()))
+            .Callback<PasswordResetToken>(t => stored = t)
+            .Returns(Task.CompletedTask);
+
+        await _authService.RecoverPasswordAsync(new RecoverPasswordRequest
+        {
+            Correo = "hash@test.com"
+        });
+
+        Assert.NotNull(stored);
+        Assert.Equal(PasswordResetTokenHasher.Hash("raw-reset-token"), stored!.TokenHash);
+        Assert.DoesNotContain("raw-reset-token", stored.TokenHash);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ResetPasswordAsync_WithWrongToken_ReturnsError()
+    {
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenHashAsync(It.IsAny<string>()))
+            .ReturnsAsync((PasswordResetToken?)null);
+
+        var result = await _authService.ResetPasswordAsync(new ResetPasswordRequest
+        {
+            Token = "wrong-token",
+            NewPassword = "new-password"
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal("El token de recuperación es inválido o ha expirado.", result.Mensaje);
+        _passwordResetTokenRepo.Verify(r => r.GetByTokenHashAsync(PasswordResetTokenHasher.Hash("wrong-token")), Times.Once);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RecoverPasswordAsync_SecondRequest_InvalidatesFirstToken()
+    {
+        var usuario = new Usuario { Id = Guid.NewGuid(), Correo = "invalidate@test.com" };
+
+        _usuarioRepo.Setup(r => r.GetByCorreoAsync("invalidate@test.com")).ReturnsAsync(usuario);
+        _tokenService.SetupSequence(t => t.GeneratePasswordResetToken())
+            .Returns("first-token")
+            .Returns("second-token");
+
+        var sequence = new MockSequence();
+        _passwordResetTokenRepo.InSequence(sequence)
+            .Setup(r => r.InvalidateAllByUsuarioIdAsync(usuario.Id, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.FromResult(0));
+        _passwordResetTokenRepo.InSequence(sequence)
+            .Setup(r => r.AddAsync(It.IsAny<PasswordResetToken>()))
+            .Returns(Task.CompletedTask);
+        _passwordResetTokenRepo.InSequence(sequence)
+            .Setup(r => r.InvalidateAllByUsuarioIdAsync(usuario.Id, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.FromResult(0));
+        _passwordResetTokenRepo.InSequence(sequence)
+            .Setup(r => r.AddAsync(It.IsAny<PasswordResetToken>()))
+            .Returns(Task.CompletedTask);
+
+        await _authService.RecoverPasswordAsync(new RecoverPasswordRequest { Correo = "invalidate@test.com" });
+        await _authService.RecoverPasswordAsync(new RecoverPasswordRequest { Correo = "invalidate@test.com" });
+
+        _passwordResetTokenRepo.Verify(r => r.InvalidateAllByUsuarioIdAsync(usuario.Id, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _passwordResetTokenRepo.Verify(r => r.AddAsync(It.IsAny<PasswordResetToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RecoverPasswordAsync_DoesNotLogTokenOrCorreo()
+    {
+        var usuario = new Usuario { Id = Guid.NewGuid(), Correo = "log-secret@test.com" };
+        _usuarioRepo.Setup(r => r.GetByCorreoAsync("log-secret@test.com")).ReturnsAsync(usuario);
+        _tokenService.Setup(t => t.GeneratePasswordResetToken()).Returns("super-secret-reset-token");
+        _passwordResetTokenRepo.Setup(r => r.AddAsync(It.IsAny<PasswordResetToken>())).Returns(Task.CompletedTask);
+        _passwordResetTokenRepo.Setup(r => r.InvalidateAllByUsuarioIdAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.FromResult(0));
+
+        await _authService.RecoverPasswordAsync(new RecoverPasswordRequest { Correo = "log-secret@test.com" });
+
+        foreach (var entry in _logger.LogEntries)
+        {
+            Assert.DoesNotContain("super-secret-reset-token", entry, StringComparison.Ordinal);
+            Assert.DoesNotContain("log-secret@test.com", entry, StringComparison.Ordinal);
+            Assert.DoesNotContain(PasswordResetTokenHasher.Hash("super-secret-reset-token"), entry, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ResetPasswordAsync_DoesNotLogTokenOrNewPassword()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, PasswordHash = "old-hash" };
+        var resetToken = new PasswordResetToken
+        {
+            TokenHash = PasswordResetTokenHasher.Hash("log-token"),
+            UsuarioId = usuarioId,
+            ExpiresAt = DateTime.UtcNow.AddHours(1)
+        };
+
+        _passwordResetTokenRepo.Setup(r => r.GetByTokenHashAsync(resetToken.TokenHash)).ReturnsAsync(resetToken);
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+        _encryptionService.Setup(e => e.HashPassword("log-new-password")).Returns("new-hash");
+
+        await _authService.ResetPasswordAsync(new ResetPasswordRequest
+        {
+            Token = "log-token",
+            NewPassword = "log-new-password"
+        });
+
+        foreach (var entry in _logger.LogEntries)
+        {
+            Assert.DoesNotContain("log-token", entry, StringComparison.Ordinal);
+            Assert.DoesNotContain("log-new-password", entry, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RegisterAsync_FreePlanConflict_DoesNotFailRegistration()
+    {
+        _usuarioRepo.Setup(r => r.ExistsByCorreoAsync("conflict@test.com")).ReturnsAsync(false);
+        _usuarioRepo.Setup(r => r.ExistsByUsernameAsync(It.IsAny<string>())).ReturnsAsync(false);
+        _planRepo.Setup(r => r.GetByNameAsync("Free")).ReturnsAsync(new Plan { Id = Guid.NewGuid(), Nombre = "Free" });
+        _suscripcionRepo.Setup(r => r.AddAsync(It.IsAny<Suscripcion>()))
+            .ThrowsAsync(new CosmosException("Conflict", System.Net.HttpStatusCode.Conflict, 409, string.Empty, 0));
+        _tokenService.Setup(t => t.GenerateAccessToken(It.IsAny<Usuario>())).Returns("access-token");
+        _tokenService.Setup(t => t.GenerateRefreshToken()).Returns("refresh-token");
+
+        var result = await _authService.RegisterAsync(new RegisterRequest
+        {
+            Nombre = "Test",
+            Correo = "conflict@test.com",
+            Password = "password123"
+        });
+
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RegisterAsync_FreePlanUnexpectedError_Propagates()
+    {
+        _usuarioRepo.Setup(r => r.ExistsByCorreoAsync("unexpected@test.com")).ReturnsAsync(false);
+        _usuarioRepo.Setup(r => r.ExistsByUsernameAsync(It.IsAny<string>())).ReturnsAsync(false);
+        _planRepo.Setup(r => r.GetByNameAsync("Free")).ThrowsAsync(new InvalidOperationException("boom"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _authService.RegisterAsync(new RegisterRequest
+        {
+            Nombre = "Test",
+            Correo = "unexpected@test.com",
+            Password = "password123"
+        }));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RegisterAsync_FreePlanCancellation_Propagates()
+    {
+        _usuarioRepo.Setup(r => r.ExistsByCorreoAsync("cancel@test.com")).ReturnsAsync(false);
+        _usuarioRepo.Setup(r => r.ExistsByUsernameAsync(It.IsAny<string>())).ReturnsAsync(false);
+        _planRepo.Setup(r => r.GetByNameAsync("Free")).ThrowsAsync(new OperationCanceledException());
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => _authService.RegisterAsync(new RegisterRequest
+        {
+            Nombre = "Test",
+            Correo = "cancel@test.com",
+            Password = "password123"
+        }));
     }
 }

@@ -2,7 +2,11 @@ using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
+using Microsoft.Azure.Cosmos;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace ImpactX.Services;
 
@@ -11,30 +15,36 @@ public class AuthService : IAuthService
     private readonly IUsuarioRepository _usuarioRepository;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
     private readonly IPasswordResetTokenRepository _passwordResetTokenRepository;
+    private readonly IDispositivoRepository _dispositivoRepository;
     private readonly IEncryptionService _encryptionService;
     private readonly ITokenService _tokenService;
     private readonly IEmailService _emailService;
     private readonly IPlanRepository _planRepository;
     private readonly ISuscripcionRepository _suscripcionRepository;
+    private readonly ILogger<AuthService> _logger;
 
     public AuthService(
         IUsuarioRepository usuarioRepository,
         IRefreshTokenRepository refreshTokenRepository,
         IPasswordResetTokenRepository passwordResetTokenRepository,
+        IDispositivoRepository dispositivoRepository,
         IEncryptionService encryptionService,
         ITokenService tokenService,
         IEmailService emailService,
         IPlanRepository planRepository,
-        ISuscripcionRepository suscripcionRepository)
+        ISuscripcionRepository suscripcionRepository,
+        ILogger<AuthService> logger)
     {
         _usuarioRepository = usuarioRepository;
         _refreshTokenRepository = refreshTokenRepository;
         _passwordResetTokenRepository = passwordResetTokenRepository;
+        _dispositivoRepository = dispositivoRepository;
         _encryptionService = encryptionService;
         _tokenService = tokenService;
         _emailService = emailService;
         _planRepository = planRepository;
         _suscripcionRepository = suscripcionRepository;
+        _logger = logger;
     }
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
@@ -88,9 +98,19 @@ public class AuthService : IAuthService
                 await _usuarioRepository.UpdateAsync(usuario);
             }
         }
-        catch (Exception ex)
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict
+            || ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
         {
-            Console.WriteLine($"[AuthService] Info: Asignación de plan omitida ({ex.Message}).");
+            _logger.LogWarning("Asignación del plan Free omitida para usuario {UsuarioId} (Cosmos {StatusCode}).",
+                usuario.Id, ex.StatusCode);
+        }
+        catch (DbUpdateException)
+        {
+            _logger.LogWarning("Asignación del plan Free omitida para usuario {UsuarioId} (EF).", usuario.Id);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
 
         var accessToken = _tokenService.GenerateAccessToken(usuario);
@@ -137,13 +157,16 @@ public class AuthService : IAuthService
         if (usuario is not null)
         {
             var token = _tokenService.GeneratePasswordResetToken();
+            var now = DateTime.UtcNow;
             var resetToken = new PasswordResetToken
             {
                 UsuarioId = usuario.Id,
-                Token = token,
-                ExpiresAt = DateTime.UtcNow.AddHours(1)
+                TokenHash = PasswordResetTokenHasher.Hash(token),
+                CreatedAt = now,
+                ExpiresAt = now.AddHours(1)
             };
 
+            await _passwordResetTokenRepository.InvalidateAllByUsuarioIdAsync(usuario.Id, now);
             await _passwordResetTokenRepository.AddAsync(resetToken);
             await _emailService.SendPasswordResetEmailAsync(usuario.Correo, token);
         }
@@ -157,7 +180,8 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponse> ResetPasswordAsync(ResetPasswordRequest request)
     {
-        var resetToken = await _passwordResetTokenRepository.GetByTokenAsync(request.Token);
+        var resetToken = await _passwordResetTokenRepository.GetByTokenHashAsync(
+            PasswordResetTokenHasher.Hash(request.Token));
 
         if (resetToken is null || !resetToken.IsValid)
         {
@@ -276,8 +300,10 @@ public class AuthService : IAuthService
         if (usuario is not null)
         {
             usuario.IsActive = false;
+            usuario.FcmToken = null;
             await _usuarioRepository.UpdateAsync(usuario);
             await _refreshTokenRepository.RevokeAllByUsuarioIdAsync(usuarioId, DateTime.UtcNow);
+            await _dispositivoRepository.DeleteAllByUsuarioIdAsync(usuarioId);
         }
     }
 

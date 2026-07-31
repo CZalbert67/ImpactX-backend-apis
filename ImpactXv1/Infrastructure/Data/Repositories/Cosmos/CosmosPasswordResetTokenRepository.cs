@@ -13,11 +13,11 @@ public class CosmosPasswordResetTokenRepository : IPasswordResetTokenRepository
         _container = dbContext.PasswordResetTokens;
     }
 
-    public async Task<PasswordResetToken?> GetByTokenAsync(string token)
+    public async Task<PasswordResetToken?> GetByTokenHashAsync(string tokenHash)
     {
         var query = new QueryDefinition(
-            "SELECT * FROM c WHERE c.token = @token")
-            .WithParameter("@token", token);
+            "SELECT * FROM c WHERE c.tokenHash = @tokenHash")
+            .WithParameter("@tokenHash", tokenHash);
 
         using var iterator = _container.GetItemQueryIterator<PasswordResetToken>(query);
         if (iterator.HasMoreResults)
@@ -39,5 +39,31 @@ public class CosmosPasswordResetTokenRepository : IPasswordResetTokenRepository
     {
         await _container.UpsertItemAsync(resetToken,
             new PartitionKey(resetToken.UsuarioId.ToString()));
+    }
+
+    public async Task<int> InvalidateAllByUsuarioIdAsync(Guid usuarioId, DateTime invalidatedAt, CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId AND c.usedAt = null AND c.expiresAt > @now")
+            .WithParameter("@usuarioId", usuarioId.ToString())
+            .WithParameter("@now", DateTime.UtcNow.ToString("O"));
+
+        var tokens = new List<PasswordResetToken>();
+        using var iterator = _container.GetItemQueryIterator<PasswordResetToken>(query);
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync(cancellationToken);
+            tokens.AddRange(response);
+        }
+
+        foreach (var token in tokens)
+        {
+            token.UsedAt = invalidatedAt;
+            await _container.UpsertItemAsync(token,
+                new PartitionKey(token.UsuarioId.ToString()),
+                cancellationToken: cancellationToken);
+        }
+
+        return tokens.Count;
     }
 }

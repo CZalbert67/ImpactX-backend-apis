@@ -13,6 +13,7 @@ public class NotificationService : INotificationService
 {
     private readonly INotificacionRepository _notificacionRepository;
     private readonly IUsuarioRepository _usuarioRepository;
+    private readonly IDispositivoRepository _dispositivoRepository;
     private readonly IMonitorRepository _monitorRepository;
     private readonly IPushNotificationGateway _pushGateway;
     private readonly ILogger<NotificationService> _logger;
@@ -20,12 +21,14 @@ public class NotificationService : INotificationService
     public NotificationService(
         INotificacionRepository notificacionRepository,
         IUsuarioRepository usuarioRepository,
+        IDispositivoRepository dispositivoRepository,
         IMonitorRepository monitorRepository,
         IPushNotificationGateway pushGateway,
         ILogger<NotificationService> logger)
     {
         _notificacionRepository = notificacionRepository;
         _usuarioRepository = usuarioRepository;
+        _dispositivoRepository = dispositivoRepository;
         _monitorRepository = monitorRepository;
         _pushGateway = pushGateway;
         _logger = logger;
@@ -98,28 +101,17 @@ public class NotificationService : INotificationService
             return;
         }
 
-        if (string.IsNullOrEmpty(usuario.FcmToken))
+        var tokens = await ResolvePushTokensAsync(usuario);
+        if (tokens.Count == 0)
         {
-            _logger.LogInformation("Usuario {UsuarioId} no tiene token FCM registrado. Saltando push.", usuarioId);
+            _logger.LogInformation("Usuario {UsuarioId} no tiene dispositivos activos con token FCM. Saltando push.", usuarioId);
             return;
         }
 
-        var gatewayResult = await _pushGateway.SendAsync(
-            usuario.FcmToken,
-            titulo,
-            mensaje,
-            datos);
+        await SendToTokensAsync(tokens, titulo, mensaje, datos);
 
-        if (gatewayResult.Success)
-        {
-            _logger.LogInformation("Notificación push enviada con éxito a usuario {UsuarioId}. Id: {MessageId}",
-                usuarioId, gatewayResult.ExternalMessageId);
-        }
-        else
-        {
-            _logger.LogWarning("Notificación push fallida para usuario {UsuarioId}: {Status}",
-                usuarioId, gatewayResult.Status);
-        }
+        _logger.LogInformation("Notificación push despachada a {Cantidad} token(s) para usuario {UsuarioId}",
+            tokens.Count, usuarioId);
     }
 
     public async Task<IReadOnlyList<NotificationDispatchResult>> NotifyAlertMonitorsAsync(
@@ -213,21 +205,17 @@ public class NotificationService : INotificationService
             return new NotificationDispatchResult(Guid.Empty, usuarioVinculado.Id, "DestinatarioNoVinculado", false);
         }
 
-        if (string.IsNullOrEmpty(usuarioVinculado.FcmToken))
+        var tokens = await ResolvePushTokensAsync(usuarioVinculado);
+        if (tokens.Count == 0)
         {
-            _logger.LogInformation("Usuario {UsuarioId} (monitor {MonitorId}) sin FcmToken. SinToken.", usuarioVinculado.Id, monitor.Id);
+            _logger.LogInformation("Usuario {UsuarioId} (monitor {MonitorId}) sin tokens FCM activos. SinToken.", usuarioVinculado.Id, monitor.Id);
             var notificacion = await CreateHistoryRecordAsync(monitor, alerta, title, message, clave, "SinToken", usuarioVinculado.Id);
             return new NotificationDispatchResult(notificacion.Id, notificacion.UsuarioId, "SinToken", false);
         }
 
         var history = await CreateHistoryRecordAsync(monitor, alerta, title, message, clave, "Pendiente", usuarioVinculado.Id);
 
-        var gatewayResult = await _pushGateway.SendAsync(
-            usuarioVinculado.FcmToken,
-            title,
-            message,
-            data,
-            cancellationToken);
+        var gatewayResult = await SendToTokensAsync(tokens, title, message, data, cancellationToken);
 
         await UpdateHistoryAfterDispatchAsync(history, gatewayResult);
 
@@ -273,7 +261,17 @@ public class NotificationService : INotificationService
         CancellationToken cancellationToken)
     {
         var (usuarioVinculado, _) = await ResolveMonitorUserAsync(monitor);
-        if (usuarioVinculado == null || !usuarioVinculado.IsActive || string.IsNullOrEmpty(usuarioVinculado.FcmToken))
+        if (usuarioVinculado == null || !usuarioVinculado.IsActive)
+        {
+            existente.Intentos++;
+            existente.UltimoIntentoEn = DateTime.UtcNow;
+            existente.EstadoEnvio = "Fallido";
+            await _notificacionRepository.UpdateAsync(existente);
+            return new NotificationDispatchResult(existente.Id, existente.UsuarioId, existente.EstadoEnvio, false);
+        }
+
+        var tokens = await ResolvePushTokensAsync(usuarioVinculado);
+        if (tokens.Count == 0)
         {
             existente.Intentos++;
             existente.UltimoIntentoEn = DateTime.UtcNow;
@@ -285,12 +283,7 @@ public class NotificationService : INotificationService
         existente.Intentos++;
         existente.UltimoIntentoEn = DateTime.UtcNow;
 
-        var gatewayResult = await _pushGateway.SendAsync(
-            usuarioVinculado.FcmToken,
-            title,
-            message,
-            data,
-            cancellationToken);
+        var gatewayResult = await SendToTokensAsync(tokens, title, message, data, cancellationToken);
 
         existente.EstadoEnvio = gatewayResult.Status;
         if (gatewayResult.Success)
@@ -379,6 +372,63 @@ public class NotificationService : INotificationService
         }
 
         await _notificacionRepository.UpdateAsync(notificacion);
+    }
+
+    private async Task<List<string>> ResolvePushTokensAsync(Usuario usuario)
+    {
+        var dispositivos = await _dispositivoRepository.GetActiveByUsuarioIdAsync(usuario.Id);
+        var tokens = dispositivos?
+            .Where(d => !string.IsNullOrEmpty(d.TokenFcm))
+            .Select(d => d.TokenFcm)
+            .ToList() ?? [];
+
+        if (tokens.Count == 0 && !string.IsNullOrEmpty(usuario.FcmToken))
+        {
+            tokens.Add(usuario.FcmToken);
+        }
+
+        return tokens;
+    }
+
+    private async Task<PushGatewayResult> SendToTokensAsync(
+        List<string> tokens,
+        string title,
+        string message,
+        IReadOnlyDictionary<string, string>? data,
+        CancellationToken cancellationToken = default)
+    {
+        var sent = 0;
+        var failed = 0;
+        PushGatewayResult? lastResult = null;
+
+        foreach (var token in tokens)
+        {
+            try
+            {
+                var result = await _pushGateway.SendAsync(token, title, message, data, cancellationToken);
+                lastResult = result;
+                if (result.Success)
+                {
+                    sent++;
+                }
+                else
+                {
+                    failed++;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                failed++;
+            }
+        }
+
+        return lastResult is null
+            ? new PushGatewayResult(false, "Fallido")
+            : new PushGatewayResult(sent > 0, lastResult.Success ? "Enviado" : lastResult.Status);
     }
 
     private static (string title, string message, Dictionary<string, string> data) BuildAlertPayload(Alerta alerta)
