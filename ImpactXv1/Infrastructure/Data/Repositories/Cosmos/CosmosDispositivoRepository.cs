@@ -1,0 +1,143 @@
+using Microsoft.Azure.Cosmos;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Interfaces.Repositories;
+
+namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
+
+public class CosmosDispositivoRepository : IDispositivoRepository
+{
+    private readonly Container _container;
+
+    public CosmosDispositivoRepository(CosmosDbContext dbContext)
+    {
+        _container = dbContext.Dispositivos;
+    }
+
+    public async Task<List<Dispositivo>> GetByUsuarioIdAsync(Guid usuarioId)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        var results = new List<Dispositivo>();
+        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query);
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync();
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task<List<Dispositivo>> GetActiveByUsuarioIdAsync(Guid usuarioId)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId AND c.activo = true")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        var results = new List<Dispositivo>();
+        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query);
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync();
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task<Dispositivo?> GetByIdAsync(Guid usuarioId, Guid id)
+    {
+        try
+        {
+            var response = await _container.ReadItemAsync<Dispositivo>(
+                id.ToString(),
+                new PartitionKey(usuarioId.ToString()));
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public async Task<Dispositivo?> GetByDeviceIdAsync(Guid usuarioId, string deviceId)
+    {
+        var query = new QueryDefinition(
+            "SELECT TOP 1 * FROM c WHERE c.usuarioId = @usuarioId AND c.deviceId = @deviceId")
+            .WithParameter("@usuarioId", usuarioId.ToString())
+            .WithParameter("@deviceId", deviceId);
+
+        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query);
+        if (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync();
+            return response.FirstOrDefault();
+        }
+        return null;
+    }
+
+    public async Task<Dispositivo?> GetByTokenFcmAsync(string tokenFcm)
+    {
+        var query = new QueryDefinition(
+            "SELECT TOP 1 * FROM c WHERE c.tokenFcm = @tokenFcm")
+            .WithParameter("@tokenFcm", tokenFcm);
+
+        var requestOptions = new QueryRequestOptions
+        {
+            MaxItemCount = 1
+        };
+
+        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query, requestOptions: requestOptions);
+        if (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync();
+            return response.FirstOrDefault();
+        }
+        return null;
+    }
+
+    public async Task AddAsync(Dispositivo dispositivo)
+    {
+        dispositivo.Id = Guid.NewGuid();
+        await _container.CreateItemAsync(dispositivo,
+            new PartitionKey(dispositivo.UsuarioId.ToString()));
+    }
+
+    public async Task UpdateAsync(Dispositivo dispositivo)
+    {
+        await _container.UpsertItemAsync(dispositivo,
+            new PartitionKey(dispositivo.UsuarioId.ToString()));
+    }
+
+    public async Task DeleteAsync(Dispositivo dispositivo)
+    {
+        await _container.DeleteItemAsync<Dispositivo>(
+            dispositivo.Id.ToString(),
+            new PartitionKey(dispositivo.UsuarioId.ToString()));
+    }
+
+    public async Task<int> DeleteAllByUsuarioIdAsync(Guid usuarioId, CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        var dispositivos = new List<Dispositivo>();
+        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query);
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync(cancellationToken);
+            dispositivos.AddRange(response);
+        }
+
+        foreach (var dispositivo in dispositivos)
+        {
+            await _container.DeleteItemAsync<Dispositivo>(
+                dispositivo.Id.ToString(),
+                new PartitionKey(dispositivo.UsuarioId.ToString()),
+                cancellationToken: cancellationToken);
+        }
+
+        return dispositivos.Count;
+    }
+}

@@ -99,8 +99,8 @@ Código
 - **Firebase conectado a AlertService a través de INotificationService y gateway mockeable**. Las alertas en estado "Enviada" disparan notificaciones push a monitores activos. Solo se probaron mocks; no hay envíos reales a Firebase en las pruebas. Firebase real requiere credenciales configuradas en producción.
 - **Premium ahora permite 6 monitores activos** (desde 5).
 - **Invitaciones protegidas**: AcceptInvitation y RejectInvitation requieren JWT (401 sin autenticación).
-- **Rate limiting pendiente**. No hay límite de tasa configurado en la API.
-- **Reset token en texto plano**. El token de recuperación se almacena sin hash. Mejora pendiente.
+- **Rate limiting pendiente de calibración**. Hay políticas configuradas (13) pero los límites de producción no están calibrados.
+- **Reset token con hash (PR 1B)**. El token de recuperación se almacena solo como SHA-256 base64 (`TokenHash`), uso único, expiración UTC 1h, invalidación de tokens previos. El token crudo solo viaja al servicio de correo stub.
 - **No hay pruebas DAST reales**. El escaneo OWASP actual es un escaneo de API estático, no un DAST autenticado contra un entorno desplegado.
 - **El escaneo de secretos Gitleaks complementa pero no sustituye controles en Azure** como Key Vault o Managed Identity para secretos de producción.
 - **JWT secret externalizado pero gestionado por configuración/env vars**, no por Azure Key Vault ni Managed Identity. La generación de secretos efímeros en CI mitaga exposición, pero sigue dependiendo de variables de entorno en producción.
@@ -158,3 +158,25 @@ Código
 | 9 | Actionlint | `actionlint .github/workflows/*.yml` | 7 workflows, 0 errores. |
 | 10 | Roslyn | `dotnet format --verify-no-changes` | Limpio en C# modificados. |
 | 11 | Resultados GitHub pendientes | CodeQL CI | Por ejecutar en el PR. |
+
+### R0.3 — Identity and Device Hardening / PR 1B (completado 2026-07-30)
+
+| # | Control | Prueba/Workflow | Qué valida |
+|---|---|---|---|
+| 1 | Reset token con hash SHA-256 | Unit + integración `AuthServiceTests`/`AuthControllerTests` | BD solo contiene `TokenHash` (44 chars base64), nunca el token en texto plano. Lookup por hash. |
+| 2 | Uso único + expiración UTC | Unit `ResetPasswordAsync_*` | Token válido funciona; incorrecto/expirado/reutilizado fallan; segundo recover invalida el primero. |
+| 3 | Sin datos sensibles en logs | `RecoverPassword_DoesNotLogCorreoOrToken`, `ResetPassword_DoesNotLogToken`, `RecoverPasswordAsync_DoesNotLogTokenOrCorreo` | Token, hash, correo y contraseña ausentes de `TestLogCapture`/`ListLogger`. |
+| 4 | AuthService generic catch | `RegisterAsync_FreePlan*` (3 tests) | Conflict/429 de Cosmos y `DbUpdateException` no rompen el registro; errores inesperados y OCE propagan. Sin `Console.WriteLine`, sin `ex.Message`. |
+| 5 | FCM multidispositivo | `DeviceServiceTests` + `NotificationServiceTests` (multidispositivo) + `DevicesControllerTests` (17) | Varios dispositivos por usuario; DeviceId único; **token FCM globalmente único** (`GetByTokenFcmAsync(string)` previo a crear/actualizar: EF global, Cosmos cross-partition solo para esta resolución); token de otro dispositivo del mismo usuario desactiva el anterior; token de otro usuario → 409 con mensaje genérico (sin crear ni actualizar nada); upsert reemplaza token; envío a todos los activos; fallo de un token no bloquea los demás (todos fallidos → "Fallido"); fallback legacy; plataformas normalizadas con Trim (WEAROS→WearOS, " android "→Android); migración legacy limpia `Usuario.FcmToken`. |
+| 6 | Autorización horizontal | `DevicesControllerTests` (Category=Security) | A no lista dispositivos de B; A no elimina dispositivo de B (404, sin revelar existencia); token de B rechazado con 409 si lo usa A; usuarioId del body ignorado (JWT manda); endpoints privados requieren Bearer (401). |
+| 7 | TokenFcm nunca en respuestas/logs | `DeviceList_NeverContainsFcmToken`, `DeviceOperations_DoNotLogFcmToken`, `DispatchToMonitor_DoesNotLogDeviceTokenValues`, `UpsertFcmTokenAsync_Conflict_DoesNotLogToken` | Ausencia de token en bodies y logs (incluido el flujo de conflicto). `DeviceDto` sin propiedad TokenFcm. |
+| 8 | Revocación y migración legacy | Unit + integración | DELETE individual, DELETE todos, y borrado de cuenta revocan todos los dispositivos y limpian `Usuario.FcmToken`. Legacy `PUT/DELETE /api/users/me/fcm-token` intactos. |
+| 9 | Security regression | `Category=Security` (144 tests) | 144 pruebas de seguridad, 0 fallos. |
+| 10 | Suite completa | `dotnet test ImpactX.slnx --configuration Release` | **558 pruebas**, 0 fallos (antes 557/144). |
+| 10b | Contrato OpenAPI 409 fcm-token | `OpenApi_DevicesFcmToken_Includes409ProblemDetails` | `PUT /api/v1/devices/fcm-token` documenta 409 con `application/problem+json` → `$ref ProblemDetails` (único PUT con conflicto real; sin 409 en endpoints sin conflicto). |
+| 11 | Secret scanner | `check_hardcoded_secrets.py` | 246 archivos, 0 violaciones. |
+| 12 | NuGet audit | `dotnet list package --vulnerable --include-transitive` | 0 vulnerables. |
+| 13 | Actionlint | `actionlint .github/workflows/*.yml` | 7 workflows, 0 errores. |
+| 14 | Roslyn | `dotnet format --verify-no-changes` | Limpio en 26 C# modificados/nuevos. |
+| 15 | git diff --check | `git diff --check` | Sin errores de whitespace. |
+| 16 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR. |

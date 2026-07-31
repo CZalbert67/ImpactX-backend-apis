@@ -562,6 +562,27 @@ public class ApiContractV1Tests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    public async Task OpenApi_DevicesFcmToken_Includes409ProblemDetails()
+    {
+        var response = await _client.GetAsync("/openapi/v1.json");
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
+        var paths = doc.RootElement.GetProperty("paths");
+
+        var testRoute = "/api/v1/devices/fcm-token";
+        Assert.True(paths.TryGetProperty(testRoute, out var pathItem));
+        Assert.True(pathItem.TryGetProperty("put", out var operation));
+
+        var responses = operation.GetProperty("responses");
+        Assert.True(responses.TryGetProperty("409", out var conflictResponse));
+        var content = conflictResponse.GetProperty("content");
+        var problemJson = content.GetProperty("application/problem+json");
+        var schema = problemJson.GetProperty("schema");
+
+        Assert.Equal("#/components/schemas/ProblemDetails", schema.GetProperty("$ref").GetString());
+    }
+
+    [Fact]
     public async Task OpenApi_RateLimitedRoutes_Include429()
     {
         var response = await _client.GetAsync("/openapi/v1.json");

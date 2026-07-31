@@ -69,9 +69,13 @@ public static class PlanSeeder
                 await container.CreateItemAsync(plan, new PartitionKey(plan.Id.ToString()));
             }
         }
-        catch (Exception ex)
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
         {
-            Console.WriteLine($"[PlanSeeder] Info: Omitiendo siembra de planes en Cosmos DB ({ex.Message}).");
+            // Siembra best-effort: conflicto de creación concurrente es esperado.
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
     }
 

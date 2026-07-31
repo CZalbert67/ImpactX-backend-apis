@@ -758,3 +758,38 @@ Elimina el token FCM del usuario autenticado.
 | 4 | Fuera de alcance (deuda para PR 1B/1C) | AuthService generic catch, PlanSeeder generic catch, CosmosDbContext generic catch, IncidentService concatenación, alertas LINQ, WearableService, RutaRepository, archivos obj. Sin cambios en esta ronda. |
 | 5 | Resultados locales | 490 pruebas (115 Security), build Release OK, scanner 0 violaciones, NuGet 0 vulnerables, actionlint limpio, Roslyn limpio en C# modificados. |
 | 6 | Resultados GitHub pendientes | CodeQL y demás pipelines por ejecutar en el PR. |
+
+### Ronda 12 — R0.3 Identity and Device Hardening / PR 1B (completado 2026-07-30)
+
+| # | Requisito | Verificación |
+|---|---|---|
+| 1 | Reset token con hash | `PasswordResetToken.TokenHash` guarda solo SHA-256 base64 (`Core/Security/PasswordResetTokenHasher.cs`). Token crudo (32 bytes RNG base64url) solo viaja a `IEmailService`. Búsqueda por `GetByTokenHashAsync`. Índice único EF sobre TokenHash. Repos EF y Cosmos migrados (c.tokenHash). |
+| 2 | Uso único y expiración | `UsedAt` marca uso; reset falla con token usado/expirado (UTC 1h). `InvalidateAllByUsuarioIdAsync` invalida tokens previos al crear uno nuevo (EF: update de tokens activos; Cosmos: query por partición `/usuarioId` + upsert). |
+| 3 | Respuesta genérica indistinta | Recover responde idéntico para correo existente e inexistente. Sin token en HTTP. Sin token/hash/correo/contraseña en logs (verificado con `TestLogCapture` y `ListLogger`). |
+| 4 | AuthService generic catch | Alerta CodeQL corregida: catch de `CosmosException` (Conflict/429) y `DbUpdateException` con `ILogger`, sin `Exception.Message`, sin `Console.WriteLine`. Propaga `OperationCanceledException` y errores inesperados a `ProblemDetailsMiddleware`. |
+| 5 | FCM multidispositivo | Entidad `Dispositivo` (Id, UsuarioId, DeviceId, Platform, TokenFcm, Nombre, Activo, CreadoEn, ActualizadoEn, UltimoUsoEn). `IDispositivoRepository` + EF (`DispositivoRepository`) + Cosmos (`CosmosDispositivoRepository`, contenedor `Dispositivos` `/usuarioId`). DeviceId único por usuario. **Token FCM globalmente único**: `GetByTokenFcmAsync(string tokenFcm)` busca globalmente (EF query global; Cosmos cross-partition solo para esta resolución) antes de crear/actualizar; token de otro dispositivo del mismo usuario → se desactiva el anterior y se limpia su TokenFcm; token de otro usuario → `ConflictException` (409) con mensaje genérico sin revelar propietario. Plataforma normalizada con `Trim()` + switch case-insensitive → exactamente `Android`/`WearOS`/`Web` (nunca "Wearos"); null/vacía/espacios o inválida → 400. |
+| 6 | Endpoints V1 | `DevicesController` (todos `[Authorize]`): `GET /api/v1/devices`, `PUT /api/v1/devices/fcm-token`, `DELETE /api/v1/devices/{id:guid}`, `DELETE /api/v1/devices`, `DELETE /api/v1/devices/fcm-token` (compat). Rate limiting `fcm-token` en PUT/DELETE. |
+| 7 | Autorización horizontal | usuarioId siempre del JWT; body sin campo UsuarioId (ignorado si se envía). GET lista solo dispositivos propios. `GetByIdAsync(Guid usuarioId, Guid id)`: EF filtra ambas condiciones; Cosmos lectura puntual con `PartitionKey(usuarioId)` (404→null). DELETE de dispositivo inexistente o ajeno → 404 (sin revelar existencia). |
+| 8 | Sin TokenFcm en respuestas ni logs | `DeviceDto` no expone TokenFcm. Pruebas verifican ausencia del token en bodies y en `LogCapture`/`ListLogger`. |
+| 9 | NotificationService multidispositivo | Envía a todos los dispositivos activos; un fallo de token no bloquea los demás (agregación: "Enviado" si al menos uno, "Fallido" si todos). Fallback a `Usuario.FcmToken` legacy si no hay dispositivos. Idempotencia por clave intacta. Sin Firebase real (gateway stub). |
+| 10 | Revocación y migración legacy | DELETE individual, DELETE todos, y `DeleteAccountAsync` revocan todos los dispositivos. Al registrar dispositivo V1, al eliminar el último dispositivo activo y al revocar todos se limpia `Usuario.FcmToken` (evita reenvíos con el token eliminado); `DeleteAccountAsync` también lo limpia. Legacy `PUT/DELETE /api/users/me/fcm-token` conservados (escriben `Usuario.FcmToken`); rutas V1 de dispositivos movidas a DevicesController sin conflictos. |
+| 11 | Cosmos hardening | `CosmosDbContext.EnsureContainersAsync`: catch de creación de BD solo `BadRequest` (cuenta incompatible con throughput manual) reintentando sin throughput; `CreateContainerIfNotExistsAsync` ya maneja el 409 de contenedores (sin catch); 401/403/429/5xx propagan. `PlanSeeder`: solo Conflict de Cosmos, propaga OCE, sin `Console.WriteLine` ni `ex.Message`. Refactorización pequeña y segura. |
+| 12 | **558 pruebas totales** | 144 Category=Security (antes 557/144). Contrato OpenAPI: `OpenApi_DevicesFcmToken_Includes409ProblemDetails` (PUT /api/v1/devices/fcm-token documenta 409 con `application/problem+json` → `$ref ProblemDetails`). DeviceServiceTests (unicidad global del token: nuevo dispositivo con token ajeno 409 sin crear/actualizar nada, mismo usuario desactiva el anterior, mismo dispositivo sin cambios; validación de platform null/vacía/espacios/trim; sin token en logs), DevicesControllerTests (integración: 409 token de otro usuario, desactivación del dispositivo previo), NotificationServiceTests (todos fallidos→Fallido, sin dispositivos y sin legacy→no envía). |
+| 13 | Scanner 0 violaciones | `check_hardcoded_secrets.py`: 246 archivos, 0 violaciones. |
+| 14 | NuGet 0 vulnerables | `dotnet list package --vulnerable --include-transitive`: 0 paquetes. |
+| 15 | actionlint limpio | 7 workflows, 0 errores. |
+| 16 | Roslyn limpio | `dotnet format --verify-no-changes` sobre 26 archivos C# modificados/nuevos. |
+| 17 | git diff --check | Sin errores de whitespace. |
+| 18 | Resultados GitHub pendientes | Pipelines por ejecutar en el PR. |
+
+### Deuda técnica reservada para PR 1C
+
+- `StubEmailService` sin reemplazo real (correo no se envía; el token crudo solo existe en memoria durante recover).
+- Firebase real no contactado (gateway stub); calibración de `FirebasePushNotificationGateway` pendiente.
+- Cosmos real no contactado (solo EF InMemory en pruebas; repos Cosmos sin prueba de integración).
+- **Unicidad global del token FCM**: la comprobación query-before-write (`GetByTokenFcmAsync` global) no garantiza atomicidad bajo concurrencia extrema en Cosmos (dos writes simultáneos con el mismo token pueden pasar la comprobación ambos); en EF InMemory el índice único `(UsuarioId, DeviceId)` no cubre TokenFcm. Mitigación pendiente para PR 1C.
+- Incidents/Alertas: transacción no atómica alerta↔incidente.
+- Máquina de estados de `RetryExistingNotificationAsync` con reintentos por intento.
+- OpenTelemetry / tracing distribuido.
+- Vehículos no existe; telemetría ligada a TripId.
+- Límites de rate limiting pendientes de calibrar (perfil de producción).

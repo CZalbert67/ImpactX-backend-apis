@@ -1,0 +1,64 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using ImpactX.Models.DTOs;
+using ImpactX.Services;
+
+namespace ImpactX.Controllers;
+
+[ApiController]
+[Route("api/v1/devices")]
+[Authorize]
+public class DevicesController : ControllerBase
+{
+    private readonly IDeviceService _deviceService;
+
+    public DevicesController(IDeviceService deviceService)
+    {
+        _deviceService = deviceService;
+    }
+
+    [HttpGet("")]
+    public async Task<IActionResult> GetDevices()
+    {
+        var usuarioId = GetUsuarioId();
+        var devices = await _deviceService.GetDevicesAsync(usuarioId);
+        return Ok(devices);
+    }
+
+    [HttpPut("fcm-token")]
+    [EnableRateLimiting("fcm-token")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpsertFcmToken([FromBody] UpsertDeviceRequest request)
+    {
+        var usuarioId = GetUsuarioId();
+        await _deviceService.UpsertFcmTokenAsync(usuarioId, request);
+        return NoContent();
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> DeleteDevice(Guid id)
+    {
+        var usuarioId = GetUsuarioId();
+        await _deviceService.DeleteDeviceAsync(usuarioId, id);
+        return NoContent();
+    }
+
+    [HttpDelete("")]
+    [HttpDelete("fcm-token")]
+    [EnableRateLimiting("fcm-token")]
+    public async Task<IActionResult> DeleteAllDevices()
+    {
+        var usuarioId = GetUsuarioId();
+        await _deviceService.DeleteAllDevicesAsync(usuarioId);
+        return NoContent();
+    }
+
+    private Guid GetUsuarioId()
+    {
+        var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+        return Guid.Parse(claim!.Value);
+    }
+}

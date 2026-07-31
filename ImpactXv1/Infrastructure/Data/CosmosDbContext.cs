@@ -10,6 +10,7 @@ public class CosmosDbContext
     public Container Usuarios { get; }
     public Container RefreshTokens { get; }
     public Container PasswordResetTokens { get; }
+    public Container Dispositivos { get; }
     public Container Planes { get; }
     public Container Suscripciones { get; }
     public Container Pagos { get; }
@@ -44,6 +45,7 @@ public class CosmosDbContext
         Usuarios = _database.GetContainer("Usuarios");
         RefreshTokens = _database.GetContainer("RefreshTokens");
         PasswordResetTokens = _database.GetContainer("PasswordResetTokens");
+        Dispositivos = _database.GetContainer("Dispositivos");
         Planes = _database.GetContainer("Planes");
         Suscripciones = _database.GetContainer("Suscripciones");
         Pagos = _database.GetContainer("Pagos");
@@ -66,8 +68,10 @@ public class CosmosDbContext
         {
             await _client.CreateDatabaseIfNotExistsAsync(_database.Id, ThroughputProperties.CreateManualThroughput(400));
         }
-        catch
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.BadRequest)
         {
+            // Cuenta incompatible con throughput manual (p. ej. serverless):
+            // se reintenta sin throughput. 401/403/429/5xx propagan.
             await _client.CreateDatabaseIfNotExistsAsync(_database.Id);
         }
 
@@ -76,6 +80,7 @@ public class CosmosDbContext
             ("Usuarios", "/id", -1),
             ("RefreshTokens", "/usuarioId", 604800),
             ("PasswordResetTokens", "/usuarioId", 3600),
+            ("Dispositivos", "/usuarioId", -1),
             ("Planes", "/id", -1),
             ("Suscripciones", "/usuarioId", -1),
             ("Pagos", "/usuarioId", -1),
@@ -94,21 +99,14 @@ public class CosmosDbContext
 
         foreach (var (name, partitionKey, ttl) in containerDefinitions)
         {
-            try
+            var properties = new ContainerProperties
             {
-                var properties = new ContainerProperties
-                {
-                    Id = name,
-                    PartitionKeyPath = partitionKey,
-                    DefaultTimeToLive = ttl
-                };
+                Id = name,
+                PartitionKeyPath = partitionKey,
+                DefaultTimeToLive = ttl
+            };
 
-                await _database.CreateContainerIfNotExistsAsync(properties);
-            }
-            catch (CosmosException ex)
-            {
-                Console.WriteLine($"[CosmosDB] Contenedor '{name}' listo (Status: {ex.StatusCode}).");
-            }
+            await _database.CreateContainerIfNotExistsAsync(properties);
         }
     }
 }

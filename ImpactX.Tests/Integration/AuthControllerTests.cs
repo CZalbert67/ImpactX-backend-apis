@@ -1,16 +1,21 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Security;
+using ImpactX.Infrastructure.Data;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Tests.Integration;
 
 public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
 {
+    private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
     public AuthControllerTests(CustomWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -466,5 +471,117 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
 
         var body = await response.Content.ReadAsStringAsync();
         Assert.DoesNotContain("token", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ResetToken_StoredAsSha256Hash_NotPlainText()
+    {
+        var email = $"hashstore_{Guid.NewGuid()}@test.com";
+        await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            nombre = "Hash Store User",
+            correo = email,
+            password = "Password123!"
+        });
+
+        await _client.PostAsJsonAsync("/api/auth/recover-password", new
+        {
+            correo = email
+        });
+
+        await _factory.ExecuteInDbContextAsync(async db =>
+        {
+            var usuario = db.Usuarios.Single(u => u.Correo == email);
+            var tokens = db.PasswordResetTokens.Where(t => t.UsuarioId == usuario.Id).ToList();
+
+            Assert.Single(tokens);
+            var stored = tokens[0].TokenHash;
+            Assert.Equal(44, stored.Length);
+            Assert.True(stored.All(c => char.IsAsciiLetterOrDigit(c) || c is '+' or '/' or '='),
+                "El hash debe ser base64 de SHA-256 (44 caracteres).");
+            Assert.DoesNotContain(email, stored, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ResetToken_SecondRecover_InvalidatesFirstToken()
+    {
+        var email = $"invalidate_{Guid.NewGuid()}@test.com";
+        await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            nombre = "Invalidate User",
+            correo = email,
+            password = "Password123!"
+        });
+
+        await _client.PostAsJsonAsync("/api/auth/recover-password", new
+        {
+            correo = email
+        });
+
+        await _client.PostAsJsonAsync("/api/auth/recover-password", new
+        {
+            correo = email
+        });
+
+        await _factory.ExecuteInDbContextAsync(async db =>
+        {
+            var usuario = db.Usuarios.Single(u => u.Correo == email);
+            var tokens = db.PasswordResetTokens.Where(t => t.UsuarioId == usuario.Id).ToList();
+
+            Assert.Equal(2, tokens.Count);
+            Assert.NotNull(tokens[0].UsedAt);
+            Assert.Null(tokens[1].UsedAt);
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task RecoverPassword_DoesNotLogCorreoOrToken()
+    {
+        var email = $"nolog_{Guid.NewGuid()}@test.com";
+        await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            nombre = "No Log User",
+            correo = email,
+            password = "Password123!"
+        });
+
+        await _client.PostAsJsonAsync("/api/auth/recover-password", new
+        {
+            correo = email
+        });
+
+        foreach (var entry in _factory.LogCapture.LogEntries)
+        {
+            Assert.DoesNotContain(email, entry, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ResetPassword_DoesNotLogToken()
+    {
+        var email = $"reslog_{Guid.NewGuid()}@test.com";
+        await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            nombre = "Reset Log User",
+            correo = email,
+            password = "Password123!"
+        });
+
+        var badToken = "bogus-reset-" + Guid.NewGuid().ToString("N");
+        await _client.PostAsJsonAsync("/api/auth/reset-password", new
+        {
+            token = badToken,
+            newPassword = "NewPassword456!"
+        });
+
+        foreach (var entry in _factory.LogCapture.LogEntries)
+        {
+            Assert.DoesNotContain(badToken, entry, StringComparison.Ordinal);
+        }
     }
 }

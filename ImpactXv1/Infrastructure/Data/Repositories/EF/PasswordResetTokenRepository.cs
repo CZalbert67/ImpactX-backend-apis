@@ -13,10 +13,10 @@ public class PasswordResetTokenRepository : IPasswordResetTokenRepository
         _context = context;
     }
 
-    public async Task<PasswordResetToken?> GetByTokenAsync(string token)
+    public async Task<PasswordResetToken?> GetByTokenHashAsync(string tokenHash)
     {
         return await _context.PasswordResetTokens
-            .FirstOrDefaultAsync(p => p.Token == token);
+            .FirstOrDefaultAsync(p => p.TokenHash == tokenHash);
     }
 
     public async Task AddAsync(PasswordResetToken resetToken)
@@ -29,5 +29,19 @@ public class PasswordResetTokenRepository : IPasswordResetTokenRepository
     {
         _context.PasswordResetTokens.Update(resetToken);
         await _context.SaveChangesAsync();
+    }
+
+    public async Task<int> InvalidateAllByUsuarioIdAsync(Guid usuarioId, DateTime invalidatedAt, CancellationToken cancellationToken = default)
+    {
+        var activeTokens = await _context.PasswordResetTokens
+            .Where(p => p.UsuarioId == usuarioId && p.UsedAt == null && p.ExpiresAt > DateTime.UtcNow)
+            .ToListAsync(cancellationToken);
+
+        foreach (var token in activeTokens)
+        {
+            token.UsedAt = invalidatedAt;
+        }
+
+        return await _context.SaveChangesAsync(cancellationToken);
     }
 }

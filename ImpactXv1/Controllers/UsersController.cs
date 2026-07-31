@@ -92,7 +92,6 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("me/fcm-token")]
-    [HttpPut("/api/v1/devices/fcm-token")]
     [EnableRateLimiting("fcm-token")]
     public async Task<IActionResult> UpdateFcmToken([FromBody] UpdateFcmTokenRequest request)
     {
@@ -108,7 +107,6 @@ public class UsersController : ControllerBase
     }
 
     [HttpDelete("me/fcm-token")]
-    [HttpDelete("/api/v1/devices/fcm-token")]
     [EnableRateLimiting("fcm-token")]
     public async Task<IActionResult> DeleteFcmToken()
     {
