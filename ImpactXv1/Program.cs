@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using ImpactX.Configuration;
 using ImpactX.Extensions;
 using ImpactX.Filter;
+using ImpactX.Health;
 using ImpactX.Infrastructure.Data;
 using ImpactX.Middleware;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -53,14 +54,24 @@ builder.Services.AddOpenApi(options =>
 
 builder.Services.AddHealthChecks()
     .AddCheck("live", () => HealthCheckResult.Healthy(), tags: ["live"])
-    .AddCheck("ready", () => HealthCheckResult.Healthy(), tags: ["ready"]);
+    .AddCheck<ConfigurationReadinessCheck>("config", tags: ["ready"]);
 
 var useCosmosDb = builder.Configuration.GetValue<bool>("UseCosmosDb");
 var useInMemory = builder.Configuration.GetValue<bool>("UseInMemoryDatabase");
 
 if (useCosmosDb)
 {
+    // La inicialización Cosmos solo corre en Production cuando se habilita
+    // explícitamente; por defecto queda habilitada fuera de Production.
+    if (builder.Configuration.GetSection("DatabaseInitialization")["Enabled"] is null)
+    {
+        builder.Configuration["DatabaseInitialization:Enabled"] =
+            (!builder.Environment.IsProduction()).ToString().ToLowerInvariant();
+    }
+
     builder.Services.RegisterApplicationServices(builder.Configuration);
+    builder.Services.AddHealthChecks()
+        .AddCheck<DatabaseReadinessCheck>("database", tags: ["ready"]);
 }
 else
 {
@@ -277,48 +288,15 @@ builder.Services.AddRateLimiter(options =>
     };
 });
 
-try
-{
-    var firebaseCredentialsFile = builder.Configuration["Firebase:CredentialsPath"] ?? "firebase-credentials.json";
-    var firebaseCredentialsPath = Path.Combine(builder.Environment.ContentRootPath, firebaseCredentialsFile);
-
-    if (File.Exists(firebaseCredentialsPath))
-    {
-        FirebaseAdmin.FirebaseApp.Create(new FirebaseAdmin.AppOptions()
-        {
-            Credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromFile(firebaseCredentialsPath)
-        });
-        Console.WriteLine($"[Firebase] Inicializado con éxito desde archivo: {firebaseCredentialsPath}");
-    }
-    else
-    {
-        var credentialsEnv = Environment.GetEnvironmentVariable("FIREBASE_CREDENTIALS");
-        if (!string.IsNullOrEmpty(credentialsEnv))
-        {
-            FirebaseAdmin.FirebaseApp.Create(new FirebaseAdmin.AppOptions()
-            {
-                Credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromJson(credentialsEnv)
-            });
-            Console.WriteLine("[Firebase] Inicializado con éxito desde variable de entorno.");
-        }
-        else
-        {
-            Console.WriteLine($"[Firebase] ADVERTENCIA: Archivo de credenciales no encontrado en '{firebaseCredentialsPath}' ni en variable de entorno. Las notificaciones push de Firebase no se enviarán.");
-        }
-    }
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"[Firebase] Error crítico al inicializar Firebase Admin SDK: {ex.Message}");
-}
-
 var app = builder.Build();
+
+InitializeFirebase(builder.Configuration, app.Logger, app.Environment);
 
 await app.SeedDatabaseAsync(useCosmosDb, useInMemory);
 
 app.UseMiddleware<CorrelationIdMiddleware>();
-app.UseMiddleware<ProblemDetailsMiddleware>();
 app.UseMiddleware<RequestLoggingMiddleware>();
+app.UseMiddleware<ProblemDetailsMiddleware>();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseMiddleware<LegacyDeprecationMiddleware>();
 
@@ -347,39 +325,94 @@ app.MapControllers();
 
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
+    AllowCachingResponses = false,
     ResponseWriter = WriteHealthCheckResponse
 });
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {
+    AllowCachingResponses = false,
     Predicate = check => check.Tags.Contains("live"),
     ResponseWriter = WriteHealthCheckResponse
 });
 
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
+    AllowCachingResponses = false,
     Predicate = check => check.Tags.Contains("ready"),
     ResponseWriter = WriteHealthCheckResponse
 });
 
 app.Run();
 
+static void InitializeFirebase(IConfiguration config, ILogger logger, IWebHostEnvironment environment)
+{
+    try
+    {
+        var firebaseCredentialsFile = config["Firebase:CredentialsPath"] ?? "firebase-credentials.json";
+        var firebaseCredentialsPath = Path.Combine(environment.ContentRootPath, firebaseCredentialsFile);
+
+        if (File.Exists(firebaseCredentialsPath))
+        {
+            FirebaseAdmin.FirebaseApp.Create(new FirebaseAdmin.AppOptions()
+            {
+                Credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromFile(firebaseCredentialsPath)
+            });
+            logger.LogInformation("[Firebase] Inicializado con éxito desde archivo de credenciales.");
+        }
+        else
+        {
+            var credentialsEnv = Environment.GetEnvironmentVariable("FIREBASE_CREDENTIALS");
+            if (!string.IsNullOrEmpty(credentialsEnv))
+            {
+                FirebaseAdmin.FirebaseApp.Create(new FirebaseAdmin.AppOptions()
+                {
+                    Credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromJson(credentialsEnv)
+                });
+                logger.LogInformation("[Firebase] Inicializado con éxito desde variable de entorno.");
+            }
+            else
+            {
+                logger.LogWarning("[Firebase] Credenciales no encontradas; las notificaciones push de Firebase no se enviarán.");
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError("[Firebase] Error al inicializar Firebase Admin SDK: {ErrorType}.", ex.GetType().Name);
+    }
+}
+
+static string FormatHealthStatus(HealthStatus status) => status switch
+{
+    HealthStatus.Healthy => "healthy",
+    HealthStatus.Degraded => "degraded",
+    _ => "unhealthy"
+};
+
 static async Task WriteHealthCheckResponse(HttpContext context, HealthReport report)
 {
     context.Response.ContentType = "application/json; charset=utf-8";
+
     var env = context.RequestServices.GetRequiredService<IWebHostEnvironment>();
+    var correlationId = context.Items["CorrelationId"] as string ?? context.TraceIdentifier;
+
     var response = new
     {
-        status = report.Status switch
-        {
-            HealthStatus.Healthy => "healthy",
-            HealthStatus.Degraded => "degraded",
-            _ => "unhealthy"
-        },
+        status = FormatHealthStatus(report.Status),
         service = "impactx-api",
         environment = env.EnvironmentName,
-        timestamp = DateTimeOffset.UtcNow.ToString("o")
+        timestamp = DateTimeOffset.UtcNow.ToString("o"),
+        correlationId,
+        checks = report.Entries.Select(entry => new
+        {
+            name = entry.Key,
+            status = FormatHealthStatus(entry.Value.Status),
+            duration = entry.Value.Duration.TotalMilliseconds,
+            description = entry.Value.Description
+        })
     };
+
     await context.Response.WriteAsync(JsonSerializer.Serialize(response));
 }
 

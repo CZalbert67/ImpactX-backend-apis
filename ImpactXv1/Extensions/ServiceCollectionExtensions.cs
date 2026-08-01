@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using ImpactX.Configuration;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
 using ImpactX.Infrastructure.Data;
@@ -21,6 +22,10 @@ public static class ServiceCollectionExtensions
         if (useCosmosDb)
         {
             services.AddSingleton<CosmosDbContext>();
+            services.Configure<DatabaseInitializationOptions>(config.GetSection("DatabaseInitialization"));
+            services.Configure<ReadinessOptions>(config.GetSection("Readiness"));
+            services.AddSingleton<DatabaseInitializationState>();
+            services.AddHostedService<CosmosInitializationService>();
             services.AddScoped<IUsuarioRepository, CosmosUsuarioRepository>();
             services.AddScoped<IRefreshTokenRepository, CosmosRefreshTokenRepository>();
             services.AddScoped<IPasswordResetTokenRepository, CosmosPasswordResetTokenRepository>();
