@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
 
@@ -15,11 +16,14 @@ public class CosmosRefreshTokenRepository : IRefreshTokenRepository
 
     public async Task<RefreshToken?> GetByTokenAsync(string token)
     {
+        // Cross-partition justificada: búsqueda por token sin usuarioId
+        // conocido; la partición es /usuarioId. Detención temprana.
         var query = new QueryDefinition(
-            "SELECT * FROM c WHERE c.token = @token")
+            "SELECT TOP 1 * FROM c WHERE c.token = @token")
             .WithParameter("@token", token);
 
-        using var iterator = _container.GetItemQueryIterator<RefreshToken>(query);
+        using var iterator = _container.GetItemQueryIterator<RefreshToken>(query,
+            requestOptions: new QueryRequestOptions { MaxItemCount = 1 });
         if (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -36,7 +40,12 @@ public class CosmosRefreshTokenRepository : IRefreshTokenRepository
             .WithParameter("@now", DateTime.UtcNow.ToString("O"));
 
         var tokens = new List<RefreshToken>();
-        using var iterator = _container.GetItemQueryIterator<RefreshToken>(query);
+        using var iterator = _container.GetItemQueryIterator<RefreshToken>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 100
+            });
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -49,20 +58,21 @@ public class CosmosRefreshTokenRepository : IRefreshTokenRepository
     {
         refreshToken.Id = Guid.NewGuid();
         await _container.CreateItemAsync(refreshToken,
-            new PartitionKey(refreshToken.UsuarioId.ToString()));
+            CosmosPartitionKeys.For(refreshToken.UsuarioId));
     }
 
     public async Task UpdateAsync(RefreshToken refreshToken)
     {
-        await _container.UpsertItemAsync(refreshToken,
-            new PartitionKey(refreshToken.UsuarioId.ToString()));
+        await _container.ReplaceItemAsync(refreshToken,
+            refreshToken.Id.ToString(),
+            CosmosPartitionKeys.For(refreshToken.UsuarioId));
     }
 
     public async Task DeleteAsync(RefreshToken refreshToken)
     {
         await _container.DeleteItemAsync<RefreshToken>(
             refreshToken.Id.ToString(),
-            new PartitionKey(refreshToken.UsuarioId.ToString()));
+            CosmosPartitionKeys.For(refreshToken.UsuarioId));
     }
 
     public async Task RevokeAllByUsuarioIdAsync(Guid usuarioId, DateTime revokedAt, CancellationToken cancellationToken = default)
@@ -72,7 +82,12 @@ public class CosmosRefreshTokenRepository : IRefreshTokenRepository
             .WithParameter("@usuarioId", usuarioId.ToString());
 
         var tokens = new List<RefreshToken>();
-        using var iterator = _container.GetItemQueryIterator<RefreshToken>(query);
+        using var iterator = _container.GetItemQueryIterator<RefreshToken>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 100
+            });
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync(cancellationToken);
@@ -82,8 +97,9 @@ public class CosmosRefreshTokenRepository : IRefreshTokenRepository
         foreach (var token in tokens)
         {
             token.RevokedAt = revokedAt;
-            await _container.UpsertItemAsync(token,
-                new PartitionKey(token.UsuarioId.ToString()),
+            await _container.ReplaceItemAsync(token,
+                token.Id.ToString(),
+                CosmosPartitionKeys.For(token.UsuarioId),
                 cancellationToken: cancellationToken);
         }
     }

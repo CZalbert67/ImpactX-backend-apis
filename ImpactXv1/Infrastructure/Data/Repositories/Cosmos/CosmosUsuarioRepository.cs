@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
 
@@ -18,7 +19,7 @@ public class CosmosUsuarioRepository : IUsuarioRepository
         try
         {
             var response = await _container.ReadItemAsync<Usuario>(
-                id.ToString(), new PartitionKey(id.ToString()));
+                id.ToString(), CosmosPartitionKeys.For(id));
             return response.Resource;
         }
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -29,11 +30,15 @@ public class CosmosUsuarioRepository : IUsuarioRepository
 
     public async Task<Usuario?> GetByCorreoAsync(string correo)
     {
+        // Cross-partition justificada: Usuarios particiona por /id; la
+        // búsqueda por correo no tiene partition key conocida. Contenedor
+        // pequeño y consulta parametrizada con detención temprana.
         var query = new QueryDefinition(
-            "SELECT * FROM c WHERE c.correo = @correo")
+            "SELECT TOP 1 * FROM c WHERE c.correo = @correo")
             .WithParameter("@correo", correo);
 
-        using var iterator = _container.GetItemQueryIterator<Usuario>(query);
+        using var iterator = _container.GetItemQueryIterator<Usuario>(query,
+            requestOptions: new QueryRequestOptions { MaxItemCount = 1 });
         if (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -44,11 +49,13 @@ public class CosmosUsuarioRepository : IUsuarioRepository
 
     public async Task<Usuario?> GetByUsernameAsync(string username)
     {
+        // Cross-partition justificada: Usuarios particiona por /id (ver GetByCorreoAsync).
         var query = new QueryDefinition(
-            "SELECT * FROM c WHERE c.username = @username")
+            "SELECT TOP 1 * FROM c WHERE c.username = @username")
             .WithParameter("@username", username);
 
-        using var iterator = _container.GetItemQueryIterator<Usuario>(query);
+        using var iterator = _container.GetItemQueryIterator<Usuario>(query,
+            requestOptions: new QueryRequestOptions { MaxItemCount = 1 });
         if (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -59,6 +66,8 @@ public class CosmosUsuarioRepository : IUsuarioRepository
 
     public async Task<List<Usuario>> SearchAsync(string query)
     {
+        // Cross-partition justificada: búsqueda global por username/nombre/
+        // appId/correo. Límite interno de 20 resultados con detención temprana.
         var lower = query.ToLowerInvariant();
         var sqlQuery = new QueryDefinition(
             "SELECT * FROM c WHERE CONTAINS(LOWER(c.username), @query) " +
@@ -68,7 +77,8 @@ public class CosmosUsuarioRepository : IUsuarioRepository
             .WithParameter("@query", lower);
 
         var users = new List<Usuario>();
-        using var iterator = _container.GetItemQueryIterator<Usuario>(sqlQuery);
+        using var iterator = _container.GetItemQueryIterator<Usuario>(sqlQuery,
+            requestOptions: new QueryRequestOptions { MaxItemCount = 20 });
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -80,11 +90,13 @@ public class CosmosUsuarioRepository : IUsuarioRepository
 
     public async Task<bool> ExistsByCorreoAsync(string correo)
     {
+        // Cross-partition justificada por el mismo motivo que GetByCorreoAsync.
         var query = new QueryDefinition(
             "SELECT VALUE COUNT(1) FROM c WHERE c.correo = @correo")
             .WithParameter("@correo", correo);
 
-        using var iterator = _container.GetItemQueryIterator<int>(query);
+        using var iterator = _container.GetItemQueryIterator<int>(query,
+            requestOptions: new QueryRequestOptions { MaxItemCount = 1 });
         if (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -95,11 +107,13 @@ public class CosmosUsuarioRepository : IUsuarioRepository
 
     public async Task<bool> ExistsByUsernameAsync(string username)
     {
+        // Cross-partition justificada por el mismo motivo que GetByCorreoAsync.
         var query = new QueryDefinition(
             "SELECT VALUE COUNT(1) FROM c WHERE c.username = @username")
             .WithParameter("@username", username);
 
-        using var iterator = _container.GetItemQueryIterator<int>(query);
+        using var iterator = _container.GetItemQueryIterator<int>(query,
+            requestOptions: new QueryRequestOptions { MaxItemCount = 1 });
         if (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -112,19 +126,20 @@ public class CosmosUsuarioRepository : IUsuarioRepository
     {
         usuario.Id = Guid.NewGuid();
         await _container.CreateItemAsync(usuario,
-            new PartitionKey(usuario.Id.ToString()));
+            CosmosPartitionKeys.For(usuario.Id));
     }
 
     public async Task UpdateAsync(Usuario usuario)
     {
-        await _container.UpsertItemAsync(usuario,
-            new PartitionKey(usuario.Id.ToString()));
+        await _container.ReplaceItemAsync(usuario,
+            usuario.Id.ToString(),
+            CosmosPartitionKeys.For(usuario.Id));
     }
 
     public async Task DeleteAsync(Usuario usuario)
     {
         await _container.DeleteItemAsync<Usuario>(
             usuario.Id.ToString(),
-            new PartitionKey(usuario.Id.ToString()));
+            CosmosPartitionKeys.For(usuario.Id));
     }
 }

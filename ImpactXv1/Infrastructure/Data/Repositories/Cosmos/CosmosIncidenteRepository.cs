@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
 
@@ -15,16 +16,21 @@ public class CosmosIncidenteRepository : IIncidenteRepository
 
     public async Task<Incidente?> GetByIdAsync(Guid id)
     {
-        try
+        // Cross-partition justificada: el contrato solo recibe el id e
+        // Incidentes particiona por /usuarioId. Corrige el ReadItemAsync
+        // anterior con partition key incorrecta que siempre devolvía 404.
+        var query = new QueryDefinition(
+            "SELECT TOP 1 * FROM c WHERE c.id = @id")
+            .WithParameter("@id", id.ToString());
+
+        using var iterator = _container.GetItemQueryIterator<Incidente>(query,
+            requestOptions: new QueryRequestOptions { MaxItemCount = 1 });
+        if (iterator.HasMoreResults)
         {
-            var response = await _container.ReadItemAsync<Incidente>(
-                id.ToString(), new PartitionKey(id.ToString()));
-            return response.Resource;
+            var response = await iterator.ReadNextAsync();
+            return response.FirstOrDefault();
         }
-        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return null;
-        }
+        return null;
     }
 
     public async Task<List<Incidente>> GetByUserAsync(Guid usuarioId)
@@ -34,7 +40,12 @@ public class CosmosIncidenteRepository : IIncidenteRepository
             .WithParameter("@usuarioId", usuarioId.ToString());
 
         var results = new List<Incidente>();
-        using var iterator = _container.GetItemQueryIterator<Incidente>(query);
+        using var iterator = _container.GetItemQueryIterator<Incidente>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 100
+            });
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -45,34 +56,21 @@ public class CosmosIncidenteRepository : IIncidenteRepository
 
     public async Task<List<Incidente>> GetFilteredAsync(Guid usuarioId, string? severidad, DateTime? desde, DateTime? hasta, int pagina, int tamano)
     {
-        var whereClauses = new List<string> { "c.usuarioId = @usuarioId" };
+        var spec = new IncidenteQueryBuilder.IncidenteFilterSpec(usuarioId, severidad, desde, hasta);
+        var where = IncidenteQueryBuilder.BuildWhereClause(spec);
+        var offset = (pagina - 1) * tamano;
+        var queryText = $"SELECT * FROM c WHERE {where} ORDER BY c.creadoEn DESC OFFSET {offset} LIMIT {tamano}";
 
-        if (!string.IsNullOrWhiteSpace(severidad))
-            whereClauses.Add("c.severidad = @severidad");
-
-        if (desde.HasValue)
-            whereClauses.Add("c.creadoEn >= @desde");
-
-        if (hasta.HasValue)
-            whereClauses.Add("c.creadoEn <= @hasta");
-
-        var where = string.Join(" AND ", whereClauses);
-        var queryText = $"SELECT * FROM c WHERE {where} ORDER BY c.creadoEn DESC OFFSET {((pagina - 1) * tamano)} LIMIT {tamano}";
-
-        var query = new QueryDefinition(queryText)
-            .WithParameter("@usuarioId", usuarioId.ToString());
-
-        if (!string.IsNullOrWhiteSpace(severidad))
-            query = query.WithParameter("@severidad", severidad);
-
-        if (desde.HasValue)
-            query = query.WithParameter("@desde", desde.Value.ToString("O"));
-
-        if (hasta.HasValue)
-            query = query.WithParameter("@hasta", hasta.Value.ToString("O"));
+        var query = new QueryDefinition(queryText);
+        IncidenteQueryBuilder.AddFilterParameters(query, spec);
 
         var results = new List<Incidente>();
-        using var iterator = _container.GetItemQueryIterator<Incidente>(query);
+        using var iterator = _container.GetItemQueryIterator<Incidente>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = Math.Max(1, tamano)
+            });
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -83,31 +81,17 @@ public class CosmosIncidenteRepository : IIncidenteRepository
 
     public async Task<int> CountFilteredAsync(Guid usuarioId, string? severidad, DateTime? desde, DateTime? hasta)
     {
-        var whereClauses = new List<string> { "c.usuarioId = @usuarioId" };
+        var spec = new IncidenteQueryBuilder.IncidenteFilterSpec(usuarioId, severidad, desde, hasta);
+        var where = IncidenteQueryBuilder.BuildWhereClause(spec);
+        var query = new QueryDefinition($"SELECT VALUE COUNT(1) FROM c WHERE {where}");
+        IncidenteQueryBuilder.AddFilterParameters(query, spec);
 
-        if (!string.IsNullOrWhiteSpace(severidad))
-            whereClauses.Add("c.severidad = @severidad");
-
-        if (desde.HasValue)
-            whereClauses.Add("c.creadoEn >= @desde");
-
-        if (hasta.HasValue)
-            whereClauses.Add("c.creadoEn <= @hasta");
-
-        var where = string.Join(" AND ", whereClauses);
-        var query = new QueryDefinition($"SELECT VALUE COUNT(1) FROM c WHERE {where}")
-            .WithParameter("@usuarioId", usuarioId.ToString());
-
-        if (!string.IsNullOrWhiteSpace(severidad))
-            query = query.WithParameter("@severidad", severidad);
-
-        if (desde.HasValue)
-            query = query.WithParameter("@desde", desde.Value.ToString("O"));
-
-        if (hasta.HasValue)
-            query = query.WithParameter("@hasta", hasta.Value.ToString("O"));
-
-        using var iterator = _container.GetItemQueryIterator<int>(query);
+        using var iterator = _container.GetItemQueryIterator<int>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 1
+            });
         if (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -119,12 +103,15 @@ public class CosmosIncidenteRepository : IIncidenteRepository
     public async Task AddAsync(Incidente incidente)
     {
         incidente.Id = Guid.NewGuid();
-        await _container.CreateItemAsync(incidente, new PartitionKey(incidente.UsuarioId.ToString()));
+        await _container.CreateItemAsync(incidente,
+            CosmosPartitionKeys.For(incidente.UsuarioId));
     }
 
     public async Task UpdateAsync(Incidente incidente)
     {
-        await _container.UpsertItemAsync(incidente, new PartitionKey(incidente.UsuarioId.ToString()));
+        await _container.ReplaceItemAsync(incidente,
+            incidente.Id.ToString(),
+            CosmosPartitionKeys.For(incidente.UsuarioId));
     }
 
     public async Task<int> CountByUserAsync(Guid usuarioId)
@@ -133,7 +120,12 @@ public class CosmosIncidenteRepository : IIncidenteRepository
             "SELECT VALUE COUNT(1) FROM c WHERE c.usuarioId = @usuarioId")
             .WithParameter("@usuarioId", usuarioId.ToString());
 
-        using var iterator = _container.GetItemQueryIterator<int>(query);
+        using var iterator = _container.GetItemQueryIterator<int>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 1
+            });
         if (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();

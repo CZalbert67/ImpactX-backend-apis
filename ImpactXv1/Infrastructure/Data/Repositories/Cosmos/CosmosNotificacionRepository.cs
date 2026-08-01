@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
 
@@ -20,7 +21,12 @@ public class CosmosNotificacionRepository : INotificacionRepository
             .WithParameter("@usuarioId", usuarioId.ToString());
 
         var results = new List<Notificacion>();
-        using var iterator = _container.GetItemQueryIterator<Notificacion>(query);
+        using var iterator = _container.GetItemQueryIterator<Notificacion>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 100
+            });
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -31,16 +37,22 @@ public class CosmosNotificacionRepository : INotificacionRepository
 
     public async Task<Notificacion?> GetByIdAsync(Guid id)
     {
-        try
+        // Cross-partition justificada: el contrato solo recibe el id y
+        // Notificaciones particiona por /usuarioId. Corrige el
+        // ReadItemAsync anterior con partition key incorrecta que siempre
+        // devolvía 404.
+        var query = new QueryDefinition(
+            "SELECT TOP 1 * FROM c WHERE c.id = @id")
+            .WithParameter("@id", id.ToString());
+
+        using var iterator = _container.GetItemQueryIterator<Notificacion>(query,
+            requestOptions: new QueryRequestOptions { MaxItemCount = 1 });
+        if (iterator.HasMoreResults)
         {
-            var response = await _container.ReadItemAsync<Notificacion>(
-                id.ToString(), new PartitionKey(id.ToString()));
-            return response.Resource;
+            var response = await iterator.ReadNextAsync();
+            return response.FirstOrDefault();
         }
-        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return null;
-        }
+        return null;
     }
 
     public async Task<int> CountUnreadByUserAsync(Guid usuarioId)
@@ -49,7 +61,12 @@ public class CosmosNotificacionRepository : INotificacionRepository
             "SELECT VALUE COUNT(1) FROM c WHERE c.usuarioId = @usuarioId AND c.leida = false")
             .WithParameter("@usuarioId", usuarioId.ToString());
 
-        using var iterator = _container.GetItemQueryIterator<int>(query);
+        using var iterator = _container.GetItemQueryIterator<int>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 1
+            });
         if (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -62,11 +79,14 @@ public class CosmosNotificacionRepository : INotificacionRepository
     {
         if (recipientUserId == null)
         {
+            // Cross-partition justificada: idempotencia sin contexto de
+            // usuario; no hay partition key disponible.
             var query = new QueryDefinition(
-                "SELECT * FROM c WHERE c.claveIdempotencia = @key")
+                "SELECT TOP 1 * FROM c WHERE c.claveIdempotencia = @key")
                 .WithParameter("@key", key);
 
-            using var iterator = _container.GetItemQueryIterator<Notificacion>(query);
+            using var iterator = _container.GetItemQueryIterator<Notificacion>(query,
+                requestOptions: new QueryRequestOptions { MaxItemCount = 1 });
             if (iterator.HasMoreResults)
             {
                 var response = await iterator.ReadNextAsync(cancellationToken);
@@ -75,13 +95,14 @@ public class CosmosNotificacionRepository : INotificacionRepository
             return null;
         }
 
-        var pk = new PartitionKey(recipientUserId.Value.ToString());
+        var pk = CosmosPartitionKeys.For(recipientUserId.Value);
         var queryWithPk = new QueryDefinition(
-            "SELECT * FROM c WHERE c.claveIdempotencia = @key AND c.usuarioId = @uid")
+            "SELECT TOP 1 * FROM c WHERE c.claveIdempotencia = @key AND c.usuarioId = @uid")
             .WithParameter("@key", key)
             .WithParameter("@uid", recipientUserId.Value.ToString());
 
-        using var iteratorWithPk = _container.GetItemQueryIterator<Notificacion>(queryWithPk, requestOptions: new QueryRequestOptions { PartitionKey = pk });
+        using var iteratorWithPk = _container.GetItemQueryIterator<Notificacion>(queryWithPk,
+            requestOptions: new QueryRequestOptions { PartitionKey = pk, MaxItemCount = 1 });
         if (iteratorWithPk.HasMoreResults)
         {
             var response = await iteratorWithPk.ReadNextAsync(cancellationToken);
@@ -93,12 +114,15 @@ public class CosmosNotificacionRepository : INotificacionRepository
     public async Task AddAsync(Notificacion notificacion)
     {
         notificacion.Id = Guid.NewGuid();
-        await _container.CreateItemAsync(notificacion, new PartitionKey(notificacion.UsuarioId.ToString()));
+        await _container.CreateItemAsync(notificacion,
+            CosmosPartitionKeys.For(notificacion.UsuarioId));
     }
 
     public async Task UpdateAsync(Notificacion notificacion)
     {
-        await _container.UpsertItemAsync(notificacion, new PartitionKey(notificacion.UsuarioId.ToString()));
+        await _container.ReplaceItemAsync(notificacion,
+            notificacion.Id.ToString(),
+            CosmosPartitionKeys.For(notificacion.UsuarioId));
     }
 
     public async Task MarkAllAsReadAsync(Guid usuarioId)
@@ -118,7 +142,7 @@ public class CosmosNotificacionRepository : INotificacionRepository
     {
         await _container.DeleteItemAsync<Notificacion>(
             notificacion.Id.ToString(),
-            new PartitionKey(notificacion.UsuarioId.ToString()));
+            CosmosPartitionKeys.For(notificacion.UsuarioId));
     }
 
     public async Task DeleteAllByUserAsync(Guid usuarioId)

@@ -1,5 +1,5 @@
 using ImpactX.Infrastructure.Data;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace ImpactX.Tests.Support;
 
@@ -9,7 +9,7 @@ public class TestCosmosDbContext : CosmosDbContext
     public Func<CancellationToken, Task>? ContainerInitialization { get; set; }
     public int EnsureCalls { get; private set; }
 
-    public TestCosmosDbContext() : base(CreateConfig())
+    public TestCosmosDbContext() : base(CreateOptions())
     {
     }
 
@@ -22,13 +22,11 @@ public class TestCosmosDbContext : CosmosDbContext
         return ContainerInitialization?.Invoke(cancellationToken) ?? Task.CompletedTask;
     }
 
-    private static IConfiguration CreateConfig()
-        => new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["AzureCosmosDb:Endpoint"] = "https://localhost:443/",
-                ["AzureCosmosDb:Key"] = "dGVzdC1rZXk=",
-                ["AzureCosmosDb:DatabaseName"] = "ImpactX-Test"
-            })
-            .Build();
+    private static IOptions<CosmosDatabaseOptions> CreateOptions()
+        => Options.Create(new CosmosDatabaseOptions
+        {
+            Endpoint = "https://localhost:443/",
+            Key = "dGVzdC1rZXk=",
+            DatabaseName = "ImpactX-Test"
+        });
 }
