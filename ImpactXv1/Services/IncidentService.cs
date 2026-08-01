@@ -26,6 +26,9 @@ public class IncidentService : IIncidentService
         var incidentes = await _incidenteRepository.GetFilteredAsync(
             usuarioId, filter.Severidad, filter.Desde, filter.Hasta, filter.Pagina, filter.Tamano);
 
+        if (!string.IsNullOrWhiteSpace(filter.Estado))
+            incidentes = incidentes.Where(i => string.Equals(i.Estado, filter.Estado, StringComparison.OrdinalIgnoreCase)).ToList();
+
         return incidentes.Select(MapToListDto).ToList();
     }
 
@@ -40,14 +43,22 @@ public class IncidentService : IIncidentService
         return new IncidenteDetailDto
         {
             Id = incidente.Id,
+            Tipo = incidente.Tipo,
             Severidad = incidente.Severidad,
+            Estado = incidente.Estado,
+            Fecha = incidente.CreadoEn.ToString("dd/MM/yyyy"),
+            Hora = incidente.CreadoEn.ToString("HH:mm"),
             Lat = incidente.Lat,
             Lng = incidente.Lng,
+            Coords = $"{incidente.Lat:F6},{incidente.Lng:F6}",
             Lugar = incidente.Lugar,
             GForce = incidente.GForce,
             Decibeles = incidente.Decibeles,
             FrecuenciaCardiaca = incidente.FrecuenciaCardiaca,
             Canal = incidente.Canal,
+            Activacion = incidente.Activacion,
+            TiempoRespuesta = incidente.TiempoRespuesta,
+            EsAutomatico = incidente.EsAutomatico,
             MetodoCierre = incidente.MetodoCierre,
             EsFalsaAlarma = incidente.EsFalsaAlarma,
             EsBypassCritico = incidente.EsBypassCritico,
@@ -149,7 +160,9 @@ public class IncidentService : IIncidentService
     private static IncidenteListItemDto MapToListDto(Core.Domain.Incidente i) => new()
     {
         Id = i.Id,
+        Tipo = i.Tipo,
         Severidad = i.Severidad,
+        Estado = i.Estado,
         Lat = i.Lat,
         Lng = i.Lng,
         Lugar = i.Lugar,

@@ -45,6 +45,7 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IAlertaRepository, CosmosAlertaRepository>();
             services.AddScoped<IIncidenteRepository, CosmosIncidenteRepository>();
             services.AddScoped<INotificacionRepository, CosmosNotificacionRepository>();
+            services.AddScoped<IAppInviteRepository, CosmosAppInviteRepository>();
         }
         else
         {
@@ -63,6 +64,7 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IAlertaRepository, AlertaRepository>();
             services.AddScoped<IIncidenteRepository, IncidenteRepository>();
             services.AddScoped<INotificacionRepository, NotificacionRepository>();
+            services.AddScoped<IAppInviteRepository, AppInviteRepository>();
         }
 
         services.AddScoped<IPushNotificationGateway, FirebasePushNotificationGateway>();
@@ -84,6 +86,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IAnalyticsService, AnalyticsService>();
         services.AddScoped<ISettingsService, SettingsService>();
+        services.AddScoped<IAppInviteService, AppInviteService>();
 
         return services;
     }

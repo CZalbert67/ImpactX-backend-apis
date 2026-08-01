@@ -11,6 +11,7 @@ public class PlanService : IPlanService
     private readonly ISuscripcionRepository _suscripcionRepository;
     private readonly IPagoRepository _pagoRepository;
     private readonly IUsuarioRepository _usuarioRepository;
+    private readonly IContactoRepository _contactoRepository;
 
     private static readonly Dictionary<string, int> PlanOrder = new()
     {
@@ -25,12 +26,14 @@ public class PlanService : IPlanService
         IPlanRepository planRepository,
         ISuscripcionRepository suscripcionRepository,
         IPagoRepository pagoRepository,
-        IUsuarioRepository usuarioRepository)
+        IUsuarioRepository usuarioRepository,
+        IContactoRepository contactoRepository)
     {
         _planRepository = planRepository;
         _suscripcionRepository = suscripcionRepository;
         _pagoRepository = pagoRepository;
         _usuarioRepository = usuarioRepository;
+        _contactoRepository = contactoRepository;
     }
 
     public async Task<List<PlanDto>> GetAllPlansAsync()
@@ -99,6 +102,8 @@ public class PlanService : IPlanService
             await _usuarioRepository.UpdateAsync(usuario);
         }
 
+        await EnforceContactLimitAsync(usuarioId, plan.MaxContactos);
+
         return MapToSuscripcionDto(suscripcion, plan);
     }
 
@@ -116,6 +121,7 @@ public class PlanService : IPlanService
         await _suscripcionRepository.UpdateAsync(suscripcion);
 
         var plan = await _planRepository.GetByIdAsync(suscripcion.PlanId);
+        var freePlan = await _planRepository.GetByNameAsync("Free");
 
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
         if (usuario is not null)
@@ -123,6 +129,8 @@ public class PlanService : IPlanService
             usuario.PlanActivo = "Free";
             await _usuarioRepository.UpdateAsync(usuario);
         }
+
+        await EnforceContactLimitAsync(usuarioId, freePlan?.MaxContactos ?? 2);
 
         return MapToSuscripcionDto(suscripcion, plan);
     }
@@ -142,6 +150,8 @@ public class PlanService : IPlanService
     public async Task<int> ExpireSubscriptionsAsync()
     {
         var expired = await _suscripcionRepository.GetExpiredAsync();
+        var freePlan = await _planRepository.GetByNameAsync("Free");
+
         foreach (var s in expired)
         {
             s.Estado = "Expirada";
@@ -153,8 +163,42 @@ public class PlanService : IPlanService
                 usuario.PlanActivo = "Free";
                 await _usuarioRepository.UpdateAsync(usuario);
             }
+
+            await EnforceContactLimitAsync(s.UsuarioId, freePlan?.MaxContactos ?? 2);
         }
         return expired.Count;
+    }
+
+    private async Task EnforceContactLimitAsync(Guid usuarioId, int maxContactos)
+    {
+        var contactos = await _contactoRepository.GetByUserAsync(usuarioId);
+        if (contactos.Count == 0 || maxContactos < 0)
+            return;
+
+        var ordenados = contactos
+            .OrderByDescending(c => c.EsPrincipal)
+            .ThenBy(c => c.CreadoEn)
+            .ToList();
+
+        for (var i = 0; i < ordenados.Count; i++)
+        {
+            var contacto = ordenados[i];
+            if (i >= maxContactos)
+            {
+                if (contacto.Status != "Suspendido por plan")
+                {
+                    contacto.PreviousStatus = contacto.Status;
+                    contacto.Status = "Suspendido por plan";
+                    await _contactoRepository.UpdateAsync(contacto);
+                }
+            }
+            else if (contacto.Status == "Suspendido por plan")
+            {
+                contacto.Status = contacto.PreviousStatus ?? "Activo";
+                contacto.PreviousStatus = null;
+                await _contactoRepository.UpdateAsync(contacto);
+            }
+        }
     }
 
     private static PlanDto MapToPlanDto(Plan p) => new()
@@ -162,6 +206,7 @@ public class PlanService : IPlanService
         Id = p.Id,
         Nombre = p.Nombre,
         PrecioMensual = p.PrecioMensual,
+        PrecioMensualLabel = $"${p.PrecioMensual:0.##} MXN/mes",
         PrecioAnual = p.PrecioAnual,
         MaxContactos = p.MaxContactos,
         MaxMonitores = p.MaxMonitores,
@@ -169,6 +214,11 @@ public class PlanService : IPlanService
         ExportacionDatos = p.ExportacionDatos,
         SoportePrioritario = p.SoportePrioritario,
         DuracionTrialDias = p.DuracionTrialDias,
+        SensoresHabilitados = p.SensoresHabilitados,
+        BypassCritico = p.BypassCritico,
+        Telemetria = p.Telemetria,
+        Descripcion = p.Descripcion,
+        TemporizadorSegundos = p.TemporizadorSegundos,
     };
 
     private static SuscripcionDto MapToSuscripcionDto(Suscripcion s, Plan? p) => new()
@@ -176,13 +226,23 @@ public class PlanService : IPlanService
         Id = s.Id,
         PlanId = s.PlanId,
         PlanNombre = p?.Nombre ?? "Desconocido",
+        MaxContactos = p?.MaxContactos ?? 0,
+        MaxMonitores = p?.MaxMonitores ?? 0,
         Estado = s.Estado,
         Inicio = s.Inicio,
         Fin = s.Fin,
         TrialFin = s.TrialFin,
+        TrialDaysLeft = TrialDaysLeftOf(s),
         CanceladaEn = s.CanceladaEn,
         MotivoCancelacion = s.MotivoCancelacion,
     };
+
+    private static int? TrialDaysLeftOf(Suscripcion s)
+    {
+        var end = s.Estado == "Trial" ? s.TrialFin : s.Fin;
+        if (!end.HasValue) return null;
+        return Math.Max(0, (int)(end.Value.Date - DateTime.UtcNow.Date).TotalDays);
+    }
 
     private static PagoDto MapToPagoDto(Pago p) => new()
     {

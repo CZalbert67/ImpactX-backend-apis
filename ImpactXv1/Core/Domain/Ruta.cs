@@ -5,6 +5,8 @@ public class Ruta
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid UsuarioId { get; set; }
     public string Nombre { get; set; } = string.Empty;
+    public string? Etiqueta { get; set; }
+    public string? Nota { get; set; }
     public string Origen { get; set; } = string.Empty;
     public double OrigenLat { get; set; }
     public double OrigenLng { get; set; }

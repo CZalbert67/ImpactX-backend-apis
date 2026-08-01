@@ -9,7 +9,16 @@ public class UserProfileDto
     public string Nombre { get; set; } = string.Empty;
     public string Correo { get; set; } = string.Empty;
     public string? Telefono { get; set; }
+    public string? Ciudad { get; set; }
+    public string? Idioma { get; set; }
     public string? PlanActivo { get; set; }
+    public string? Plan { get; set; }
+    public string? SubscriptionStatus { get; set; }
+    public int? TrialDaysLeft { get; set; }
+    public DateTime? SubscriptionStart { get; set; }
+    public DateTime? SubscriptionEnd { get; set; }
+    public bool OnboardingCompleto { get; set; }
+    public bool TwoFactor { get; set; }
     public bool EmailConfirmed { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
@@ -24,24 +33,31 @@ public class UpdateUserProfileRequest
 {
     public string? Nombre { get; set; }
     public string? Telefono { get; set; }
+    public string? Ciudad { get; set; }
 }
 
 public class UserPreferencesDto
 {
     public bool NotificacionesPush { get; set; }
     public bool NotificacionesEmail { get; set; }
+    public bool NotificacionesSms { get; set; }
+    public bool NotificacionesWhatsapp { get; set; }
     public bool CompartirUbicacion { get; set; }
     public string? Idioma { get; set; }
     public string? UnidadVelocidad { get; set; }
+    public string? ZonaHoraria { get; set; }
 }
 
 public class UpdateUserPreferencesRequest
 {
     public bool? NotificacionesPush { get; set; }
     public bool? NotificacionesEmail { get; set; }
+    public bool? NotificacionesSms { get; set; }
+    public bool? NotificacionesWhatsapp { get; set; }
     public bool? CompartirUbicacion { get; set; }
     public string? Idioma { get; set; }
     public string? UnidadVelocidad { get; set; }
+    public string? ZonaHoraria { get; set; }
 }
 
 public class DriverProfileDto
@@ -75,6 +91,10 @@ public class MedicalProfileDto
     public string? Condiciones { get; set; }
     public string? Medicamentos { get; set; }
     public string? Nota { get; set; }
+    public string? TienePadecimiento { get; set; }
+    public bool CompartirFichaMedica { get; set; }
+    public bool PermitirUbicacion { get; set; }
+    public bool PermitirAprendizajeIA { get; set; }
 }
 
 public class UpdateMedicalProfileRequest
@@ -84,6 +104,10 @@ public class UpdateMedicalProfileRequest
     public string? Condiciones { get; set; }
     public string? Medicamentos { get; set; }
     public string? Nota { get; set; }
+    public string? TienePadecimiento { get; set; }
+    public bool? CompartirFichaMedica { get; set; }
+    public bool? PermitirUbicacion { get; set; }
+    public bool? PermitirAprendizajeIA { get; set; }
 }
 
 public class PermisosDto
@@ -100,6 +124,9 @@ public class PermisosPlataformaDto
     public bool Microfono { get; set; }
     public bool Sensores { get; set; }
     public bool Bluetooth { get; set; }
+    public bool Llamadas { get; set; }
+    public bool SegundoPlano { get; set; }
+    public bool RitmoCardiaco { get; set; }
 }
 
 public class SettingsDto
@@ -113,5 +140,4 @@ public class UserSearchResultDto
     public string Username { get; set; } = string.Empty;
     public string AppId { get; set; } = string.Empty;
     public string Nombre { get; set; } = string.Empty;
-    public string? Correo { get; set; }
 }

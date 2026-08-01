@@ -9,6 +9,7 @@ public class Notificacion
     public string Tipo { get; set; } = "Info";
     public string? ReferenciaId { get; set; }
     public string? ReferenciaTipo { get; set; }
+    public string? Ruta { get; set; }
     public bool Leida { get; set; }
     public DateTime? LeidaEn { get; set; }
     public DateTime CreadoEn { get; set; } = DateTime.UtcNow;

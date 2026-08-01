@@ -41,14 +41,7 @@ public class ContactService : IContactService
     public async Task<ContactoDto> CreateContactAsync(Guid usuarioId, CreateContactoRequest request)
     {
         var suscripcion = await _planService.GetCurrentSubscriptionAsync(usuarioId);
-        var planName = suscripcion?.PlanNombre ?? "Free";
-
-        var maxContactos = planName switch
-        {
-            "Premium" => 10,
-            "Basic" => 5,
-            _ => 3,
-        };
+        var maxContactos = ResolveMaxContactos(suscripcion);
 
         var currentCount = await _contactoRepository.CountByUserAsync(usuarioId);
         if (currentCount >= maxContactos)
@@ -67,8 +60,11 @@ public class ContactService : IContactService
             Parentesco = request.Parentesco,
             Username = request.Username,
             AppUserId = request.AppUserId,
+            Email = request.Email,
+            Notes = request.Notes,
             Priority = request.Priority,
             EsPrincipal = request.EsPrincipal,
+            Status = "Activo",
         };
 
         if (contacto.EsPrincipal)
@@ -95,6 +91,10 @@ public class ContactService : IContactService
             contacto.Telefono = request.Telefono;
         if (request.Parentesco is not null)
             contacto.Parentesco = request.Parentesco;
+        if (request.Email is not null)
+            contacto.Email = request.Email;
+        if (request.Notes is not null)
+            contacto.Notes = request.Notes;
         if (request.Priority is not null)
             contacto.Priority = request.Priority;
 
@@ -151,6 +151,19 @@ public class ContactService : IContactService
         }
     }
 
+    private static int ResolveMaxContactos(SuscripcionDto? suscripcion)
+    {
+        if (suscripcion is not null && suscripcion.MaxContactos > 0)
+            return suscripcion.MaxContactos;
+
+        return suscripcion?.PlanNombre switch
+        {
+            "Premium" => 8,
+            "Basic" => 3,
+            _ => 2,
+        };
+    }
+
     private static ContactoDto MapToDto(ContactoEmergencia c) => new()
     {
         Id = c.Id,
@@ -160,6 +173,11 @@ public class ContactService : IContactService
         Username = c.Username,
         AppUserId = c.AppUserId,
         Channel = c.Channel,
+        Email = c.Email,
+        Status = c.Status,
+        Notes = c.Notes,
+        MonitorId = c.MonitorId,
+        UnreadMessages = 0,
         Priority = c.Priority,
         EsPrincipal = c.EsPrincipal,
         CreadoEn = c.CreadoEn,

@@ -12,9 +12,22 @@ public class WearableDto
     public bool Connected { get; set; }
     public int NivelBateria { get; set; }
     public bool Calibrado { get; set; }
+    public int CalibracionPorcentaje { get; set; }
     public DateTime? UltimaCalibracion { get; set; }
     public List<string> PermisosOtorgados { get; set; } = [];
+    public string? CodigoEmparejamiento { get; set; }
+    public string? TrustToken { get; set; }
+    public WearableSensoresDto? SensoresActivos { get; set; }
     public string Estado { get; set; } = string.Empty;
+}
+
+public class WearableSensoresDto
+{
+    public bool Acelerometro { get; set; }
+    public bool Microfono { get; set; }
+    public bool FrecuenciaCardiaca { get; set; }
+    public bool Gps { get; set; }
+    public bool SegundoPlano { get; set; }
 }
 
 public class PairWearableRequest
@@ -32,6 +45,8 @@ public class PairConfirmRequest
 public class PairResponse
 {
     public string Token { get; set; } = string.Empty;
+    public string? CodigoEmparejamiento { get; set; }
+    public string? TrustToken { get; set; }
     public string Mensaje { get; set; } = string.Empty;
 }
 

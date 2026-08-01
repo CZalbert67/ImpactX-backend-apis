@@ -3,7 +3,9 @@ namespace ImpactX.Models.DTOs;
 public class IncidenteListItemDto
 {
     public Guid Id { get; set; }
+    public string? Tipo { get; set; }
     public string Severidad { get; set; } = string.Empty;
+    public string Estado { get; set; } = string.Empty;
     public double Lat { get; set; }
     public double Lng { get; set; }
     public string? Lugar { get; set; }
@@ -16,14 +18,22 @@ public class IncidenteListItemDto
 public class IncidenteDetailDto
 {
     public Guid Id { get; set; }
+    public string? Tipo { get; set; }
     public string Severidad { get; set; } = string.Empty;
+    public string Estado { get; set; } = string.Empty;
+    public string? Fecha { get; set; }
+    public string? Hora { get; set; }
     public double Lat { get; set; }
     public double Lng { get; set; }
+    public string? Coords { get; set; }
     public string? Lugar { get; set; }
     public string? GForce { get; set; }
     public string? Decibeles { get; set; }
     public string? FrecuenciaCardiaca { get; set; }
     public string? Canal { get; set; }
+    public string? Activacion { get; set; }
+    public string? TiempoRespuesta { get; set; }
+    public bool EsAutomatico { get; set; }
     public string MetodoCierre { get; set; } = string.Empty;
     public bool EsFalsaAlarma { get; set; }
     public bool EsBypassCritico { get; set; }

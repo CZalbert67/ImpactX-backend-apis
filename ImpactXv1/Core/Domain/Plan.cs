@@ -12,4 +12,9 @@ public class Plan
     public bool ExportacionDatos { get; set; }
     public bool SoportePrioritario { get; set; }
     public int DuracionTrialDias { get; set; } = 14;
+    public string[] SensoresHabilitados { get; set; } = [];
+    public bool BypassCritico { get; set; }
+    public bool Telemetria { get; set; }
+    public string? Descripcion { get; set; }
+    public int TemporizadorSegundos { get; set; }
 }

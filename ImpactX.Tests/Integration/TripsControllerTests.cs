@@ -26,6 +26,21 @@ public class TripsControllerTests : IClassFixture<CustomWebApplicationFactory>
         return result!.Token;
     }
 
+    private async Task PairWearableAsync(string dispositivoId)
+    {
+        var pairResponse = await _client.PostAsJsonAsync("/api/wearable/pair", new
+        {
+            dispositivoId = dispositivoId,
+            nombre = "Test Watch",
+            modelo = "Test Model",
+        });
+        var pairResult = await pairResponse.Content.ReadFromJsonAsync<PairResponse>();
+        await _client.PostAsJsonAsync("/api/wearable/pair/confirm", new
+        {
+            token = pairResult!.Token,
+        });
+    }
+
     [Fact]
     public async Task StartTrip_WithoutAuth_ReturnsUnauthorized()
     {
@@ -39,6 +54,8 @@ public class TripsControllerTests : IClassFixture<CustomWebApplicationFactory>
         var token = await RegisterAndGetTokenAsync();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        await PairWearableAsync("WEAR-001");
 
         var response = await _client.PostAsJsonAsync("/api/trips/start", new
         {
@@ -69,6 +86,8 @@ public class TripsControllerTests : IClassFixture<CustomWebApplicationFactory>
         var token = await RegisterAndGetTokenAsync();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        await PairWearableAsync("WEAR-002");
 
         var startResponse = await _client.PostAsJsonAsync("/api/trips/start", new
         {
@@ -110,6 +129,8 @@ public class TripsControllerTests : IClassFixture<CustomWebApplicationFactory>
         var token = await RegisterAndGetTokenAsync();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        await PairWearableAsync("WEAR-003");
 
         var startResponse = await _client.PostAsJsonAsync("/api/trips/start", new
         {

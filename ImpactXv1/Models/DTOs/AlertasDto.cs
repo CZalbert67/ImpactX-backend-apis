@@ -9,6 +9,8 @@ public class DetectAlertRequest
     public double Decibeles { get; set; }
     public double FrecuenciaCardiaca { get; set; }
     public string Severidad { get; set; } = "bump";
+    public string? Tipo { get; set; }
+    public bool EsAutomatico { get; set; }
     public string? ViajeId { get; set; }
 }
 

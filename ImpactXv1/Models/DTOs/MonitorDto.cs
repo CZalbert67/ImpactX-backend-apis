@@ -3,19 +3,26 @@ namespace ImpactX.Models.DTOs;
 public class MonitorDto
 {
     public Guid Id { get; set; }
+    public string? Nombre { get; set; }
+    public string? Telefono { get; set; }
     public string? CorreoInvitado { get; set; }
     public string? Username { get; set; }
     public string? AppUserId { get; set; }
     public string? ProfileId { get; set; }
     public string Estado { get; set; } = string.Empty;
+    public Guid? ContactoId { get; set; }
     public DateTime CreadoEn { get; set; }
+    public DateTime? Expiracion { get; set; }
     public DateTime? ConfirmadoEn { get; set; }
     public DateTime? RevocadoEn { get; set; }
+    public string? Token { get; set; }
     public List<string> Permisos { get; set; } = [];
 }
 
 public class InviteMonitorRequest
 {
+    public string? Nombre { get; set; }
+    public string? Telefono { get; set; }
     public string? CorreoInvitado { get; set; }
     public string? Username { get; set; }
     public string? AppUserId { get; set; }

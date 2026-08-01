@@ -4,7 +4,10 @@ public class PreferenciasUsuario
 {
     public bool NotificacionesPush { get; set; } = true;
     public bool NotificacionesEmail { get; set; } = true;
+    public bool NotificacionesSms { get; set; }
+    public bool NotificacionesWhatsapp { get; set; }
     public bool CompartirUbicacion { get; set; } = true;
     public string? Idioma { get; set; } = "es";
     public string? UnidadVelocidad { get; set; } = "kmh";
+    public string? ZonaHoraria { get; set; } = "America/Mexico_City";
 }

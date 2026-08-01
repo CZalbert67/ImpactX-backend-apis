@@ -12,9 +12,13 @@ public class ViajeDto
     public double? VelocidadPromedio { get; set; }
     public double? VelocidadMaxima { get; set; }
     public string? RiesgoMaximo { get; set; }
+    public string? NivelRiesgo { get; set; }
     public string? Proposito { get; set; }
     public string? RutaOrigen { get; set; }
     public string? RutaDestino { get; set; }
+    public bool CompartirConMonitores { get; set; }
+    public int? Checkpoints { get; set; }
+    public string? Canal { get; set; }
 }
 
 public class StartTripRequest
@@ -23,6 +27,8 @@ public class StartTripRequest
     public string? Proposito { get; set; }
     public string? RutaOrigen { get; set; }
     public string? RutaDestino { get; set; }
+    public bool CompartirConMonitores { get; set; }
+    public string? Canal { get; set; }
 }
 
 public class TelemetryUpdateRequest

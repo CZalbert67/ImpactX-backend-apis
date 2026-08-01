@@ -29,20 +29,24 @@ public class MonitorService : IMonitorService
     public async Task<List<MonitorDto>> GetMonitorsAsync(Guid usuarioId)
     {
         var monitors = await _monitorRepository.GetByUserAsync(usuarioId);
+        var now = DateTime.UtcNow;
+
+        foreach (var m in monitors)
+        {
+            if (m.Estado == "Pendiente" && m.Expiracion.HasValue && now > m.Expiracion.Value)
+            {
+                m.Estado = "Expirado";
+                await _monitorRepository.UpdateAsync(m);
+            }
+        }
+
         return monitors.Select(MapToDto).ToList();
     }
 
     public async Task<InviteMonitorResponse> InviteAsync(Guid usuarioId, InviteMonitorRequest request)
     {
         var suscripcion = await _planService.GetCurrentSubscriptionAsync(usuarioId);
-        var planName = suscripcion?.PlanNombre ?? "Free";
-
-        var maxMonitores = planName?.ToLowerInvariant() switch
-        {
-            "premium" => 6,
-            "basic" => 2,
-            _ => 0,
-        };
+        var maxMonitores = ResolveMaxMonitores(suscripcion);
 
         var activeCount = await _monitorRepository.CountActiveByUserAsync(usuarioId);
         if (activeCount >= maxMonitores)
@@ -77,6 +81,8 @@ public class MonitorService : IMonitorService
         var monitor = new Monitor
         {
             UsuarioId = usuarioId,
+            Nombre = request.Nombre,
+            Telefono = request.Telefono,
             CorreoInvitado = invitado.Correo,
             Username = invitado.Username,
             AppUserId = invitado.AppId,
@@ -240,17 +246,35 @@ public class MonitorService : IMonitorService
         _logger.LogInformation("Invitación rechazada por usuario {MonitorUsuarioId} para monitor {MonitorId}", monitorUsuarioId, monitor.Id);
     }
 
+    private static int ResolveMaxMonitores(SuscripcionDto? suscripcion)
+    {
+        if (suscripcion is not null && suscripcion.MaxMonitores > 0)
+            return suscripcion.MaxMonitores;
+
+        return suscripcion?.PlanNombre?.ToLowerInvariant() switch
+        {
+            "premium" => 6,
+            "basic" => 2,
+            _ => 0,
+        };
+    }
+
     private static MonitorDto MapToDto(Monitor m) => new()
     {
         Id = m.Id,
+        Nombre = m.Nombre,
+        Telefono = m.Telefono,
         CorreoInvitado = m.CorreoInvitado,
         Username = m.Username,
         AppUserId = m.AppUserId,
         ProfileId = m.ProfileId,
         Estado = m.Estado,
+        ContactoId = m.ContactoId,
         CreadoEn = m.CreadoEn,
+        Expiracion = m.Expiracion,
         ConfirmadoEn = m.ConfirmadoEn,
         RevocadoEn = m.RevocadoEn,
+        Token = m.TokenInvitacion,
         Permisos = m.Permisos,
     };
 }

@@ -67,6 +67,9 @@ public class PermissionService : IPermissionService
             Microfono = p.Microfono,
             Sensores = p.Sensores,
             Bluetooth = p.Bluetooth,
+            Llamadas = p.Llamadas,
+            SegundoPlano = p.SegundoPlano,
+            RitmoCardiaco = p.RitmoCardiaco,
         };
     }
 
@@ -78,5 +81,8 @@ public class PermissionService : IPermissionService
         Microfono = r.Microfono,
         Sensores = r.Sensores,
         Bluetooth = r.Bluetooth,
+        Llamadas = r.Llamadas,
+        SegundoPlano = r.SegundoPlano,
+        RitmoCardiaco = r.RitmoCardiaco,
     };
 }

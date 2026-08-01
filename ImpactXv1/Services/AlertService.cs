@@ -33,7 +33,7 @@ public class AlertService : IAlertService
         var alerta = new Alerta
         {
             UsuarioId = usuarioId,
-            Tipo = "Impacto",
+            Tipo = request.Tipo ?? "Impacto",
             Severidad = request.Severidad,
             Estado = "Pendiente",
             Lat = request.Lat,
@@ -42,7 +42,8 @@ public class AlertService : IAlertService
             GForce = request.GForce.ToString("F2"),
             Decibeles = request.Decibeles.ToString("F1"),
             FrecuenciaCardiaca = request.FrecuenciaCardiaca.ToString("F0"),
-            Modo = "auto",
+            Activacion = request.EsAutomatico ? "auto" : "manual",
+            Modo = request.EsAutomatico ? "auto" : "manual",
             ViajeId = request.ViajeId,
             CreadoEn = DateTime.UtcNow,
             Timeline = [[DateTime.UtcNow.ToString("O"), $"Impacto detectado: {request.Severidad}"]],
@@ -217,6 +218,8 @@ public class AlertService : IAlertService
         {
             UsuarioId = usuarioId,
             AlertaId = alerta.Id,
+            Tipo = alerta.Tipo,
+            Estado = "Atendido",
             Severidad = alerta.Severidad,
             Lat = alerta.Lat,
             Lng = alerta.Lng,
@@ -225,6 +228,9 @@ public class AlertService : IAlertService
             Decibeles = alerta.Decibeles,
             FrecuenciaCardiaca = alerta.FrecuenciaCardiaca,
             Canal = alerta.Canal,
+            Activacion = alerta.Activacion,
+            TiempoRespuesta = alerta.TiempoRespuesta,
+            EsAutomatico = alerta.Modo == "auto",
             MetodoCierre = metodoCierre,
             EsFalsaAlarma = alerta.EsFalsaAlarma,
             EsBypassCritico = alerta.EsBypassCritico,

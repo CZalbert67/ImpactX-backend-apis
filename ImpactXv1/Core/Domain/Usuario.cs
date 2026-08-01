@@ -33,6 +33,14 @@ public class Usuario
     [JsonPropertyName("telefono")]
     public string Telefono { get; set; } = string.Empty;
 
+    [JsonProperty("ciudad")]
+    [JsonPropertyName("ciudad")]
+    public string? Ciudad { get; set; }
+
+    [JsonProperty("onboardingCompleto")]
+    [JsonPropertyName("onboardingCompleto")]
+    public bool OnboardingCompleto { get; set; }
+
     [JsonProperty("passwordHash")]
     [JsonPropertyName("passwordHash")]
     public string PasswordHash { get; set; } = string.Empty;

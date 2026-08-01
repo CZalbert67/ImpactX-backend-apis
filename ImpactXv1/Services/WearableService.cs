@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
@@ -47,6 +48,11 @@ public class WearableService : IWearableService
             throw new ConflictException("Este dispositivo ya está vinculado a otra cuenta.");
 
         var token = Guid.NewGuid().ToString("N")[..8].ToUpper();
+        var codigoEmparejamiento = RandomNumberGenerator.GetInt32(100000, 999999).ToString();
+        var trustToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
 
         var wearable = new Wearable
         {
@@ -55,6 +61,8 @@ public class WearableService : IWearableService
             Nombre = request.Nombre,
             Modelo = request.Modelo,
             PairingToken = token,
+            CodigoEmparejamiento = codigoEmparejamiento,
+            TrustToken = trustToken,
             Estado = "Pendiente",
             VinculadoEn = DateTime.UtcNow,
         };
@@ -64,6 +72,8 @@ public class WearableService : IWearableService
         return new PairResponse
         {
             Token = token,
+            CodigoEmparejamiento = codigoEmparejamiento,
+            TrustToken = trustToken,
             Mensaje = "Código de vinculación generado. Confírmalo desde el wearable."
         };
     }
@@ -105,6 +115,7 @@ public class WearableService : IWearableService
             ?? throw new ConflictException("No hay un wearable vinculado.");
 
         wearable.Calibrado = true;
+        wearable.CalibracionPorcentaje = 100;
         wearable.UltimaCalibracion = DateTime.UtcNow;
         await _wearableRepository.UpdateAsync(wearable);
 
@@ -180,6 +191,17 @@ public class WearableService : IWearableService
         Calibrado = w.Calibrado,
         UltimaCalibracion = w.UltimaCalibracion,
         PermisosOtorgados = w.PermisosOtorgados,
+        CalibracionPorcentaje = w.CalibracionPorcentaje,
+        CodigoEmparejamiento = w.CodigoEmparejamiento,
+        TrustToken = w.TrustToken,
+        SensoresActivos = w.SensoresActivos is null ? null : new WearableSensoresDto
+        {
+            Acelerometro = w.SensoresActivos.Acelerometro,
+            Microfono = w.SensoresActivos.Microfono,
+            FrecuenciaCardiaca = w.SensoresActivos.FrecuenciaCardiaca,
+            Gps = w.SensoresActivos.Gps,
+            SegundoPlano = w.SensoresActivos.SegundoPlano,
+        },
         Estado = w.Estado,
     };
 }

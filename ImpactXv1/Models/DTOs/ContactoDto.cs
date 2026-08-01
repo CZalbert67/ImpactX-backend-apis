@@ -11,6 +11,11 @@ public class ContactoDto
     public string Channel { get; set; } = string.Empty;
     public string Priority { get; set; } = string.Empty;
     public bool EsPrincipal { get; set; }
+    public string? Email { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? Notes { get; set; }
+    public Guid? MonitorId { get; set; }
+    public int UnreadMessages { get; set; }
     public DateTime CreadoEn { get; set; }
 }
 
@@ -21,6 +26,8 @@ public class CreateContactoRequest
     public string? Parentesco { get; set; }
     public string? Username { get; set; }
     public string? AppUserId { get; set; }
+    public string? Email { get; set; }
+    public string? Notes { get; set; }
     public string Priority { get; set; } = "Secundario";
     public bool EsPrincipal { get; set; }
 }
@@ -30,6 +37,8 @@ public class UpdateContactoRequest
     public string? Nombre { get; set; }
     public string? Telefono { get; set; }
     public string? Parentesco { get; set; }
+    public string? Email { get; set; }
+    public string? Notes { get; set; }
     public string? Priority { get; set; }
 }
 

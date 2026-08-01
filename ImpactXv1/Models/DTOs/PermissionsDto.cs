@@ -8,4 +8,7 @@ public class UpdatePermissionsRequest
     public bool Microfono { get; set; }
     public bool Sensores { get; set; }
     public bool Bluetooth { get; set; }
+    public bool Llamadas { get; set; }
+    public bool SegundoPlano { get; set; }
+    public bool RitmoCardiaco { get; set; }
 }

@@ -465,6 +465,7 @@ public class NotificationService : INotificationService
         Tipo = n.Tipo,
         ReferenciaId = n.ReferenciaId,
         ReferenciaTipo = n.ReferenciaTipo,
+        Ruta = n.Ruta,
         Leida = n.Leida,
         LeidaEn = n.LeidaEn,
         CreadoEn = n.CreadoEn,

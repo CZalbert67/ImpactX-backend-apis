@@ -13,6 +13,7 @@ public class PlanServiceTests
     private readonly Mock<ISuscripcionRepository> _suscripcionRepo;
     private readonly Mock<IPagoRepository> _pagoRepo;
     private readonly Mock<IUsuarioRepository> _usuarioRepo;
+    private readonly Mock<IContactoRepository> _contactoRepo;
     private readonly PlanService _planService;
 
     public PlanServiceTests()
@@ -21,7 +22,9 @@ public class PlanServiceTests
         _suscripcionRepo = new Mock<ISuscripcionRepository>();
         _pagoRepo = new Mock<IPagoRepository>();
         _usuarioRepo = new Mock<IUsuarioRepository>();
-        _planService = new PlanService(_planRepo.Object, _suscripcionRepo.Object, _pagoRepo.Object, _usuarioRepo.Object);
+        _contactoRepo = new Mock<IContactoRepository>();
+        _contactoRepo.Setup(r => r.GetByUserAsync(It.IsAny<Guid>())).ReturnsAsync([]);
+        _planService = new PlanService(_planRepo.Object, _suscripcionRepo.Object, _pagoRepo.Object, _usuarioRepo.Object, _contactoRepo.Object);
     }
 
     [Fact]
@@ -249,5 +252,33 @@ public class PlanServiceTests
         var count = await _planService.ExpireSubscriptionsAsync();
 
         Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public async Task ExpireSubscriptionsAsync_SuspendsContactsAboveFreeLimit()
+    {
+        var usuarioId = Guid.NewGuid();
+        var expired = new Suscripcion { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activa" };
+        var usuario = new Usuario { Id = usuarioId, PlanActivo = "Premium" };
+        var keep = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = usuarioId, Nombre = "A", Telefono = "1", EsPrincipal = true, CreadoEn = DateTime.UtcNow.AddDays(-5) };
+        var suspend = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = usuarioId, Nombre = "B", Telefono = "2", CreadoEn = DateTime.UtcNow.AddDays(-1) };
+        var extra = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = usuarioId, Nombre = "C", Telefono = "3", CreadoEn = DateTime.UtcNow };
+        var freePlan = new Plan { Id = Guid.NewGuid(), Nombre = "Free", MaxContactos = 2 };
+
+        _suscripcionRepo.Setup(r => r.GetExpiredAsync()).ReturnsAsync([expired]);
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+        _planRepo.Setup(r => r.GetByNameAsync("Free")).ReturnsAsync(freePlan);
+        _contactoRepo.Setup(r => r.GetByUserAsync(usuarioId)).ReturnsAsync([keep, suspend, extra]);
+
+        var count = await _planService.ExpireSubscriptionsAsync();
+
+        Assert.Equal(1, count);
+        Assert.Equal("Activo", keep.Status);
+        Assert.Equal("Activo", suspend.Status);
+        Assert.Equal("Suspendido por plan", extra.Status);
+        Assert.Equal("Activo", extra.PreviousStatus);
+        _contactoRepo.Verify(r => r.UpdateAsync(extra), Times.Once);
+        _contactoRepo.Verify(r => r.UpdateAsync(suspend), Times.Never);
+        _contactoRepo.Verify(r => r.UpdateAsync(keep), Times.Never);
     }
 }

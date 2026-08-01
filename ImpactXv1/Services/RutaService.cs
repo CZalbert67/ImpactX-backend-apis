@@ -32,6 +32,8 @@ public class RutaService : IRutaService
         {
             UsuarioId = usuarioId,
             Nombre = request.Nombre,
+            Etiqueta = request.Etiqueta,
+            Nota = request.Nota,
             Origen = request.Origen,
             OrigenLat = request.OrigenLat,
             OrigenLng = request.OrigenLng,
@@ -57,6 +59,8 @@ public class RutaService : IRutaService
             throw new ForbiddenException("No tienes permiso para modificar esta ruta.");
 
         if (request.Nombre is not null) ruta.Nombre = request.Nombre;
+        if (request.Etiqueta is not null) ruta.Etiqueta = request.Etiqueta;
+        if (request.Nota is not null) ruta.Nota = request.Nota;
         if (request.Origen is not null) ruta.Origen = request.Origen;
         if (request.OrigenLat.HasValue) ruta.OrigenLat = request.OrigenLat.Value;
         if (request.OrigenLng.HasValue) ruta.OrigenLng = request.OrigenLng.Value;
@@ -108,6 +112,8 @@ public class RutaService : IRutaService
     {
         Id = r.Id,
         Nombre = r.Nombre,
+        Etiqueta = r.Etiqueta,
+        Nota = r.Nota,
         Origen = r.Origen,
         OrigenLat = r.OrigenLat,
         OrigenLng = r.OrigenLng,

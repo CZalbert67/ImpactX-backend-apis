@@ -8,11 +8,16 @@ namespace ImpactX.Services;
 public class ViajeService : IViajeService
 {
     private readonly IViajeRepository _viajeRepository;
+    private readonly IWearableRepository _wearableRepository;
     private readonly ILogger<ViajeService> _logger;
 
-    public ViajeService(IViajeRepository viajeRepository, ILogger<ViajeService> logger)
+    public ViajeService(
+        IViajeRepository viajeRepository,
+        IWearableRepository wearableRepository,
+        ILogger<ViajeService> logger)
     {
         _viajeRepository = viajeRepository;
+        _wearableRepository = wearableRepository;
         _logger = logger;
     }
 
@@ -21,6 +26,8 @@ public class ViajeService : IViajeService
         var active = await _viajeRepository.GetActiveByUserAsync(usuarioId);
         if (active is not null)
             throw new ConflictException("Ya tienes un viaje activo. Finalízalo antes de iniciar uno nuevo.");
+
+        await ValidateWearableOwnershipAsync(usuarioId, request.DispositivoId);
 
         var viaje = new Viaje
         {
@@ -31,6 +38,9 @@ public class ViajeService : IViajeService
             Proposito = request.Proposito,
             RutaOrigen = request.RutaOrigen,
             RutaDestino = request.RutaDestino,
+            CompartirConMonitores = request.CompartirConMonitores,
+            Canal = request.Canal,
+            Checkpoints = 0,
         };
 
         await _viajeRepository.AddAsync(viaje);
@@ -126,6 +136,18 @@ public class ViajeService : IViajeService
         return viaje is null ? null : MapToDto(viaje);
     }
 
+    private async Task ValidateWearableOwnershipAsync(Guid usuarioId, string dispositivoId)
+    {
+        if (string.IsNullOrWhiteSpace(dispositivoId))
+            throw new BadRequestException("Debes proporcionar un DispositivoId válido.");
+
+        var wearable = await _wearableRepository.GetByDispositivoIdAsync(dispositivoId)
+            ?? throw new NotFoundException("Dispositivo wearable no encontrado.");
+
+        if (wearable.UsuarioId != usuarioId)
+            throw new ForbiddenException("Este wearable no pertenece a tu cuenta.");
+    }
+
     private async Task<Viaje> GetOwnedViajeAsync(Guid usuarioId, Guid viajeId)
     {
         var viaje = await _viajeRepository.GetByIdAsync(viajeId)
@@ -170,8 +192,12 @@ public class ViajeService : IViajeService
         VelocidadPromedio = v.VelocidadPromedio,
         VelocidadMaxima = v.VelocidadMaxima,
         RiesgoMaximo = v.RiesgoMaximo,
+        NivelRiesgo = v.NivelRiesgo,
         Proposito = v.Proposito,
         RutaOrigen = v.RutaOrigen,
         RutaDestino = v.RutaDestino,
+        CompartirConMonitores = v.CompartirConMonitores,
+        Checkpoints = v.Checkpoints,
+        Canal = v.Canal,
     };
 }

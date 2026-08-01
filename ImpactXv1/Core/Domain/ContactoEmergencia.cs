@@ -13,5 +13,9 @@ public class ContactoEmergencia
     public Guid? MonitorId { get; set; }
     public string Priority { get; set; } = "Secundario";
     public bool EsPrincipal { get; set; }
+    public string? Email { get; set; }
+    public string Status { get; set; } = "Activo";
+    public string? Notes { get; set; }
+    public string? PreviousStatus { get; set; }
     public DateTime CreadoEn { get; set; } = DateTime.UtcNow;
 }

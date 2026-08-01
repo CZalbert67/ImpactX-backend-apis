@@ -5,6 +5,7 @@ public class PlanDto
     public Guid Id { get; set; }
     public string Nombre { get; set; } = string.Empty;
     public decimal PrecioMensual { get; set; }
+    public string PrecioMensualLabel { get; set; } = string.Empty;
     public decimal PrecioAnual { get; set; }
     public int MaxContactos { get; set; }
     public int MaxMonitores { get; set; }
@@ -12,6 +13,11 @@ public class PlanDto
     public bool ExportacionDatos { get; set; }
     public bool SoportePrioritario { get; set; }
     public int DuracionTrialDias { get; set; }
+    public string[] SensoresHabilitados { get; set; } = [];
+    public bool BypassCritico { get; set; }
+    public bool Telemetria { get; set; }
+    public string? Descripcion { get; set; }
+    public int TemporizadorSegundos { get; set; }
 }
 
 public class SuscripcionDto
@@ -19,10 +25,13 @@ public class SuscripcionDto
     public Guid Id { get; set; }
     public Guid PlanId { get; set; }
     public string PlanNombre { get; set; } = string.Empty;
+    public int MaxContactos { get; set; }
+    public int MaxMonitores { get; set; }
     public string Estado { get; set; } = string.Empty;
     public DateTime Inicio { get; set; }
     public DateTime? Fin { get; set; }
     public DateTime? TrialFin { get; set; }
+    public int? TrialDaysLeft { get; set; }
     public DateTime? CanceladaEn { get; set; }
     public string? MotivoCancelacion { get; set; }
     public bool IsActive => Estado == "Trial" || Estado == "Activa";

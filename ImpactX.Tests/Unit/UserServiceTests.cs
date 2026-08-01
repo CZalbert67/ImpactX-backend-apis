@@ -10,12 +10,16 @@ namespace ImpactX.Tests.Unit;
 public class UserServiceTests
 {
     private readonly Mock<IUsuarioRepository> _usuarioRepo;
+    private readonly Mock<ISuscripcionRepository> _suscripcionRepo;
+    private readonly Mock<IPlanRepository> _planRepo;
     private readonly UserService _userService;
 
     public UserServiceTests()
     {
         _usuarioRepo = new Mock<IUsuarioRepository>();
-        _userService = new UserService(_usuarioRepo.Object);
+        _suscripcionRepo = new Mock<ISuscripcionRepository>();
+        _planRepo = new Mock<IPlanRepository>();
+        _userService = new UserService(_usuarioRepo.Object, _suscripcionRepo.Object, _planRepo.Object);
     }
 
     [Fact]

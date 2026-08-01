@@ -27,6 +27,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Alerta> Alertas => Set<Alerta>();
     public DbSet<Incidente> Incidentes => Set<Incidente>();
     public DbSet<Notificacion> Notificaciones => Set<Notificacion>();
+    public DbSet<AppInvite> AppInvites => Set<AppInvite>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -37,6 +38,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(u => u.Nombre).HasMaxLength(200).IsRequired();
             entity.Property(u => u.Correo).HasMaxLength(256).IsRequired();
             entity.Property(u => u.Telefono).HasMaxLength(20);
+            entity.Property(u => u.Ciudad).HasMaxLength(200);
             entity.Property(u => u.PasswordHash).HasMaxLength(500).IsRequired();
             entity.Property(u => u.PlanActivo).HasMaxLength(50);
             entity.Property(u => u.FcmToken).HasMaxLength(1000);
@@ -111,6 +113,10 @@ public class ApplicationDbContext : DbContext
             entity.Property(c => c.AppUserId).HasMaxLength(100);
             entity.Property(c => c.Channel).HasMaxLength(50);
             entity.Property(c => c.Priority).HasMaxLength(50);
+            entity.Property(c => c.Email).HasMaxLength(256);
+            entity.Property(c => c.Status).HasMaxLength(50);
+            entity.Property(c => c.Notes).HasMaxLength(1000);
+            entity.Property(c => c.PreviousStatus).HasMaxLength(50);
             entity.HasIndex(c => c.UsuarioId);
         });
 
@@ -118,6 +124,8 @@ public class ApplicationDbContext : DbContext
         {
             entity.HasKey(r => r.Id);
             entity.Property(r => r.Nombre).HasMaxLength(200).IsRequired();
+            entity.Property(r => r.Etiqueta).HasMaxLength(200);
+            entity.Property(r => r.Nota).HasMaxLength(1000);
             entity.Property(r => r.Origen).HasMaxLength(500).IsRequired();
             entity.Property(r => r.Destino).HasMaxLength(500).IsRequired();
             entity.HasIndex(r => r.UsuarioId);
@@ -132,6 +140,8 @@ public class ApplicationDbContext : DbContext
             entity.Property(v => v.RutaOrigen).HasMaxLength(500);
             entity.Property(v => v.RutaDestino).HasMaxLength(500);
             entity.Property(v => v.RiesgoMaximo).HasMaxLength(50);
+            entity.Property(v => v.NivelRiesgo).HasMaxLength(50);
+            entity.Property(v => v.Canal).HasMaxLength(50);
             entity.HasIndex(v => v.UsuarioId);
         });
 
@@ -144,6 +154,8 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Monitor>(entity =>
         {
             entity.HasKey(m => m.Id);
+            entity.Property(m => m.Nombre).HasMaxLength(200);
+            entity.Property(m => m.Telefono).HasMaxLength(20);
             entity.Property(m => m.CorreoInvitado).HasMaxLength(256);
             entity.Property(m => m.Username).HasMaxLength(100);
             entity.Property(m => m.AppUserId).HasMaxLength(100);
@@ -158,7 +170,22 @@ public class ApplicationDbContext : DbContext
         {
             entity.HasKey(p => p.Id);
             entity.Property(p => p.Nombre).HasMaxLength(50).IsRequired();
+            entity.Property(p => p.Descripcion).HasMaxLength(500);
             entity.HasIndex(p => p.Nombre);
+        });
+
+        modelBuilder.Entity<AppInvite>(entity =>
+        {
+            entity.HasKey(a => a.Id);
+            entity.Property(a => a.Token).HasMaxLength(100).IsRequired();
+            entity.Property(a => a.SuggestedUsername).HasMaxLength(100);
+            entity.Property(a => a.Relation).HasMaxLength(100);
+            entity.Property(a => a.Priority).HasMaxLength(50);
+            entity.Property(a => a.Status).HasMaxLength(50);
+            entity.Property(a => a.PersonalMessage).HasMaxLength(1000);
+            entity.Property(a => a.InviteUrl).HasMaxLength(500);
+            entity.HasIndex(a => a.UsuarioId);
+            entity.HasIndex(a => a.Token).IsUnique();
         });
 
         modelBuilder.Entity<Suscripcion>(entity =>
@@ -190,9 +217,12 @@ public class ApplicationDbContext : DbContext
             entity.Property(w => w.Modelo).HasMaxLength(200);
             entity.Property(w => w.AppVersion).HasMaxLength(50);
             entity.Property(w => w.PairingToken).HasMaxLength(200);
+            entity.Property(w => w.CodigoEmparejamiento).HasMaxLength(50);
+            entity.Property(w => w.TrustToken).HasMaxLength(100);
             entity.Property(w => w.Estado).HasMaxLength(50);
             entity.HasIndex(w => w.UsuarioId);
             entity.HasIndex(w => w.PairingToken);
+            entity.OwnsOne(w => w.SensoresActivos);
         });
 
         modelBuilder.Entity<Alerta>(entity =>
@@ -216,12 +246,16 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Incidente>(entity =>
         {
             entity.HasKey(i => i.Id);
+            entity.Property(i => i.Tipo).HasMaxLength(50);
             entity.Property(i => i.Severidad).HasMaxLength(20);
+            entity.Property(i => i.Estado).HasMaxLength(50);
             entity.Property(i => i.Lugar).HasMaxLength(500);
             entity.Property(i => i.GForce).HasMaxLength(20);
             entity.Property(i => i.Decibeles).HasMaxLength(20);
             entity.Property(i => i.FrecuenciaCardiaca).HasMaxLength(20);
             entity.Property(i => i.Canal).HasMaxLength(50);
+            entity.Property(i => i.Activacion).HasMaxLength(50);
+            entity.Property(i => i.TiempoRespuesta).HasMaxLength(50);
             entity.Property(i => i.MetodoCierre).HasMaxLength(50);
             entity.HasIndex(i => i.UsuarioId);
             entity.HasIndex(i => i.AlertaId);
@@ -235,6 +269,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(n => n.Tipo).HasMaxLength(50);
             entity.Property(n => n.ReferenciaId).HasMaxLength(100);
             entity.Property(n => n.ReferenciaTipo).HasMaxLength(50);
+            entity.Property(n => n.Ruta).HasMaxLength(200);
             entity.Property(n => n.Canal).HasMaxLength(20);
             entity.Property(n => n.EstadoEnvio).HasMaxLength(30);
             entity.Property(n => n.ClaveIdempotencia).HasMaxLength(300);

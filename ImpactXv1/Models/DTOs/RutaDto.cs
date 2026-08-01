@@ -4,6 +4,8 @@ public class RutaDto
 {
     public Guid Id { get; set; }
     public string Nombre { get; set; } = string.Empty;
+    public string? Etiqueta { get; set; }
+    public string? Nota { get; set; }
     public string Origen { get; set; } = string.Empty;
     public double OrigenLat { get; set; }
     public double OrigenLng { get; set; }
@@ -21,6 +23,8 @@ public class RutaDto
 public class CreateRutaRequest
 {
     public string Nombre { get; set; } = string.Empty;
+    public string? Etiqueta { get; set; }
+    public string? Nota { get; set; }
     public string Origen { get; set; } = string.Empty;
     public double OrigenLat { get; set; }
     public double OrigenLng { get; set; }
@@ -35,6 +39,8 @@ public class CreateRutaRequest
 public class UpdateRutaRequest
 {
     public string? Nombre { get; set; }
+    public string? Etiqueta { get; set; }
+    public string? Nota { get; set; }
     public string? Origen { get; set; }
     public double? OrigenLat { get; set; }
     public double? OrigenLng { get; set; }

@@ -11,13 +11,15 @@ namespace ImpactX.Tests.Unit;
 public class ViajeServiceTests
 {
     private readonly Mock<IViajeRepository> _viajeRepo;
+    private readonly Mock<IWearableRepository> _wearableRepo;
     private readonly ViajeService _viajeService;
 
     public ViajeServiceTests()
     {
         _viajeRepo = new Mock<IViajeRepository>();
+        _wearableRepo = new Mock<IWearableRepository>();
         var logger = Mock.Of<ILogger<ViajeService>>();
-        _viajeService = new ViajeService(_viajeRepo.Object, logger);
+        _viajeService = new ViajeService(_viajeRepo.Object, _wearableRepo.Object, logger);
     }
 
     [Fact]
@@ -25,15 +27,21 @@ public class ViajeServiceTests
     {
         var usuarioId = Guid.NewGuid();
         _viajeRepo.Setup(r => r.GetActiveByUserAsync(usuarioId)).ReturnsAsync((Viaje?)null);
+        _wearableRepo.Setup(r => r.GetByDispositivoIdAsync("WEAR-001"))
+            .ReturnsAsync(new Wearable { UsuarioId = usuarioId, DispositivoId = "WEAR-001" });
 
         var result = await _viajeService.StartAsync(usuarioId, new StartTripRequest
         {
             DispositivoId = "WEAR-001",
             Proposito = "Trabajo",
+            CompartirConMonitores = true,
+            Canal = "WhatsApp",
         });
 
         Assert.Equal("Activo", result.Estado);
         Assert.Equal("WEAR-001", result.DispositivoId);
+        Assert.True(result.CompartirConMonitores);
+        Assert.Equal("WhatsApp", result.Canal);
         _viajeRepo.Verify(r => r.AddAsync(It.IsAny<Viaje>()), Times.Once);
     }
 
@@ -46,6 +54,29 @@ public class ViajeServiceTests
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             _viajeService.StartAsync(usuarioId, new StartTripRequest { DispositivoId = "WEAR-001" }));
+    }
+
+    [Fact]
+    public async Task StartAsync_WithUnownedWearable_Throws()
+    {
+        var usuarioId = Guid.NewGuid();
+        _viajeRepo.Setup(r => r.GetActiveByUserAsync(usuarioId)).ReturnsAsync((Viaje?)null);
+        _wearableRepo.Setup(r => r.GetByDispositivoIdAsync("WEAR-999"))
+            .ReturnsAsync(new Wearable { UsuarioId = Guid.NewGuid(), DispositivoId = "WEAR-999" });
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            _viajeService.StartAsync(usuarioId, new StartTripRequest { DispositivoId = "WEAR-999" }));
+    }
+
+    [Fact]
+    public async Task StartAsync_WithUnknownWearable_Throws()
+    {
+        var usuarioId = Guid.NewGuid();
+        _viajeRepo.Setup(r => r.GetActiveByUserAsync(usuarioId)).ReturnsAsync((Viaje?)null);
+        _wearableRepo.Setup(r => r.GetByDispositivoIdAsync("WEAR-404")).ReturnsAsync((Wearable?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            _viajeService.StartAsync(usuarioId, new StartTripRequest { DispositivoId = "WEAR-404" }));
     }
 
     [Fact]

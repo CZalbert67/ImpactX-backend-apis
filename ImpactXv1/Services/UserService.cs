@@ -8,10 +8,17 @@ namespace ImpactX.Services;
 public class UserService : IUserService
 {
     private readonly IUsuarioRepository _usuarioRepository;
+    private readonly ISuscripcionRepository _suscripcionRepository;
+    private readonly IPlanRepository _planRepository;
 
-    public UserService(IUsuarioRepository usuarioRepository)
+    public UserService(
+        IUsuarioRepository usuarioRepository,
+        ISuscripcionRepository suscripcionRepository,
+        IPlanRepository planRepository)
     {
         _usuarioRepository = usuarioRepository;
+        _suscripcionRepository = suscripcionRepository;
+        _planRepository = planRepository;
     }
 
     public async Task<UserProfileDto> GetProfileAsync(Guid usuarioId)
@@ -20,7 +27,7 @@ public class UserService : IUserService
         if (usuario is null)
             throw new NotFoundException("Usuario no encontrado.");
 
-        return MapToProfileDto(usuario);
+        return await MapToProfileDtoAsync(usuario);
     }
 
     public async Task<UserProfileDto> UpdateProfileAsync(Guid usuarioId, UpdateUserProfileRequest request)
@@ -33,9 +40,11 @@ public class UserService : IUserService
             usuario.Nombre = request.Nombre;
         if (request.Telefono is not null)
             usuario.Telefono = request.Telefono;
+        if (request.Ciudad is not null)
+            usuario.Ciudad = request.Ciudad;
 
         await _usuarioRepository.UpdateAsync(usuario);
-        return MapToProfileDto(usuario);
+        return await MapToProfileDtoAsync(usuario);
     }
 
     public async Task<UserPreferencesDto> GetPreferencesAsync(Guid usuarioId)
@@ -59,12 +68,18 @@ public class UserService : IUserService
             usuario.Preferencias.NotificacionesPush = request.NotificacionesPush.Value;
         if (request.NotificacionesEmail.HasValue)
             usuario.Preferencias.NotificacionesEmail = request.NotificacionesEmail.Value;
+        if (request.NotificacionesSms.HasValue)
+            usuario.Preferencias.NotificacionesSms = request.NotificacionesSms.Value;
+        if (request.NotificacionesWhatsapp.HasValue)
+            usuario.Preferencias.NotificacionesWhatsapp = request.NotificacionesWhatsapp.Value;
         if (request.CompartirUbicacion.HasValue)
             usuario.Preferencias.CompartirUbicacion = request.CompartirUbicacion.Value;
         if (request.Idioma is not null)
             usuario.Preferencias.Idioma = request.Idioma;
         if (request.UnidadVelocidad is not null)
             usuario.Preferencias.UnidadVelocidad = request.UnidadVelocidad;
+        if (request.ZonaHoraria is not null)
+            usuario.Preferencias.ZonaHoraria = request.ZonaHoraria;
 
         await _usuarioRepository.UpdateAsync(usuario);
         return MapToPreferencesDto(usuario.Preferencias) ?? new UserPreferencesDto();
@@ -135,6 +150,14 @@ public class UserService : IUserService
             usuario.FichaMedica.Medicamentos = request.Medicamentos;
         if (request.Nota is not null)
             usuario.FichaMedica.Nota = request.Nota;
+        if (request.TienePadecimiento is not null)
+            usuario.FichaMedica.TienePadecimiento = request.TienePadecimiento;
+        if (request.CompartirFichaMedica.HasValue)
+            usuario.FichaMedica.CompartirFichaMedica = request.CompartirFichaMedica.Value;
+        if (request.PermitirUbicacion.HasValue)
+            usuario.FichaMedica.PermitirUbicacion = request.PermitirUbicacion.Value;
+        if (request.PermitirAprendizajeIA.HasValue)
+            usuario.FichaMedica.PermitirAprendizajeIA = request.PermitirAprendizajeIA.Value;
 
         await _usuarioRepository.UpdateAsync(usuario);
         return MapToMedicalProfileDto(usuario.FichaMedica) ?? new MedicalProfileDto();
@@ -171,14 +194,34 @@ public class UserService : IUserService
                 Id = u.Id,
                 Username = u.Username,
                 AppId = u.AppId,
-                Nombre = u.Nombre,
-                Correo = u.Correo
+                Nombre = u.Nombre
             })
             .ToList();
     }
 
-    private static UserProfileDto MapToProfileDto(Usuario u)
+    private async Task<UserProfileDto> MapToProfileDtoAsync(Usuario u)
     {
+        string? plan = u.PlanActivo;
+        string? subscriptionStatus = null;
+        int? trialDaysLeft = null;
+        DateTime? subscriptionStart = null;
+        DateTime? subscriptionEnd = null;
+
+        var suscripcion = await _suscripcionRepository.GetActiveByUserAsync(u.Id);
+        if (suscripcion is not null)
+        {
+            var planEntity = await _planRepository.GetByIdAsync(suscripcion.PlanId);
+            plan = suscripcion.Estado == "Trial"
+                ? "trial"
+                : planEntity?.Nombre.ToLowerInvariant() ?? "trial";
+            subscriptionStatus = suscripcion.Estado;
+            subscriptionStart = suscripcion.Inicio;
+            subscriptionEnd = suscripcion.Fin ?? suscripcion.TrialFin;
+
+            if (subscriptionEnd.HasValue)
+                trialDaysLeft = Math.Max(0, (int)(subscriptionEnd.Value.Date - DateTime.UtcNow.Date).TotalDays);
+        }
+
         return new UserProfileDto
         {
             Id = u.Id,
@@ -188,7 +231,16 @@ public class UserService : IUserService
             Nombre = u.Nombre,
             Correo = u.Correo,
             Telefono = u.Telefono,
+            Ciudad = u.Ciudad,
+            Idioma = u.Preferencias?.Idioma,
             PlanActivo = u.PlanActivo,
+            Plan = plan,
+            SubscriptionStatus = subscriptionStatus,
+            TrialDaysLeft = trialDaysLeft,
+            SubscriptionStart = subscriptionStart,
+            SubscriptionEnd = subscriptionEnd,
+            OnboardingCompleto = u.OnboardingCompleto,
+            TwoFactor = u.Settings?.TwoFactorEnabled ?? false,
             EmailConfirmed = u.EmailConfirmed,
             CreatedAt = u.CreatedAt,
             LastLoginAt = u.LastLoginAt,
@@ -197,29 +249,29 @@ public class UserService : IUserService
             Preferencias = MapToPreferencesDto(u.Preferencias),
             Permisos = u.Permisos is not null ? new PermisosDto
             {
-                Mobile = u.Permisos.Mobile is not null ? new PermisosPlataformaDto
-                {
-                    Ubicacion = u.Permisos.Mobile.Ubicacion,
-                    Notificaciones = u.Permisos.Mobile.Notificaciones,
-                    Camara = u.Permisos.Mobile.Camara,
-                    Microfono = u.Permisos.Mobile.Microfono,
-                    Sensores = u.Permisos.Mobile.Sensores,
-                    Bluetooth = u.Permisos.Mobile.Bluetooth,
-                } : null,
-                Web = u.Permisos.Web is not null ? new PermisosPlataformaDto
-                {
-                    Ubicacion = u.Permisos.Web.Ubicacion,
-                    Notificaciones = u.Permisos.Web.Notificaciones,
-                    Camara = u.Permisos.Web.Camara,
-                    Microfono = u.Permisos.Web.Microfono,
-                    Sensores = u.Permisos.Web.Sensores,
-                    Bluetooth = u.Permisos.Web.Bluetooth,
-                } : null,
+                Mobile = MapToPermisosPlataformaDto(u.Permisos.Mobile),
+                Web = MapToPermisosPlataformaDto(u.Permisos.Web),
             } : null,
             Settings = u.Settings is not null ? new SettingsDto
             {
                 TwoFactorEnabled = u.Settings.TwoFactorEnabled
             } : null,
+        };
+    }
+
+    private static PermisosPlataformaDto? MapToPermisosPlataformaDto(PermisosPlataforma? p)
+    {
+        return p is null ? null : new PermisosPlataformaDto
+        {
+            Ubicacion = p.Ubicacion,
+            Notificaciones = p.Notificaciones,
+            Camara = p.Camara,
+            Microfono = p.Microfono,
+            Sensores = p.Sensores,
+            Bluetooth = p.Bluetooth,
+            Llamadas = p.Llamadas,
+            SegundoPlano = p.SegundoPlano,
+            RitmoCardiaco = p.RitmoCardiaco,
         };
     }
 
@@ -247,6 +299,10 @@ public class UserService : IUserService
             Condiciones = m.Condiciones,
             Medicamentos = m.Medicamentos,
             Nota = m.Nota,
+            TienePadecimiento = m.TienePadecimiento,
+            CompartirFichaMedica = m.CompartirFichaMedica,
+            PermitirUbicacion = m.PermitirUbicacion,
+            PermitirAprendizajeIA = m.PermitirAprendizajeIA,
         };
     }
 
@@ -256,9 +312,12 @@ public class UserService : IUserService
         {
             NotificacionesPush = p.NotificacionesPush,
             NotificacionesEmail = p.NotificacionesEmail,
+            NotificacionesSms = p.NotificacionesSms,
+            NotificacionesWhatsapp = p.NotificacionesWhatsapp,
             CompartirUbicacion = p.CompartirUbicacion,
             Idioma = p.Idioma,
             UnidadVelocidad = p.UnidadVelocidad,
+            ZonaHoraria = p.ZonaHoraria,
         };
     }
 }
