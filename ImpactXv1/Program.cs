@@ -97,7 +97,8 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(corsOrigins)
                   .WithHeaders("Authorization", "Content-Type", "X-Correlation-Id", "Idempotency-Key", "traceparent")
-                  .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD");
+                  .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD")
+                  .WithExposedHeaders("X-Continuation-Token", "X-Correlation-Id");
         }
     });
 });

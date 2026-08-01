@@ -190,7 +190,7 @@ public class PlanServiceTests
         var usuarioId = Guid.NewGuid();
         var pago = new Pago { Id = Guid.NewGuid(), UsuarioId = usuarioId, Monto = 99 };
 
-        _pagoRepo.Setup(r => r.GetByIdAsync(pago.Id)).ReturnsAsync(pago);
+        _pagoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), pago.Id)).ReturnsAsync(pago);
 
         var result = await _planService.GetPaymentReceiptAsync(pago.Id, usuarioId);
 
@@ -205,7 +205,7 @@ public class PlanServiceTests
         var otroUsuarioId = Guid.NewGuid();
         var pago = new Pago { Id = Guid.NewGuid(), UsuarioId = otroUsuarioId };
 
-        _pagoRepo.Setup(r => r.GetByIdAsync(pago.Id)).ReturnsAsync(pago);
+        _pagoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), pago.Id)).ReturnsAsync(pago);
 
         var result = await _planService.GetPaymentReceiptAsync(pago.Id, usuarioId);
 
@@ -215,7 +215,7 @@ public class PlanServiceTests
     [Fact]
     public async Task GetPaymentReceiptAsync_WithNonExistentPayment_ReturnsNull()
     {
-        _pagoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Pago?)null);
+        _pagoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ReturnsAsync((Pago?)null);
 
         var result = await _planService.GetPaymentReceiptAsync(Guid.NewGuid(), Guid.NewGuid());
 
@@ -229,7 +229,8 @@ public class PlanServiceTests
         var expired = new Suscripcion { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activa" };
         var usuario = new Usuario { Id = usuarioId, PlanActivo = "Premium" };
 
-        _suscripcionRepo.Setup(r => r.GetExpiredAsync()).ReturnsAsync([expired]);
+        _suscripcionRepo.Setup(r => r.ExpireAllAsync(It.IsAny<Func<Suscripcion, CancellationToken, Task>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<Suscripcion, CancellationToken, Task> process, CancellationToken ct) => process(expired, ct).ContinueWith(_ => 1, ct));
         _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
 
         var count = await _planService.ExpireSubscriptionsAsync();

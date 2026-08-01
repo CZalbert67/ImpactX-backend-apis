@@ -73,7 +73,7 @@ public class RutaServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var ruta = new Ruta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Nombre = "Old" };
-        _rutaRepo.Setup(r => r.GetByIdAsync(ruta.Id)).ReturnsAsync(ruta);
+        _rutaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), ruta.Id)).ReturnsAsync(ruta);
 
         var result = await _rutaService.UpdateAsync(usuarioId, ruta.Id, new UpdateRutaRequest
         {
@@ -92,7 +92,7 @@ public class RutaServiceTests
         var usuarioId = Guid.NewGuid();
         var otroUsuarioId = Guid.NewGuid();
         var ruta = new Ruta { Id = Guid.NewGuid(), UsuarioId = otroUsuarioId };
-        _rutaRepo.Setup(r => r.GetByIdAsync(ruta.Id)).ReturnsAsync(ruta);
+        _rutaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), ruta.Id)).ReturnsAsync(ruta);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _rutaService.UpdateAsync(usuarioId, ruta.Id, new UpdateRutaRequest()));
@@ -103,7 +103,7 @@ public class RutaServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var ruta = new Ruta { Id = Guid.NewGuid(), UsuarioId = usuarioId };
-        _rutaRepo.Setup(r => r.GetByIdAsync(ruta.Id)).ReturnsAsync(ruta);
+        _rutaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), ruta.Id)).ReturnsAsync(ruta);
 
         await _rutaService.DeleteAsync(usuarioId, ruta.Id);
 
@@ -116,7 +116,7 @@ public class RutaServiceTests
         var usuarioId = Guid.NewGuid();
         var previous = new Ruta { Id = Guid.NewGuid(), UsuarioId = usuarioId, SeleccionadaHoy = true };
         var ruta = new Ruta { Id = Guid.NewGuid(), UsuarioId = usuarioId, SeleccionadaHoy = false };
-        _rutaRepo.Setup(r => r.GetByIdAsync(ruta.Id)).ReturnsAsync(ruta);
+        _rutaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), ruta.Id)).ReturnsAsync(ruta);
         _rutaRepo.Setup(r => r.GetSelectedTodayAsync(usuarioId)).ReturnsAsync(previous);
 
         var result = await _rutaService.SelectTodayAsync(usuarioId, new SelectTodayRequest { RutaId = ruta.Id });

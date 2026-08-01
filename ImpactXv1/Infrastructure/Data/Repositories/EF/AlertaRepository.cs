@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 
 namespace ImpactX.Infrastructure.Data.Repositories.EF;
 
@@ -18,12 +19,27 @@ public class AlertaRepository : IAlertaRepository
         return await _context.Alertas.FindAsync(id);
     }
 
+    public async Task<Alerta?> GetByIdAsync(Guid usuarioId, Guid id)
+    {
+        return await _context.Alertas
+            .FirstOrDefaultAsync(a => a.UsuarioId == usuarioId && a.Id == id);
+    }
+
     public async Task<List<Alerta>> GetByUserAsync(Guid usuarioId)
     {
         return await _context.Alertas
             .Where(a => a.UsuarioId == usuarioId)
             .OrderByDescending(a => a.CreadoEn)
             .ToListAsync();
+    }
+
+    public async Task<PagedResult<Alerta>> GetByUserPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        return await EfPageReader.ReadSinglePageAsync(
+            _context.Alertas
+                .Where(a => a.UsuarioId == usuarioId)
+                .OrderByDescending(a => a.CreadoEn),
+            pageSize, continuationToken, cancellationToken);
     }
 
     public async Task<Alerta?> GetActiveByUserAsync(Guid usuarioId)

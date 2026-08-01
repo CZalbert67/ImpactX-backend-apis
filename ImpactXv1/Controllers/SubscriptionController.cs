@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -31,11 +32,12 @@ public class SubscriptionController : ControllerBase
 
     [HttpGet("history")]
     [HttpGet("/api/v1/subscriptions/history")]
-    public async Task<IActionResult> GetSubscriptionHistory()
+    public async Task<IActionResult> GetSubscriptionHistory(int? pageSize, string? continuationToken)
     {
         var usuarioId = GetUsuarioId();
-        var historial = await _planService.GetSubscriptionHistoryAsync(usuarioId);
-        return Ok(historial);
+        var page = await _planService.GetSubscriptionHistoryPagedAsync(usuarioId, pageSize, continuationToken);
+        PagedResultHttp.ApplyContinuationToken(Response, page);
+        return Ok(page.Items);
     }
 
     [HttpPost("change-plan")]
@@ -78,11 +80,12 @@ public class SubscriptionController : ControllerBase
 
     [HttpGet("payments")]
     [HttpGet("/api/v1/subscriptions/payments")]
-    public async Task<IActionResult> GetPayments()
+    public async Task<IActionResult> GetPayments(int? pageSize, string? continuationToken)
     {
         var usuarioId = GetUsuarioId();
-        var pagos = await _planService.GetPaymentsAsync(usuarioId);
-        return Ok(pagos);
+        var page = await _planService.GetPaymentsPagedAsync(usuarioId, pageSize, continuationToken);
+        PagedResultHttp.ApplyContinuationToken(Response, page);
+        return Ok(page.Items);
     }
 
     [HttpGet("payments/{id:guid}/receipt")]

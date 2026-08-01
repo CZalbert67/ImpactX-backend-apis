@@ -1,6 +1,7 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using Microsoft.Extensions.Logging;
 
@@ -94,7 +95,7 @@ public class AlertService : IAlertService
 
     public async Task<ConfirmOkResponse> ConfirmOkAsync(Guid usuarioId, Guid alertaId)
     {
-        var alerta = await _alertaRepository.GetByIdAsync(alertaId)
+        var alerta = await _alertaRepository.GetByIdAsync(usuarioId, alertaId)
             ?? throw new NotFoundException("Alerta no encontrada.");
 
         if (alerta.UsuarioId != usuarioId)
@@ -122,7 +123,7 @@ public class AlertService : IAlertService
 
     public async Task<AlertActionResponse> BypassCriticalAsync(Guid usuarioId, Guid alertaId)
     {
-        var alerta = await _alertaRepository.GetByIdAsync(alertaId)
+        var alerta = await _alertaRepository.GetByIdAsync(usuarioId, alertaId)
             ?? throw new NotFoundException("Alerta no encontrada.");
 
         if (alerta.UsuarioId != usuarioId)
@@ -150,7 +151,7 @@ public class AlertService : IAlertService
 
     public async Task<AlertActionResponse> RetryAsync(Guid usuarioId, Guid alertaId)
     {
-        var alerta = await _alertaRepository.GetByIdAsync(alertaId)
+        var alerta = await _alertaRepository.GetByIdAsync(usuarioId, alertaId)
             ?? throw new NotFoundException("Alerta no encontrada.");
 
         if (alerta.UsuarioId != usuarioId)
@@ -180,7 +181,7 @@ public class AlertService : IAlertService
 
     public async Task<AlertStatusDto> GetStatusAsync(Guid usuarioId, Guid alertaId)
     {
-        var alerta = await _alertaRepository.GetByIdAsync(alertaId)
+        var alerta = await _alertaRepository.GetByIdAsync(usuarioId, alertaId)
             ?? throw new NotFoundException("Alerta no encontrada.");
 
         if (alerta.UsuarioId != usuarioId)
@@ -191,7 +192,7 @@ public class AlertService : IAlertService
 
     public async Task<AlertActionResponse> CloseAsync(Guid usuarioId, Guid alertaId, CloseAlertRequest request)
     {
-        var alerta = await _alertaRepository.GetByIdAsync(alertaId)
+        var alerta = await _alertaRepository.GetByIdAsync(usuarioId, alertaId)
             ?? throw new NotFoundException("Alerta no encontrada.");
 
         if (alerta.UsuarioId != usuarioId)
@@ -294,6 +295,19 @@ public class AlertService : IAlertService
         }
 
         return resultados;
+    }
+
+    public async Task<PagedResult<AlertStatusDto>> GetAlertsPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _alertaRepository.GetByUserPagedAsync(usuarioId, size, continuationToken);
+        return new PagedResult<AlertStatusDto>
+        {
+            Items = page.Items.Select(MapToDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
     }
 
     private async Task NotifyIfEnviadaAsync(Alerta alerta)

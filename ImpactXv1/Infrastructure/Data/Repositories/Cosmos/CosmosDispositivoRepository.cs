@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
@@ -54,6 +55,17 @@ public class CosmosDispositivoRepository : IDispositivoRepository
             results.AddRange(response);
         }
         return results;
+    }
+
+    public async Task<PagedResult<Dispositivo>> GetByUsuarioIdPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId ORDER BY c.actualizadoEn DESC")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        return await CosmosPageReader.ReadSinglePageAsync<Dispositivo>(
+            _container, query, CosmosPartitionKeys.For(usuarioId),
+            pageSize, continuationToken, cancellationToken);
     }
 
     public async Task<Dispositivo?> GetByIdAsync(Guid usuarioId, Guid id)
@@ -138,31 +150,33 @@ public class CosmosDispositivoRepository : IDispositivoRepository
 
     public async Task<int> DeleteAllByUsuarioIdAsync(Guid usuarioId, CancellationToken cancellationToken = default)
     {
+        // Proceso completo incremental: pagina, elimina por página y continúa
+        // con el token; no acumula todos los dispositivos en memoria.
         var query = new QueryDefinition(
             "SELECT * FROM c WHERE c.usuarioId = @usuarioId")
             .WithParameter("@usuarioId", usuarioId.ToString());
 
-        var dispositivos = new List<Dispositivo>();
-        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query,
-            requestOptions: new QueryRequestOptions
+        var deleted = 0;
+        string? continuationToken = null;
+        var pk = CosmosPartitionKeys.For(usuarioId);
+
+        do
+        {
+            var page = await CosmosPageReader.ReadSinglePageAsync<Dispositivo>(
+                _container, query, pk, PaginationDefaults.MaxPageSize, continuationToken, cancellationToken);
+
+            foreach (var dispositivo in page.Items)
             {
-                PartitionKey = CosmosPartitionKeys.For(usuarioId),
-                MaxItemCount = 100
-            });
-        while (iterator.HasMoreResults)
-        {
-            var response = await iterator.ReadNextAsync(cancellationToken);
-            dispositivos.AddRange(response);
-        }
+                await _container.DeleteItemAsync<Dispositivo>(
+                    dispositivo.Id.ToString(),
+                    CosmosPartitionKeys.For(dispositivo.UsuarioId),
+                    cancellationToken: cancellationToken);
+                deleted++;
+            }
 
-        foreach (var dispositivo in dispositivos)
-        {
-            await _container.DeleteItemAsync<Dispositivo>(
-                dispositivo.Id.ToString(),
-                CosmosPartitionKeys.For(dispositivo.UsuarioId),
-                cancellationToken: cancellationToken);
-        }
+            continuationToken = page.ContinuationToken;
+        } while (continuationToken is not null);
 
-        return dispositivos.Count;
+        return deleted;
     }
 }

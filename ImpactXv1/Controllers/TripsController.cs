@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -74,6 +75,22 @@ public class TripsController : ControllerBase
         if (viaje is null)
             return Ok(new { mensaje = "No hay un viaje activo." });
         return Ok(viaje);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetTrips(int? pageSize, string? continuationToken)
+    {
+        var usuarioId = GetUsuarioId();
+        var page = await _viajeService.GetTripsPagedAsync(usuarioId, pageSize, continuationToken);
+        return Ok(page);
+    }
+
+    [HttpGet("{id:guid}/telemetry")]
+    public async Task<IActionResult> GetTelemetry(Guid id, int? pageSize, string? continuationToken)
+    {
+        var usuarioId = GetUsuarioId();
+        var page = await _viajeService.GetTelemetryPagedAsync(usuarioId, id, pageSize, continuationToken);
+        return Ok(page);
     }
 
     private Guid GetUsuarioId()

@@ -868,3 +868,44 @@ Elimina el token FCM del usuario autenticado.
 | 3 | Revisión Cosmos final | 18 definiciones del catálogo coinciden con los nombres previos; Usuarios/Planes `/id`; TelemetriaViaje `/viajeId`; resto `/usuarioId`; ningún contenedor recibe throughput dedicado (firma de creación sin throughput); SharedThroughput=400 (default) y ≤1000 validado; no se modifica throughput de base existente (solo `CreateDatabaseIfNotExistsAsync`); mismatch de PK nunca borra/recrea → `CosmosSchemaValidationException` → Failed + readiness Unhealthy (12 tests); TTLs documentados coinciden; todas las consultas con input vía `QueryDefinition`; sin concatenación de input (rg 0); tokens/hashes/credenciales no se registran en logs (solo conteos); PlanSeeder sin `SELECT * FROM c`, idempotente con legacy (COUNT por nombre); telemetría ligada a ViajeId; sin Vehicles. |
 | 4 | Correcciones documentales | `OFTSET`→`OFFSET` en AGENTS.md y DEVSECOPS_EVIDENCE.md; aclaración de que MaxItemCount es tamaño de página (no límite total) en COSMOS_DATA_ARCHITECTURE.md §5/§10/§12; deuda de `Tamano` sin cota. |
 | 5 | Pruebas dirigidas + suite | 662/662 totales, 158/158 Security, 76 contratos V1, 30 Python, scanner 0 violaciones, NuGet 0 vulnerables, actionlint limpio, Roslyn limpio, `git diff --check` limpio. Sin cambios de código nuevos en esta revisión (solo documentación). |
+
+## Ronda 10 — Pagination and Query Efficiency / PR 2B
+
+### Cambios realizados
+
+| Archivo | Acción |
+|---|---|
+| `ImpactXv1/Core/Pagination/PaginationDefaults.cs`, `PagedResult.cs`, `PaginationValidator.cs`, `PagedResultHttp.cs` | ✅ Creados — modelo de paginación (default 20, 1–100, token ≤ 2048, validación 400, header `X-Continuation-Token`) |
+| `ImpactXv1/Infrastructure/Data/Repositories/Cosmos/CosmosPageReader.cs`, `EF/EfPageReader.cs` (con `OffsetContinuationToken`) | ✅ Creados — página única Cosmos (1 `ReadNextAsync`, MaxItemCount=pageSize, PartitionKey, token SDK opaco) y EF (Skip/Take + token base64 `offset:N`, malformados → 400; probe `pageSize+1`, sin token en página final exacta) |
+| `ImpactXv1/Core/Interfaces/Repositories/*.cs` (11) | ✅ Modificados — `GetByIdAsync(usuarioId, id)` + métodos paged por dominio |
+| `ImpactXv1/Infrastructure/Data/Repositories/Cosmos/*.cs` (14) y `EF/*.cs` (14) | ✅ Modificados — point-reads por partición, listados paginados, procesos incrementales (RevokeAll, InvalidateAll, DeleteAll, MarkAllAsRead, ExpireAll, ProcessTrialsEnding) |
+| `ImpactXv1/Services/*.cs` (interfaces 9 + implementaciones) | ✅ Modificados — servicios paged; `IncidentService` valida `Pagina ≥ 1` y `Tamano` 1–100; `PlanService.ExpireSubscriptionsAsync` usa `ExpireAllAsync(process, ct)` (retirado `GetExpiredAsync`) |
+| `ImpactXv1/Controllers/*.cs` (9) | ✅ Modificados — `pageSize`/`continuationToken` opcionales; legacy con header `X-Continuation-Token` y body `List<T>`; nuevos `GET /api/trips`, `GET /api/trips/{id}/telemetry`, `GET /api/alerts`, `GET /api/wearable/all` con body `PagedResult<T>` |
+| `ImpactXv1/Program.cs` | ✅ Modificado — `WithExposedHeaders("X-Continuation-Token", "X-Correlation-Id")`; token fuera de `WithHeaders` (viaja como query param) |
+| `ImpactXv1/Extensions/OpenApiV1OperationTransformer.cs` | ✅ Modificado — documenta `pageSize` (min 1, max 100) y `continuationToken` (token opaco) |
+| `ImpactX.Tests/Unit/PaginationValidatorTests.cs`, `OffsetContinuationTokenTests.cs` | ✅ Creados — 25 pruebas de validación y token |
+| `ImpactX.Tests/Unit/EfPageReaderTests.cs`, `CosmosPageReaderTests.cs` | ✅ Creados — 11 (EF: probe, página exacta/parcial sin token, tokens malformados) + 8 (Cosmos: 1 ReadNextAsync, MaxItemCount, PartitionKey, token SDK no modificado, 400→genérico) |
+| `ImpactX.Tests/Integration/PaginationContractTests.cs` | ✅ Creado — 16 pruebas (9 contrato + JSON legacy + clientes independientes + 6 Category=Security) |
+| `ImpactX.Tests/Integration/ApiContractV1Tests.cs` | ✅ Modificado — +1 CORS expose headers |
+| `ImpactX.Tests/Unit/*.cs` (9 archivos) | ✅ Modificados — setups `GetByIdAsync(usuarioId, id)`; +4 pruebas viaje paged |
+| `docs/COSMOS_PAGINATION.md` | ✅ Creado — documentación del diseño |
+| `AGENTS.md` | ✅ Modificado — sección R0.6 |
+
+### Resultados Ronda 10
+
+| # | Verificación | Resultado |
+|---|---|---|
+| 1 | Suite completa | **731/731** (705 baseline + 26 nuevas: EfPageReader 11, CosmosPageReader 8, contrato paginación +7), Debug y Release |
+| 2 | Security regression | 164/164 Category=Security (158 + 6 nuevas) |
+| 3 | Contratos V1 | 77 (76 + CORS expose) |
+| 4 | Python | 30/30 (`test_check_hardcoded_secrets.py` + `test_deploy_workflow_contract.py`) |
+| 5 | Scanner | `check_hardcoded_secrets.py`: 0 violaciones (282 archivos) |
+| 6 | NuGet | 0 paquetes vulnerables (incluye transitivos) |
+| 7 | Roslyn | `dotnet format --verify-no-changes` limpio sobre el proyecto; C# modificados/nuevos formateados |
+| 8 | git diff --check | Limpio |
+| 9 | actionlint | Limpio (7 workflows) |
+| 9 | OpenAPI en vivo | `/openapi/v1.json` sirve 79 paths; `pageSize` con `minimum: 1, maximum: 100`; descripciones de token presentes |
+| 10 | IDOR | Telemetría de viaje ajeno → 404 (point-read null) / 403 (entidad ajena); verificado por test de integración |
+| 11 | Contrato legacy | Body `List<T>` conservado (JSON raíz array, sin campos de paginación — verificado); token solo en header; sin token en última página (verificado) |
+| 12 | Seguridad paginación | CR/LF y token > 2048 → 400 sin eco; 400 como ProblemDetails sin token; header sin CR/LF; token de otro usuario no filtra datos ajenos; IDOR telemetría 404 sin revelar propietario |
+| 13 | Pendiente | Abrir PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar). |

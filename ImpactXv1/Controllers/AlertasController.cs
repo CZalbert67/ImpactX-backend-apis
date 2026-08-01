@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -71,6 +72,14 @@ public class AlertasController : ControllerBase
         var usuarioId = GetUsuarioId();
         var result = await _alertService.GetStatusAsync(usuarioId, id);
         return Ok(result);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetAlerts(int? pageSize, string? continuationToken)
+    {
+        var usuarioId = GetUsuarioId();
+        var page = await _alertService.GetAlertsPagedAsync(usuarioId, pageSize, continuationToken);
+        return Ok(page);
     }
 
     [HttpPost("{id:guid}/close")]

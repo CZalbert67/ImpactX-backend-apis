@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -20,11 +21,12 @@ public class DevicesController : ControllerBase
     }
 
     [HttpGet("")]
-    public async Task<IActionResult> GetDevices()
+    public async Task<IActionResult> GetDevices(int? pageSize, string? continuationToken)
     {
         var usuarioId = GetUsuarioId();
-        var devices = await _deviceService.GetDevicesAsync(usuarioId);
-        return Ok(devices);
+        var page = await _deviceService.GetDevicesPagedAsync(usuarioId, pageSize, continuationToken);
+        PagedResultHttp.ApplyContinuationToken(Response, page);
+        return Ok(page.Items);
     }
 
     [HttpPut("fcm-token")]

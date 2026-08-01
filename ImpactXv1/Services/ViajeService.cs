@@ -1,6 +1,7 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -126,9 +127,44 @@ public class ViajeService : IViajeService
         return viaje is null ? null : MapToDto(viaje);
     }
 
+    public async Task<PagedResult<ViajeDto>> GetTripsPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _viajeRepository.GetByUserPagedAsync(usuarioId, size, continuationToken);
+        return new PagedResult<ViajeDto>
+        {
+            Items = page.Items.Select(MapToDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
+    }
+
+    public async Task<PagedResult<TelemetryPointDto>> GetTelemetryPagedAsync(Guid usuarioId, Guid viajeId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+
+        // Validación de propiedad antes de consultar: un usuario no puede
+        // obtener telemetría de un viaje ajeno (point-read por partición).
+        var viaje = await _viajeRepository.GetByIdAsync(usuarioId, viajeId)
+            ?? throw new NotFoundException("Viaje no encontrado.");
+
+        if (viaje.UsuarioId != usuarioId)
+            throw new ForbiddenException("No tienes permiso para acceder a este viaje.");
+
+        var page = await _viajeRepository.GetTelemetryByViajePagedAsync(viajeId, size, continuationToken);
+        return new PagedResult<TelemetryPointDto>
+        {
+            Items = page.Items.Select(MapToTelemetryPointDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
+    }
+
     private async Task<Viaje> GetOwnedViajeAsync(Guid usuarioId, Guid viajeId)
     {
-        var viaje = await _viajeRepository.GetByIdAsync(viajeId)
+        var viaje = await _viajeRepository.GetByIdAsync(usuarioId, viajeId)
             ?? throw new NotFoundException("Viaje no encontrado.");
 
         if (viaje.UsuarioId != usuarioId)
@@ -173,5 +209,15 @@ public class ViajeService : IViajeService
         Proposito = v.Proposito,
         RutaOrigen = v.RutaOrigen,
         RutaDestino = v.RutaDestino,
+    };
+
+    private static TelemetryPointDto MapToTelemetryPointDto(ViajeTelemetry t) => new()
+    {
+        Lat = t.Lat,
+        Lng = t.Lng,
+        Velocidad = t.Velocidad,
+        Altitud = t.Altitud,
+        Heading = t.Heading,
+        Timestamp = t.Timestamp,
     };
 }

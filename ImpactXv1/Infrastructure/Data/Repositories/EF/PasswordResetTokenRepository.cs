@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 
 namespace ImpactX.Infrastructure.Data.Repositories.EF;
 
@@ -33,15 +34,38 @@ public class PasswordResetTokenRepository : IPasswordResetTokenRepository
 
     public async Task<int> InvalidateAllByUsuarioIdAsync(Guid usuarioId, DateTime invalidatedAt, CancellationToken cancellationToken = default)
     {
-        var activeTokens = await _context.PasswordResetTokens
-            .Where(p => p.UsuarioId == usuarioId && p.UsedAt == null && p.ExpiresAt > DateTime.UtcNow)
-            .ToListAsync(cancellationToken);
+        // Proceso completo incremental: página por página, sin acumular todos
+        // los tokens en memoria.
+        var invalidated = 0;
+        var offset = 0;
+        const int pageSize = PaginationDefaults.MaxPageSize;
 
-        foreach (var token in activeTokens)
+        while (true)
         {
-            token.UsedAt = invalidatedAt;
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var activeTokens = await _context.PasswordResetTokens
+                .Where(p => p.UsuarioId == usuarioId && p.UsedAt == null && p.ExpiresAt > DateTime.UtcNow)
+                .OrderBy(p => p.Id)
+                .Skip(offset)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+
+            if (activeTokens.Count == 0)
+                break;
+
+            foreach (var token in activeTokens)
+            {
+                token.UsedAt = invalidatedAt;
+            }
+
+            invalidated += await _context.SaveChangesAsync(cancellationToken);
+
+            offset += activeTokens.Count;
+            if (activeTokens.Count < pageSize)
+                break;
         }
 
-        return await _context.SaveChangesAsync(cancellationToken);
+        return invalidated;
     }
 }

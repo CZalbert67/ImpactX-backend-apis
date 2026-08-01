@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -26,6 +27,14 @@ public class WearableController : ControllerBase
         if (wearable is null)
             return NotFound(new { mensaje = "No hay un wearable vinculado." });
         return Ok(wearable);
+    }
+
+    [HttpGet("all")]
+    public async Task<IActionResult> GetWearables(int? pageSize, string? continuationToken)
+    {
+        var usuarioId = GetUsuarioId();
+        var page = await _wearableService.GetWearablesPagedAsync(usuarioId, pageSize, continuationToken);
+        return Ok(page);
     }
 
     [HttpPost("pair")]

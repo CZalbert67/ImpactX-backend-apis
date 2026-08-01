@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -21,11 +22,12 @@ public class MonitorsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetMonitors()
+    public async Task<IActionResult> GetMonitors(int? pageSize, string? continuationToken)
     {
         var usuarioId = GetUsuarioId();
-        var monitors = await _monitorService.GetMonitorsAsync(usuarioId);
-        return Ok(monitors);
+        var page = await _monitorService.GetMonitorsPagedAsync(usuarioId, pageSize, continuationToken);
+        PagedResultHttp.ApplyContinuationToken(Response, page);
+        return Ok(page.Items);
     }
 
     [HttpPost("invite")]

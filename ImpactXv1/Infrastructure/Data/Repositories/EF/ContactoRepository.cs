@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 
 namespace ImpactX.Infrastructure.Data.Repositories.EF;
 
@@ -22,9 +23,25 @@ public class ContactoRepository : IContactoRepository
             .ToListAsync();
     }
 
+    public async Task<PagedResult<ContactoEmergencia>> GetByUserPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        return await EfPageReader.ReadSinglePageAsync(
+            _context.ContactosEmergencia
+                .Where(c => c.UsuarioId == usuarioId)
+                .OrderByDescending(c => c.EsPrincipal)
+                .ThenBy(c => c.CreadoEn),
+            pageSize, continuationToken, cancellationToken);
+    }
+
     public async Task<ContactoEmergencia?> GetByIdAsync(Guid id)
     {
         return await _context.ContactosEmergencia.FindAsync(id);
+    }
+
+    public async Task<ContactoEmergencia?> GetByIdAsync(Guid usuarioId, Guid id)
+    {
+        return await _context.ContactosEmergencia
+            .FirstOrDefaultAsync(c => c.UsuarioId == usuarioId && c.Id == id);
     }
 
     public async Task<ContactoEmergencia?> GetPrincipalAsync(Guid usuarioId)

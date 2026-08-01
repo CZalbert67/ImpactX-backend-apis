@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -20,11 +21,12 @@ public class NotificacionesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetNotifications()
+    public async Task<IActionResult> GetNotifications(int? pageSize, string? continuationToken)
     {
         var usuarioId = GetUsuarioId();
-        var result = await _notificationService.GetNotificationsAsync(usuarioId);
-        return Ok(result);
+        var page = await _notificationService.GetNotificationsPagedAsync(usuarioId, pageSize, continuationToken);
+        PagedResultHttp.ApplyContinuationToken(Response, page);
+        return Ok(page.Items);
     }
 
     [HttpGet("unread-count")]

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 
 namespace ImpactX.Infrastructure.Data.Repositories.EF;
 
@@ -26,6 +27,15 @@ public class DispositivoRepository : IDispositivoRepository
         return await _context.Dispositivos
             .Where(d => d.UsuarioId == usuarioId && d.Activo)
             .ToListAsync();
+    }
+
+    public async Task<PagedResult<Dispositivo>> GetByUsuarioIdPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        return await EfPageReader.ReadSinglePageAsync(
+            _context.Dispositivos
+                .Where(d => d.UsuarioId == usuarioId)
+                .OrderByDescending(d => d.ActualizadoEn),
+            pageSize, continuationToken, cancellationToken);
     }
 
     public async Task<Dispositivo?> GetByIdAsync(Guid usuarioId, Guid id)
@@ -66,11 +76,34 @@ public class DispositivoRepository : IDispositivoRepository
 
     public async Task<int> DeleteAllByUsuarioIdAsync(Guid usuarioId, CancellationToken cancellationToken = default)
     {
-        var dispositivos = await _context.Dispositivos
-            .Where(d => d.UsuarioId == usuarioId)
-            .ToListAsync(cancellationToken);
+        // Proceso completo incremental: página por página, sin acumular todos
+        // los dispositivos en memoria.
+        var deleted = 0;
+        var offset = 0;
+        const int pageSize = PaginationDefaults.MaxPageSize;
 
-        _context.Dispositivos.RemoveRange(dispositivos);
-        return await _context.SaveChangesAsync(cancellationToken);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var dispositivos = await _context.Dispositivos
+                .Where(d => d.UsuarioId == usuarioId)
+                .OrderBy(d => d.Id)
+                .Skip(offset)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+
+            if (dispositivos.Count == 0)
+                break;
+
+            _context.Dispositivos.RemoveRange(dispositivos);
+            deleted += await _context.SaveChangesAsync(cancellationToken);
+
+            offset += dispositivos.Count;
+            if (dispositivos.Count < pageSize)
+                break;
+        }
+
+        return deleted;
     }
 }
