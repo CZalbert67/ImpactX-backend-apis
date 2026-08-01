@@ -62,17 +62,38 @@ public class CosmosDbContext
         Incidentes = _database.GetContainer("Incidentes");
     }
 
-    public async Task EnsureContainersAsync()
+    public virtual async Task<bool> IsAccessibleAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            await _client.CreateDatabaseIfNotExistsAsync(_database.Id, ThroughputProperties.CreateManualThroughput(400));
+            await _database.ReadAsync(cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (CosmosException)
+        {
+            // No se registra Message (puede contener datos internos); solo se reporta inaccesible.
+            return false;
+        }
+    }
+
+    public virtual async Task EnsureContainersAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _client.CreateDatabaseIfNotExistsAsync(
+                _database.Id,
+                ThroughputProperties.CreateManualThroughput(400),
+                cancellationToken: cancellationToken);
         }
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.BadRequest)
         {
             // Cuenta incompatible con throughput manual (p. ej. serverless):
             // se reintenta sin throughput. 401/403/429/5xx propagan.
-            await _client.CreateDatabaseIfNotExistsAsync(_database.Id);
+            await _client.CreateDatabaseIfNotExistsAsync(_database.Id, cancellationToken: cancellationToken);
         }
 
         var containerDefinitions = new[]
@@ -106,7 +127,7 @@ public class CosmosDbContext
                 DefaultTimeToLive = ttl
             };
 
-            await _database.CreateContainerIfNotExistsAsync(properties);
+            await _database.CreateContainerIfNotExistsAsync(properties, cancellationToken: cancellationToken);
         }
     }
 }

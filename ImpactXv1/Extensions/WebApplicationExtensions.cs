@@ -9,11 +9,13 @@ public static class WebApplicationExtensions
     {
         if (useCosmosDb)
         {
-            var cosmosDb = app.Services.GetRequiredService<CosmosDbContext>();
-            await cosmosDb.EnsureContainersAsync();
-            await PlanSeeder.SeedPlansAsync(cosmosDb);
+            // La inicialización Cosmos (contenedores + planes) corre de forma asíncrona
+            // en CosmosInitializationService para no bloquear el arranque del proceso.
+            // Readiness (/health/ready) permanece Unhealthy hasta que termine.
+            return;
         }
-        else if (useInMemory)
+
+        if (useInMemory)
         {
             using var scope = app.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();

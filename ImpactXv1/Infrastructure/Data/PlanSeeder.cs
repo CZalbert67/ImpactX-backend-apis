@@ -5,7 +5,7 @@ namespace ImpactX.Infrastructure.Data;
 
 public static class PlanSeeder
 {
-    public static async Task SeedPlansAsync(CosmosDbContext cosmosDb)
+    public static async Task SeedPlansAsync(CosmosDbContext cosmosDb, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -15,7 +15,7 @@ public static class PlanSeeder
             using var iterator = container.GetItemQueryIterator<Plan>("SELECT * FROM c");
             while (iterator.HasMoreResults)
             {
-                var response = await iterator.ReadNextAsync();
+                var response = await iterator.ReadNextAsync(cancellationToken);
                 existing.AddRange(response);
             }
 
@@ -66,7 +66,7 @@ public static class PlanSeeder
 
             foreach (var plan in plans)
             {
-                await container.CreateItemAsync(plan, new PartitionKey(plan.Id.ToString()));
+                await container.CreateItemAsync(plan, new PartitionKey(plan.Id.ToString()), cancellationToken: cancellationToken);
             }
         }
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)

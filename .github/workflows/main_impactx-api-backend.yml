@@ -9,6 +9,10 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: deploy-impactx-api-main
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -43,6 +47,9 @@ jobs:
     permissions:
       id-token: write #This is required for requesting the JWT
       contents: read #This is required for actions/checkout
+    env:
+      # Host publico de la aplicacion. Overridable via variable del repositorio APP_BASE_URL.
+      APP_BASE_URL: ${{ vars.APP_BASE_URL || 'https://impactx-api-backend-h0eyf9c4fxd8dsbc.westus-01.azurewebsites.net' }}
 
     steps:
       - name: Download artifact from build job
@@ -64,3 +71,59 @@ jobs:
           app-name: 'impactx-api-backend'
           slot-name: 'Production'
           package: .
+
+      - name: Wait for app startup
+        shell: bash
+        run: sleep 20
+
+      - name: Verify health endpoints after deployment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          BASE_URL="${APP_BASE_URL}"
+          ENDPOINTS=("health/live" "health/ready" "openapi/v1.json")
+          ATTEMPTS=12
+          RETRY_DELAY=15
+          BODY_FILE="${{ runner.temp }}/postdeploy-body.txt"
+
+          for ep in "${ENDPOINTS[@]}"; do
+            url="${BASE_URL}/${ep}"
+            ok=0
+
+            for attempt in $(seq 1 "${ATTEMPTS}"); do
+              code=$(curl --fail --silent --show-error \
+                --connect-timeout 5 --max-time 20 \
+                --output /dev/null \
+                --write-out '%{http_code}' \
+                "${url}" || true)
+
+              if [ "${code}" = "200" ]; then
+                echo "${ep} OK (intento ${attempt}): HTTP ${code}"
+                ok=1
+                break
+              fi
+
+              echo "${ep} intento ${attempt}: HTTP ${code}"
+              sleep "${RETRY_DELAY}"
+            done
+
+            if [ "${ok}" != "1" ]; then
+              # El body de error se guarda solo en un archivo temporal local; nunca se imprime.
+              curl --silent --connect-timeout 5 --max-time 20 \
+                --output "${BODY_FILE}" "${url}" || true
+
+              if grep -qis "site disabled" "${BODY_FILE}"; then
+                echo "::warning::El sitio parece estar deshabilitado (WP stop requests del plan F1). Diagnostico: az webapp show --name impactx-api-backend --query state"
+              fi
+
+              if grep -qis "quota" "${BODY_FILE}"; then
+                echo "::warning::Posible cuota excedida del plan F1. Diagnostico: az webapp list-usages --name impactx-api-backend"
+              fi
+
+              echo "::error::${ep} no respondio HTTP 200 despues de ${ATTEMPTS} intentos (ultimo codigo: ${code})"
+              exit 1
+            fi
+          done
+
+          echo "Post-deploy health verification passed"

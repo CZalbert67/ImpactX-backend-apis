@@ -180,3 +180,25 @@ Código
 | 14 | Roslyn | `dotnet format --verify-no-changes` | Limpio en 26 C# modificados/nuevos. |
 | 15 | git diff --check | `git diff --check` | Sin errores de whitespace. |
 | 16 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR. |
+
+### R0.4 — Readiness, Observability and Production Hardening / PR 1C (completado 2026-07-31)
+
+| # | Control | Prueba/Workflow | Qué valida |
+|---|---|---|---|
+| 1 | Liveness sin dependencias externas | `Live_Returns200_WithoutCosmosDependency`, `Live_StillReturns200_WhenCriticalDependencyFails` | `/health/live` = 200 solo con proceso vivo + pipeline HTTP; nunca toca Cosmos ni ejecuta seeding; 200 incluso cuando `/health/ready` devuelve 503 por dependencia crítica caída. |
+| 2 | Readiness con dependencias críticas | `Ready_Returns200_WithHealthyConfiguration`, `Ready_Returns503_WhenCriticalDependencyFails`, `Health_AggregatesUnhealthy_WhenCriticalDependencyFails`, `ConfigurationReadinessCheckTests` (7), `DatabaseReadinessCheckTests` (9) | `/health/ready` = 200 con configuración sana; **503** cuando una dependencia crítica falla (config inválida, clave placeholder, base inaccesible, inicialización pendiente/fallida, timeout de acceso). Checks baratos y de solo lectura (`Database.ReadAsync`). |
+| 3 | Sin secretos ni internos en health | `HealthJson_DoesNotExposeSecretsOrInternals`, `Ready_Returns503_WhenCriticalDependencyFails` (asserts de ausencia) | El JSON de `/health*` nunca contiene claves, connection strings, `Exception.Message`, stack traces ni el placeholder de la key. Description de checks: solo descripciones genéricas seguras. |
+| 4 | Arranque no bloqueante | `CosmosInitializationServiceTests` (8) | La inicialización Cosmos corre en BackgroundService fuera de `app.Run()`; `SeedDatabaseAsync` ya no toca Cosmos. Nada bloquea el arranque → sin ciclos de caída/reinicio (incluye WP stop requests del plan F1). |
+| 5 | Reintentos limitados y no reintento de errores graves | `TransientErrors_RetryLimited_ThenSucceed`, `TransientErrors_Exhausted_FailsWithoutInfiniteRetry`, `NonTransientError_DoesNotRetry`, `Timeout_RetriedLimited_ThenFails`, `Cancellation_StopsGracefully`, `UnexpectedError_FailsWithoutInfiniteRetry` | Transitorios (408/429/5xx/timeout) reintentan hasta `MaxAttempts`; 401/403/400/404/409 y errores inesperados no se reintentan; nunca reintento infinito; cancelación por shutdown termina con gracia; `FailureDescription` siempre genérica (nunca `ex.Message`). |
+| 6 | Correlation ID completo | `CorrelationIdMiddlewareTests` (6), `ObservabilityTests` (integración) | Header válido preservado y devuelto; CR/LF sanitizado (inválido → reemplazado por GUID N); >100 chars limitado; ausente → generado; presente en `HttpContext.Items`, `TraceIdentifier`, logging scope, ProblemDetails (404 y 500) y JSON de health. |
+| 7 | Request logging sin fugas | `RequestLogs_ContainCorrelationId`, `RequestLogs_DoNotContainSecretsOrQueryStrings` | Log estructurado con method/path/status/elapsed/correlationId; nunca body, query string, Authorization, cookies ni tokens; `Microsoft.AspNetCore.Hosting=Warning` en Development para que el framework no registre query strings. |
+| 8 | 500 sin detalles internos | `UnexpectedException_500_IncludesCorrelationIdWithoutInternals`, `UnexpectedException_500_RequestLog_RecordsStatusAndCorrelationId_WithoutSecrets` (Category=Security) | 500 ProblemDetails con `correlationId` exacto del request y sin mensaje de excepción, tipo de excepción ni stack trace; RequestLoggingMiddleware (fuera de ProblemDetails) registra `completed with status 500` con el correlationId, sin Exception.Message, password, token ni body. |
+| 9 | Post-deploy verification | `test_deploy_workflow_contract.py` (11 tests) + actionlint | El workflow consulta `/health/live`, `/health/ready`, `/openapi/v1.json` con `--fail`/`--max-time` tras el deploy; reintentos limitados (12×15s); `exit 1` si no llegan a 200; sin "restart"/"redeploy" automáticos; sin credenciales hardcodeadas (solo `secrets.`); concurrency `deploy-impactx-api-main`; detecta `Site Disabled`/`quota` con warnings de diagnóstico; `vars.APP_BASE_URL` sobrescribe el fallback que coincide exactamente con el host público real. |
+| 10 | Security regression | `Category=Security` (146 tests) | 146 pruebas de seguridad, 0 fallos (antes 144). |
+| 11 | Suite completa | `dotnet test ImpactX.slnx --configuration Release` | **607 pruebas**, 0 fallos (antes 558/144; +49, +2 Security). 76 contratos V1 conservados. |
+| 12 | Secret scanner | `check_hardcoded_secrets.py` | 260 archivos, 0 violaciones. |
+| 13 | NuGet audit | `dotnet list package --vulnerable --include-transitive` | 0 vulnerables. |
+| 14 | Actionlint | `actionlint .github/workflows/*.yml` | 7 workflows, 0 errores. |
+| 15 | Roslyn | `dotnet format --verify-no-changes` | Limpio en 20 C# modificados/nuevos. |
+| 16 | git diff --check | `git diff --check` | Sin errores de whitespace. |
+| 17 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR (Azure/Cosmos real no contactados en esta rama; no afirmar validación). |

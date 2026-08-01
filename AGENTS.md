@@ -77,13 +77,14 @@ dotnet add package <PackageName>
 - User ID from `ClaimTypes.NameIdentifier`
 
 ## Middleware pipeline (order matters in Program.cs)
-1. `ExceptionHandlingMiddleware` — catches unhandled exceptions, returns `ErrorResponse`
-2. `RequestLoggingMiddleware`
-3. `SecurityHeadersMiddleware`
-4. `app.UseCors("AllowLocalhost")`
-5. `UseAuthentication()` / `UseAuthorization()`
-6. `MapControllers()`
-7. `MapHealthChecks` — three endpoints: `/health`, `/health/live`, `/health/ready`
+1. `CorrelationIdMiddleware` — lee/genera `X-Correlation-Id` (≤100 chars, sin CR/LF), lo devuelve en el header de respuesta, lo guarda en `HttpContext.Items` y `TraceIdentifier`, y crea un logging scope con `CorrelationId` para toda la solicitud
+2. `RequestLoggingMiddleware` — log estructurado `HTTP {Method} {Path} ... status {StatusCode} ... {ElapsedMs}ms ... correlationId {CorrelationId}` (sin body, sin query string, sin Authorization/cookies/tokens; CR/LF sanitizados)
+3. `ProblemDetailsMiddleware` — excepciones → RFC 7807; siempre incluye `traceId` + `correlationId`
+4. `SecurityHeadersMiddleware`
+5. `app.UseCors("ApiCors")`
+6. `UseAuthentication()` / `UseAuthorization()`
+7. `MapControllers()`
+8. `MapHealthChecks` — tres endpoints: `/health`, `/health/live`, `/health/ready`
 
 ## OpenAPI (all environments) + Scalar + Swagger UI (Development only)
 ```csharp
@@ -103,12 +104,12 @@ if (app.Environment.IsDevelopment())
 - Swagger UI at `/swagger` and `/swagger/index.html` (package `Swashbuckle.AspNetCore`) — Development only
 
 ## Health checks
-- `builder.Services.AddHealthChecks()` — includes `live` and `ready` checks with tags
-- Three endpoints with unified JSON response (`status`, `service`, `environment`, `timestamp` as `DateTimeOffset`)
-- **`GET /health`** — aggregates all checks (no tag filter), same format
-- **`GET /health/live`** — filtered by `"live"` tag (process alive)
-- **`GET /health/ready`** — filtered by `"ready"` tag (app ready for requests)
-- Response writer in `Program.cs::WriteHealthCheckResponse` — safe, no internals exposed
+- `builder.Services.AddHealthChecks()` — checks: `live` (trivial, tag `live`), `config` (`ConfigurationReadinessCheck`, tag `ready`), `database` (`DatabaseReadinessCheck`, tag `ready`, solo cuando `UseCosmosDb=true`)
+- **`GET /health/live`** — solo proceso vivo + pipeline HTTP. No contacta Cosmos, no crea contenedores, no ejecuta seeding. 200 si vivo. Nunca depende de servicios externos.
+- **`GET /health/ready`** — lista para tráfico: `config` (JWT secret válido vía `JwtSecurityConfiguration.GetRequiredSecret`; con Cosmos: endpoint + databaseName + key presentes y key ≠ placeholder `YOUR_AZURE_COSMOS_KEY`) + `database` (estado de inicialización si `DatabaseInitialization:Enabled` y `Readiness:InitializationRequired`; acceso read-only `CosmosDbContext.IsAccessibleAsync` = `Database.ReadAsync`, timeout `Readiness:CosmosAccessTimeoutSeconds`). 200 lista; **503** si una dependencia crítica no está lista. Comprobación barata y de solo lectura.
+- **`GET /health`** — agrega todos los checks. JSON: `status`, `service`, `environment`, `timestamp` (UTC ISO-8601 "o"), `correlationId`, `checks[]` con `name`, `status`, `duration` (ms) y `description` segura cuando aplica. Sin exceptions internas, sin claves, sin connection strings, sin stack traces.
+- Healthy→200, Degraded→200, Unhealthy→503 (mapeo por defecto de `MapHealthChecks`). `AllowCachingResponses=false` en los tres endpoints.
+- Response writer en `Program.cs::WriteHealthCheckResponse` — safe, no internals expuestos
 - No authentication, no authorization on any health endpoint
 
 ## Tests
@@ -125,7 +126,7 @@ if (app.Environment.IsDevelopment())
    - **Job `build-and-test`** (15 min): checkout → setup-dotnet 10.0.x → **Run hardcoded secrets policy tests** → **Check hardcoded secrets policy** → restore con NuGet audit → build Release → test (TRX + XPlat Code Coverage) → **Run security regression tests** (filtro `Category=Security`, validación TRX con Python, fallo si 0 pruebas o fallos) → publica TRX, cobertura, **hardcoded-secrets-policy-report** y **security-regression-results** (14 días)
    - **Job `smoke-test`** (5 min, depende de build-and-test): genera Jwt__Secret efímero con Python secrets → checkout → setup-dotnet → restore API → publish Release → ejecución directa de `ImpactX.Api.dll` con `dotnet`, usando `UseCosmosDb=false`, `UseInMemoryDatabase=true`, `ASPNETCORE_ENVIRONMENT=CI`, `ASPNETCORE_URLS=http://127.0.0.1:5055` → valida 4 endpoints (`/health`, `/health/live`, `/health/ready`, `/openapi/v1.json`) con Python 3 (status, service, environment, timestamp, schema) → verifica Swagger 404 → publica log de arranque
    - **Sin Docker**: el smoke test ejecuta `dotnet publish` + `ImpactX.Api.dll` directamente
-2. **main_impactx-api-backend.yml** — push to `main` only + `workflow_dispatch`: build (15 min) → publish → deploy (20 min, oidc) to Azure Web App `impactx-api-backend`. Permissions: `build: contents: read`, `deploy: id-token: write + contents: read`
+2. **main_impactx-api-backend.yml** — push to `main` only + `workflow_dispatch`: build (15 min) → publish → deploy (20 min, oidc) to Azure Web App `impactx-api-backend`. Permissions: `build: contents: read`, `deploy: id-token: write + contents: read`. **Concurrency** `deploy-impactx-api-main` (cancel-in-progress=false). **Post-deploy verification**: wait 20s → curl `--fail --silent --show-error --connect-timeout 5 --max-time 20` a `/health/live`, `/health/ready`, `/openapi/v1.json` (host vía env `APP_BASE_URL` = `vars.APP_BASE_URL || 'https://impactx-api-backend.azurewebsites.net'`), 12 intentos × 15s, muestra endpoint/intento/código, falla con `exit 1` si no llegan a 200, body de error solo en archivo temporal (nunca impreso), detecta `Site Disabled` (WP stop requests F1) y `quota` con warnings de diagnóstico (`az webapp show --query state`, `az webapp list-usages`). Sin restart ni redeploy automáticos. Validado por `test_deploy_workflow_contract.py`.
 3. **api-security-audit.yml** — OWASP API security scan. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read`.
 4. **secret-scanning.yml** — Gitleaks credential scan + hardcoded secrets policy tests + policy scanner. Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 10 min. Permissions: `contents: read`.
 5. **codeql-analysis.yml** — CodeQL SAST (C#, security-extended). Triggers: push + pull_request (main, leo-desarrollo) + `workflow_dispatch`. Timeout: 15 min. Permissions: `contents: read, security-events: write`.
@@ -201,6 +202,21 @@ if (app.Environment.IsDevelopment())
 - **Total real**: 558 pruebas, 144 Category=Security, scanner 0 violaciones, NuGet 0 vulnerables, actionlint limpio, Roslyn limpio en C# modificados, git diff --check limpio. Build y tests passes en Debug y Release.
 - **Históricos**: 415/104 → 474/114/58 → 487/115/70 → 490/115/75 → 532/137 → 547/142 → **558/144**.
 - **Pendiente**: PR 1C (deuda: ver BACKEND_AUDIT). StubEmailService sin reemplazo real. Cosmos real no contactado. Resultados GitHub pendientes. La comprobación global query-before-write del token FCM no garantiza atomicidad bajo concurrencia extrema en Cosmos (deuda documentada para PR 1C).
+
+## R0.4 — Readiness, Observability and Production Hardening / PR 1C (implementado)
+- **Branch**: `feat/backend-readiness-observability`, base `main` en `2c3c87f` (PR #25)
+- **Semántica de health checks**: `/health/live` = solo proceso/pipeline HTTP (check trivial, nunca toca Cosmos, 200 si vivo). `/health/ready` = `config` (JWT secret válido vía `JwtSecurityConfiguration.GetRequiredSecret`; con Cosmos: endpoint + databaseName + key presentes y key ≠ placeholder `YOUR_AZURE_COSMOS_KEY`) + `database` (solo modo Cosmos; estado de inicialización si es requerida + `CosmosDbContext.IsAccessibleAsync` = `Database.ReadAsync` metadata read-only con timeout `Readiness:CosmosAccessTimeoutSeconds`=5s). 200 lista / 503 dependencia crítica no lista. `/health` agrega todos los checks; JSON: `status`, `service`, `environment`, `timestamp` (UTC "o"), `correlationId`, `checks[]` (name, status, duration ms, description segura). `AllowCachingResponses=false` en los tres endpoints. Sin excepciones internas, claves, connection strings ni stack traces en ninguna respuesta.
+- **Inicialización Cosmos asíncrona**: `CosmosInitializationService` (BackgroundService, solo cuando `UseCosmosDb=true`) ejecuta `EnsureContainersAsync` + `PlanSeeder.SeedPlansAsync` fuera del arranque; estado singleton `DatabaseInitializationState` (NotStarted/Running/Succeeded/Failed, Attempts, FailureDescription seguro). `WebApplicationExtensions.SeedDatabaseAsync` ya no toca Cosmos (solo EF InMemory). **Nada bloquea `app.Run()`** → sin ciclos de caída/reinicio por fallos transitorios de Cosmos.
+- **`DatabaseInitializationOptions`** (sección `DatabaseInitialization`): `Enabled`, `MaxAttempts` (3), `RetryDelaySeconds` (5), `TimeoutSeconds` (60 por intento, vía linked CTS). Default en código: `Enabled = !IsProduction` si la sección no la define. Producción: `Enabled=false` (inicialización solo si se habilita explícitamente). `ReadinessOptions` (sección `Readiness`): `InitializationRequired` (true) y `CosmosAccessTimeoutSeconds` (5).
+- **Reintentos**: transitorios = 408, 429, 500, 502, 503, 504 y timeout de intento (OCE). **No se reintentan**: 401, 403, 400, 404, 409 y errores inesperados (catch genérico solo marca `Failed` con descripción segura + log de `ex.GetType().Name`; nunca `ex.Message`). Nunca reintento infinito. Sin catch vacío. `OperationCanceledException` por shutdown → catch superior que registra y termina con gracia.
+- **Readiness durante inicialización**: con `Readiness:InitializationRequired=true` + init habilitada, `/health/ready` = Unhealthy (503) mientras el estado no sea Succeeded; Failed → Unhealthy con descripción segura.
+- **Correlation ID**: `CorrelationIdMiddleware` reutilizado (sin duplicados) ahora crea logging scope (`BeginScope` con `CorrelationId`) para toda la solicitud. Acepta header válido (≤100 chars, sin CR/LF), sanitiza CR/LF, reemplaza inválidos con GUID N, devuelve el header de respuesta, `HttpContext.Items["CorrelationId"]` + `TraceIdentifier`.
+- **RequestLoggingMiddleware**: log estructurado `HTTP {Method} {Path} completed with status {StatusCode} in {ElapsedMs}ms, correlationId {CorrelationId}`; method/path sanitizados (CR/LF→espacio). Sin body, sin query string, sin Authorization/cookies/tokens. Orden de pipeline: `CorrelationId → RequestLogging → ProblemDetails → SecurityHeaders → LegacyDeprecation` (RequestLogging fuera de ProblemDetails para registrar el status final incluso con errores). `appsettings.Development.json`: `Microsoft.AspNetCore.Hosting=Warning` (el framework no registra query strings).
+- **Firebase**: inicialización movida tras `builder.Build()` con `app.Logger`; sin rutas de archivo ni `ex.Message` en logs (solo `ex.GetType().Name`); sin `Console.WriteLine`.
+- **Post-deploy verification** (`main_impactx-api-backend.yml`): concurrency `deploy-impactx-api-main` (cancel-in-progress=false); espera 20s; curl `--fail --silent --show-error --connect-timeout 5 --max-time 20` a `/health/live`, `/health/ready`, `/openapi/v1.json` (host `APP_BASE_URL` = `vars.APP_BASE_URL || 'https://impactx-api-backend-h0eyf9c4fxd8dsbc.westus-01.azurewebsites.net'`); 12 intentos × 15s; falla con `exit 1`; body de error solo en archivo temporal (nunca impreso); detecta `Site Disabled` (WP stop requests F1) y `quota` con warnings de diagnóstico (`az webapp show --query state`, `az webapp list-usages`). Sin restart ni redeploy automáticos. Contrato estático: `scripts/security/tests/test_deploy_workflow_contract.py` (11 tests).
+- **Total real**: 607 pruebas, 146 Category=Security, 76 contratos V1 conservados, 30 Python, scanner 0 violaciones (260 archivos), NuGet 0 vulnerables, actionlint limpio (7 workflows), Roslyn limpio en 20 C# modificados/nuevos, git diff --check limpio. Build y tests pasan en Debug y Release.
+- **Históricos**: 415/104 → 474/114/58 → 487/115/70 → 490/115/75 → 532/137 → 547/142 → 558/144 → **607/146**.
+- **Pendiente**: abrir el PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deudas documentadas en BACKEND_AUDIT (unicidad global TokenFcm query-before-write no atómica en Cosmos, StubEmailService, Firebase real, OpenTelemetry, rate limiting sin calibrar).
 
 ## Rules
 - **No commits or pushes without explicit authorization**
