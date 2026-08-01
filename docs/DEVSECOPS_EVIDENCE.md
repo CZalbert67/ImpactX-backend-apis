@@ -202,3 +202,25 @@ Código
 | 15 | Roslyn | `dotnet format --verify-no-changes` | Limpio en 20 C# modificados/nuevos. |
 | 16 | git diff --check | `git diff --check` | Sin errores de whitespace. |
 | 17 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR (Azure/Cosmos real no contactados en esta rama; no afirmar validación). |
+
+### R0.5 — Cosmos Data Architecture and Persistence Hardening / PR 2A (completado 2026-07-31)
+
+| # | Control | Prueba/Workflow | Qué valida |
+|---|---|---|---|
+| 1 | Catálogo central sin duplicados | `CosmosContainerCatalogTests` (12) | 18 contenedores conocidos, nombres únicos/no vacíos, partition key paths válidos (segmento único `/x`), TTL −1 o > 0, **sin throughput dedicado** (definiciones y creación no lo admiten), sin composite indexes arbitrarios, rechazo de definiciones inválidas (nombre vacío, PK inválida, TTL inválido). |
+| 2 | Configuración Cosmos validada | `CosmosDatabaseOptionsTests` (9) | Bind de sección `AzureCosmosDb`; defaults (`ImpactX-Data`, 400 RU/s); **SharedThroughput entero positivo ≤ 1000**; endpoint URI absoluto; timeout/reintentos no negativos; key placeholder no bloquea opciones (readiness lo valida). |
+| 3 | Esquema: creación y validación segura | `CosmosSchemaInitializationTests` (12) | Base nueva con SharedThroughput=400; contenedores nuevos sin throughput dedicado; **inicialización repetida idempotente**; **mismatch de partition key falla sin borrar ni recrear** (excepción con solo nombre lógico del contenedor); cancelación propagada; fallback sin throughput ante BadRequest; carrera de creación tolerada. |
+| 4 | Aislamiento entre particiones | `CosmosPartitionKeysTests` (3, Category=Security) + revisión de los 15 repos | PartitionKey centralizada (`CosmosPartitionKeys.For(Guid)`) serializada de forma consistente; toda consulta ligada a usuario/viaje se acota con `QueryRequestOptions.PartitionKey` — un usuario nunca consulta la partición de otro. |
+| 5 | SQL parametrizado | `IncidenteQueryBuilderTests` (3 Category=Security) | El texto SQL de filtrado (severidad, fechas, usuario) solo contiene cláusulas fijas y parámetros `@...`; los valores del usuario nunca se concatenan (OFFSET/LIMIT son enteros del dominio). `rg` de consultas: 0 concatenaciones de input en repos. |
+| 6 | Seeding idempotente sin scans | `PlanSeederTests` (9, 2 Category=Security) | Point-reads por IDs determinísticos; **sin `SELECT * FROM c`**; no duplica planes (también contra datos legacy con IDs aleatorios); Conflict tolerado; **401/403/429 propagan**; cancelación propagada. |
+| 7 | Fallo seguro de esquema | `SchemaMismatch_FailsInitializationSafely_WithoutSecrets`, `SchemaMismatch_ExceptionMessage_IsSafe` (Category=Security) | Mismatch → inicialización `Failed` con descripción genérica ("Database schema mismatch detected; controlled migration required."), sin endpoint, key ni nombre del contenedor; `SchemaMismatch_ReadinessReflectsFailure` → `/health/ready` Unhealthy. |
+| 8 | Operaciones de punto | Repos + rg | `ReadItemAsync` solo con partition key correcta (Usuarios/Planes `/id`, Dispositivos `(usuarioId, id)`); `ReplaceItemAsync` en updates; borrados siempre con PK. |
+| 9 | Security regression | `Category=Security` (158 tests) | 158 pruebas de seguridad, 0 fallos (antes 146). |
+| 10 | Suite completa | `dotnet test ImpactX.slnx --configuration Release` | **662 pruebas**, 0 fallos (antes 607/146; +55, +12 Security). 76 contratos V1 conservados. |
+| 11 | Python | `python3 -m unittest discover -s scripts/security/tests` | 30 tests, 0 fallos. |
+| 12 | Secret scanner | `check_hardcoded_secrets.py` | 0 violaciones. |
+| 13 | NuGet audit | `dotnet list package --vulnerable --include-transitive` | 0 vulnerables. |
+| 14 | Actionlint | `actionlint .github/workflows/*.yml` | 7 workflows, 0 errores. |
+| 15 | Roslyn | `dotnet format --verify-no-changes` | Limpio en archivos C# modificados/nuevos. |
+| 16 | git diff --check | `git diff --check` | Sin errores de whitespace. |
+| 17 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR (Azure/Cosmos real no contactados en esta rama; no afirmar validación). |

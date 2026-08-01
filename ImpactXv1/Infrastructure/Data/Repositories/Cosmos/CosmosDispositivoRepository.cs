@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
 
@@ -20,7 +21,12 @@ public class CosmosDispositivoRepository : IDispositivoRepository
             .WithParameter("@usuarioId", usuarioId.ToString());
 
         var results = new List<Dispositivo>();
-        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query);
+        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 100
+            });
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -36,7 +42,12 @@ public class CosmosDispositivoRepository : IDispositivoRepository
             .WithParameter("@usuarioId", usuarioId.ToString());
 
         var results = new List<Dispositivo>();
-        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query);
+        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 100
+            });
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -51,7 +62,7 @@ public class CosmosDispositivoRepository : IDispositivoRepository
         {
             var response = await _container.ReadItemAsync<Dispositivo>(
                 id.ToString(),
-                new PartitionKey(usuarioId.ToString()));
+                CosmosPartitionKeys.For(usuarioId));
             return response.Resource;
         }
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -67,7 +78,12 @@ public class CosmosDispositivoRepository : IDispositivoRepository
             .WithParameter("@usuarioId", usuarioId.ToString())
             .WithParameter("@deviceId", deviceId);
 
-        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query);
+        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 1
+            });
         if (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -78,6 +94,9 @@ public class CosmosDispositivoRepository : IDispositivoRepository
 
     public async Task<Dispositivo?> GetByTokenFcmAsync(string tokenFcm)
     {
+        // Cross-partition justificada (deuda documentada de unicidad global
+        // de TokenFcm): la búsqueda es global por diseño. No se registra el
+        // token en logs. Detención temprana.
         var query = new QueryDefinition(
             "SELECT TOP 1 * FROM c WHERE c.tokenFcm = @tokenFcm")
             .WithParameter("@tokenFcm", tokenFcm);
@@ -100,20 +119,21 @@ public class CosmosDispositivoRepository : IDispositivoRepository
     {
         dispositivo.Id = Guid.NewGuid();
         await _container.CreateItemAsync(dispositivo,
-            new PartitionKey(dispositivo.UsuarioId.ToString()));
+            CosmosPartitionKeys.For(dispositivo.UsuarioId));
     }
 
     public async Task UpdateAsync(Dispositivo dispositivo)
     {
-        await _container.UpsertItemAsync(dispositivo,
-            new PartitionKey(dispositivo.UsuarioId.ToString()));
+        await _container.ReplaceItemAsync(dispositivo,
+            dispositivo.Id.ToString(),
+            CosmosPartitionKeys.For(dispositivo.UsuarioId));
     }
 
     public async Task DeleteAsync(Dispositivo dispositivo)
     {
         await _container.DeleteItemAsync<Dispositivo>(
             dispositivo.Id.ToString(),
-            new PartitionKey(dispositivo.UsuarioId.ToString()));
+            CosmosPartitionKeys.For(dispositivo.UsuarioId));
     }
 
     public async Task<int> DeleteAllByUsuarioIdAsync(Guid usuarioId, CancellationToken cancellationToken = default)
@@ -123,7 +143,12 @@ public class CosmosDispositivoRepository : IDispositivoRepository
             .WithParameter("@usuarioId", usuarioId.ToString());
 
         var dispositivos = new List<Dispositivo>();
-        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query);
+        using var iterator = _container.GetItemQueryIterator<Dispositivo>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 100
+            });
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync(cancellationToken);
@@ -134,7 +159,7 @@ public class CosmosDispositivoRepository : IDispositivoRepository
         {
             await _container.DeleteItemAsync<Dispositivo>(
                 dispositivo.Id.ToString(),
-                new PartitionKey(dispositivo.UsuarioId.ToString()),
+                CosmosPartitionKeys.For(dispositivo.UsuarioId),
                 cancellationToken: cancellationToken);
         }
 

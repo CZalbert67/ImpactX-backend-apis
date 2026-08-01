@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
 
@@ -20,7 +21,12 @@ public class CosmosPagoRepository : IPagoRepository
             .WithParameter("@usuarioId", usuarioId.ToString());
 
         var list = new List<Pago>();
-        using var iterator = _container.GetItemQueryIterator<Pago>(query);
+        using var iterator = _container.GetItemQueryIterator<Pago>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 100
+            });
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
@@ -31,31 +37,34 @@ public class CosmosPagoRepository : IPagoRepository
 
     public async Task<Pago?> GetByIdAsync(Guid id)
     {
-        try
+        // Cross-partition justificada: el contrato solo recibe el id y Pagos
+        // particiona por /usuarioId; no hay partition key disponible.
+        // Detención temprana.
+        var query = new QueryDefinition(
+            "SELECT TOP 1 * FROM c WHERE c.id = @id")
+            .WithParameter("@id", id.ToString());
+
+        using var iterator = _container.GetItemQueryIterator<Pago>(query,
+            requestOptions: new QueryRequestOptions { MaxItemCount = 1 });
+        if (iterator.HasMoreResults)
         {
-            var query = new QueryDefinition("SELECT * FROM c WHERE c.id = @id")
-                .WithParameter("@id", id.ToString());
-            using var iterator = _container.GetItemQueryIterator<Pago>(query);
-            if (iterator.HasMoreResults)
-            {
-                var response = await iterator.ReadNextAsync();
-                return response.FirstOrDefault();
-            }
-            return null;
+            var response = await iterator.ReadNextAsync();
+            return response.FirstOrDefault();
         }
-        catch (CosmosException) { return null; }
+        return null;
     }
 
     public async Task AddAsync(Pago pago)
     {
         pago.Id = Guid.NewGuid();
         await _container.CreateItemAsync(pago,
-            new PartitionKey(pago.UsuarioId.ToString()));
+            CosmosPartitionKeys.For(pago.UsuarioId));
     }
 
     public async Task UpdateAsync(Pago pago)
     {
-        await _container.UpsertItemAsync(pago,
-            new PartitionKey(pago.UsuarioId.ToString()));
+        await _container.ReplaceItemAsync(pago,
+            pago.Id.ToString(),
+            CosmosPartitionKeys.For(pago.UsuarioId));
     }
 }

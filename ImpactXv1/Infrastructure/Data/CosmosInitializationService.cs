@@ -83,6 +83,17 @@ public class CosmosInitializationService : BackgroundService
                     _state.MarkFailed("Database initialization timed out.");
                     return;
                 }
+                catch (CosmosSchemaValidationException ex)
+                {
+                    // No se reintenta: es un desajuste permanente que requiere
+                    // migración controlada. Solo se registra el nombre lógico
+                    // del contenedor, nunca valores internos.
+                    _logger.LogError(
+                        "Cosmos schema mismatch detected for container {ContainerName}; controlled migration required.",
+                        ex.ContainerName);
+                    _state.MarkFailed("Database schema mismatch detected; controlled migration required.");
+                    return;
+                }
                 catch (CosmosException ex) when (IsTransient(ex.StatusCode))
                 {
                     if (attempt < maxAttempts)

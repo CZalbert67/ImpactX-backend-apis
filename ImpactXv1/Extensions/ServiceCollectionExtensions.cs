@@ -21,6 +21,10 @@ public static class ServiceCollectionExtensions
 
         if (useCosmosDb)
         {
+            services.AddOptions<CosmosDatabaseOptions>()
+                .Bind(config.GetSection(CosmosDatabaseOptions.SectionName))
+                .Validate(options => CosmosDatabaseOptions.Validate(options) is null)
+                .ValidateOnStart();
             services.AddSingleton<CosmosDbContext>();
             services.Configure<DatabaseInitializationOptions>(config.GetSection("DatabaseInitialization"));
             services.Configure<ReadinessOptions>(config.GetSection("Readiness"));
