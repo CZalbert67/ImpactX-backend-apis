@@ -25,7 +25,12 @@ compartidas (400 RU/s) y latencia a medida que crecen las colecciones.
   header. `HasMoreResults` se infiere de que la página vino llena.
 - **Endpoints nuevos paginados** (cuerpo `PagedResult<T>`: items, continuationToken,
   hasMoreResults, pageSize): `GET /api/trips`, `GET /api/trips/{id}/telemetry`,
-  `GET /api/alerts`, `GET /api/wearable/all`.
+  `GET /api/alerts`, `GET /api/wearable/all`. En R0.7 se agregó el alias V1
+  `GET /api/v1/wearable/all` sobre el mismo método (patrón de atributos apilados como
+  `UsersController`/`SubscriptionController`): misma autorización, mismos parámetros
+  opcionales (`pageSize`, `continuationToken`) e idéntico body `PagedResult<T>`; la ruta
+  legacy `GET /api/wearable/all` se conserva exactamente. Sin ruta plural
+  `api/v1/wearables/all`. Azure/Cosmos real no contactados en esta rama.
 - **CORS**: `X-Continuation-Token` y `X-Correlation-Id` en `WithExposedHeaders` (solo lectura del
   header, nunca en `WithHeaders`: el token viaja como query param, no como header de petición) en
   `Program.cs`.

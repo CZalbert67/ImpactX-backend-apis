@@ -247,3 +247,11 @@ Código
 | 13 | git diff --check | `git diff --check` | Sin errores de whitespace. |
 | 14 | OpenAPI en vivo | `/openapi/v1.json` (79 paths) | `pageSize` documentado con `minimum: 1, maximum: 100` y descripción; `continuationToken` documentado como token opaco del header; nuevos endpoints trips/telemetry/alerts/wearable-all presentes. |
 | 15 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR (Azure/Cosmos real no contactados en esta rama; no afirmar validación). |
+
+### R0.7 — Wearable V1 Route Alias
+
+| # | Verificación | Resultado |
+|---|---|---|
+| 16 | Alias V1 agregado | `GET /api/v1/wearable/all` responde por el mismo método que `GET /api/wearable/all` (atributos apilados en `WearableController`); misma autorización, mismos parámetros opcionales (`pageSize`, `continuationToken`) e idéntico body `PagedResult<T>` |
+| 17 | Ruta legacy conservada | `GET /api/wearable/all` intacta: mismo método, sin lógica duplicada, sin ruta plural `api/v1/wearables/all` (ausencia verificada por prueba) |
+| 18 | Pruebas dirigidas | `WearableControllerTests` +6 (2 Category=Security para 401 en ambas rutas, 1 equivalencia status/JSON, 2 OpenAPI con `pageSize`/`continuationToken`, 1 ausencia de plural). Contratos V1 y paginación revalidados en la suite completa (pendiente de la validación final de esta rama). OpenAPI: `/api/v1/wearable/all` presente en `/openapi/v1.json` |

@@ -30,6 +30,7 @@ public class WearableController : ControllerBase
     }
 
     [HttpGet("all")]
+    [HttpGet("/api/v1/wearable/all")]
     public async Task<IActionResult> GetWearables(int? pageSize, string? continuationToken)
     {
         var usuarioId = GetUsuarioId();

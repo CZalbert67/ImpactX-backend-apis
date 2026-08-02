@@ -250,6 +250,14 @@ if (app.Environment.IsDevelopment())
 - **Documentación**: `docs/COSMOS_PAGINATION.md` (nuevo) + AGENTS.md/BACKEND_AUDIT/DEVSECOPS_EVIDENCE actualizados.
 - **Pendiente**: abrir el PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar).
 
+## R0.7 — Wearable V1 Route Alias (implementado)
+- **Branch**: `fix/wearable-v1-route-alias`
+- **Alias V1 agregado**: `GET /api/v1/wearable/all` como segundo atributo de ruta sobre el mismo método `GetWearables` de `WearableController` (patrón de atributos apilados ya usado en `UsersController`/`SubscriptionController`). La ruta legacy `GET /api/wearable/all` se conserva exactamente: mismo método, misma autorización (`[Authorize]` de clase + `UsuarioId` del claim `ClaimTypes.NameIdentifier`), mismos parámetros opcionales (`pageSize`, `continuationToken`) y mismo body `PagedResult<T>`. Sin lógica duplicada, sin DTOs/paginación/repositorios/Cosmos modificados, sin ruta plural `api/v1/wearables/all`.
+- **OpenAPI**: el alias aparece en `/openapi/v1.json` (filtro `ShouldInclude` de `api/v1/`); `pageSize` y `continuationToken` documentados automáticamente por `OpenApiV1OperationTransformer`.
+- **Pruebas**: `WearableControllerTests` +6 — 401 sin JWT en ambas rutas (2, Category=Security), mismo status + estructura JSON en ambas rutas autenticadas (1), OpenAPI contiene `/api/v1/wearable/all` con `pageSize`/`continuationToken` (2), ausencia de la ruta plural (1).
+- **Total real**: pendiente de la validación final de esta rama.
+- **Pendiente**: abrir el PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar).
+
 ## Rules
 - **No commits or pushes without explicit authorization**
 - **Trabajar siempre en una rama feature y utilizar Pull Request. No hacer push directo a main.**
