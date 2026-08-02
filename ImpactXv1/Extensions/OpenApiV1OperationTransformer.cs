@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
 
@@ -25,8 +26,29 @@ public sealed class OpenApiV1OperationTransformer : IOpenApiOperationTransformer
         }
 
         EnrichPaginationParameters(operation);
+        EnrichTelemetryIngestionOperation(operation, context, metadata);
 
         return Task.CompletedTask;
+    }
+
+    private static void EnrichTelemetryIngestionOperation(OpenApiOperation operation, OpenApiOperationTransformerContext context, IList<object> metadata)
+    {
+        var path = context.Description.RelativePath;
+        if (path is null ||
+            !path.EndsWith("trips/{id}/telemetry", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var esPost = metadata
+            .OfType<HttpMethodAttribute>()
+            .SelectMany(attribute => attribute.HttpMethods)
+            .Any(method => string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase));
+
+        if (!esPost)
+            return;
+
+        operation.Description = "Ingesta por lotes de telemetría de un viaje (1 a 100 eventos). Cada evento requiere un EventId (GUID) generado por el cliente y un timestamp UTC. Los reintentos con eventos idénticos son seguros: los eventos ya recibidos se reportan como duplicados y no se vuelven a insertar. Reenviar un EventId con contenido diferente devuelve 409.";
     }
 
     private static void EnrichPaginationParameters(OpenApiOperation operation)

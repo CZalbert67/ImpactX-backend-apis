@@ -1,7 +1,7 @@
 # Cosmos Data Architecture
 
 > Documento de arquitectura de persistencia Cosmos DB para ImpactX.
-> Estado: PR 2A — Cosmos Data Architecture and Persistence Hardening (implementado en `feat/backend-cosmos-data-architecture`).
+> Estado: PR 2A — Cosmos Data Architecture and Persistence Hardening (implementado en `feat/backend-cosmos-data-architecture`); actualizado por PR 2B (paginación, `docs/COSMOS_PAGINATION.md`) y PR 2C (ingesta por lotes con `TransactionalBatch`, `docs/TELEMETRY_INGESTION.md`).
 > Azure y Cosmos DB **reales no fueron contactados ni modificados** en esta rama; todo lo descrito aquí es el diseño y la validación local.
 
 ## 1. Cuenta y base
@@ -50,7 +50,7 @@ Catálogo único: `ImpactXv1/Infrastructure/Data/CosmosContainerCatalog.cs` (18 
 | `ContactosEmergencia` | ContactoEmergencia | `/usuarioId` | −1 | por usuario / principal / count / existe teléfono (particionadas); por id (cross-partition, `TOP 1`) |
 | `Rutas` | Ruta | `/usuarioId` | −1 | por usuario / frecuentes / historial (límite 50) / seleccionada hoy (particionadas); por id (cross-partition, `TOP 1`) |
 | `Viajes` | Viaje | `/usuarioId` | 7776000 (90d) | por usuario / activo (particionadas, límite 50); por id (cross-partition, `TOP 1`) |
-| `TelemetriaViaje` | ViajeTelemetry | `/viajeId` | 7776000 (90d) | por viaje (particionada por `/viajeId`, `ORDER BY timestamp ASC`). **La telemetría permanece relacionada con TripId.** |
+| `TelemetriaViaje` | ViajeTelemetry | `/viajeId` | 7776000 (90d) | por viaje (particionada por `/viajeId`, `ORDER BY timestamp ASC`); **point-read por evento**: `ReadItemAsync(eventId, PartitionKey(viajeId))` (idempotencia de ingesta); **escritura atómica por lote**: `TransactionalBatch` sobre la partición `/viajeId`. **La telemetría permanece relacionada con TripId.** |
 | `Alertas` | Alerta | `/usuarioId` | 31536000 (1y) | por usuario / pendientes / activas / count (particionadas); por id (cross-partition, `TOP 1`) |
 | `Notificaciones` | Notificacion | `/usuarioId` | 2592000 (30d) | por usuario / count no leídas (particionadas); por clave de idempotencia (particionada cuando hay destinatario; cross-partition si no); por id (cross-partition, `TOP 1`) |
 | `Wearables` | Wearable | `/usuarioId` | −1 | por usuario / vinculado (particionadas); pairingToken / dispositivoId (cross-partition, `TOP 1`); por id (cross-partition, `TOP 1`) |
@@ -91,6 +91,28 @@ Principios aplicados en los repositorios (`ImpactXv1/Infrastructure/Data/Reposit
 | `Suscripciones.GetByIdAsync` | El contrato de repositorio solo recibe id; partición `/usuarioId` no disponible. `TOP 1` + detención temprana. |
 | `Suscripciones.GetExpiredAsync`/`GetTrialsEndingAsync` | Mantenimiento global sin partición conocida (procesa todas las páginas). **Reemplazados en PR 2B por `ExpireAllAsync`/`ProcessTrialsEndingAsync` (página a página); conservados por compatibilidad de contrato.** |
 | `Viajes/Rutas/Alertas/Incidentes/Notificaciones/Monitores/ContactosEmergencia/Wearables/Pagos.GetByIdAsync` | El contrato solo recibe id; partición `/usuarioId` no disponible. `TOP 1` + detención temprana (los servicios usan los nuevos point-reads `GetByIdAsync(usuarioId, id)` de PR 2B cuando el partition key está disponible). |
+
+### Escritura atómica por lote (PR 2C)
+
+- `TelemetriaViaje` (partition key `/viajeId`) se escribe por lotes con un único
+  `TransactionalBatch` sobre la partición del viaje: todos los eventos del
+  lote se insertan atómicamente (o ninguno). No hay transacciones
+  cross-partition: el lote nunca cruza particiones.
+- Idempotencia por `eventId` (clave de idempotencia del cliente = `Id` del
+  documento): point-read `ReadItemAsync(eventId, PartitionKey(viajeId))`
+  antes del batch y, si el `TransactionalBatch` devuelve 409 Conflict (carrera),
+  re-lectura point-read del evento para decidir duplicado (idéntico) o
+  `ConflictException` (contenido diferente). Sin upsert/replace: un evento
+  existente nunca se sobrescribe.
+- Un batch fallido **nunca** cuenta inserciones (los estados individuales 200/
+  409/FailedDependency no prueban persistencia) y `FailedDependency` se
+  resuelve como candidato mediante point-read. Reintentos limitados: 1 inicial
+  + 2 adicionales (máximo 3 intentos), `CancellationToken` respetado;
+  agotamiento → `CosmosException` segura. Detalles en
+  `docs/TELEMETRY_INGESTION.md` (sección 3).
+- **Sin cambios de throughput ni de partition keys**: la ingesta por lote no
+  altera el catálogo de contenedores, el throughput compartido de la base ni
+  las definiciones de partición (la telemetría permanece en `/viajeId`).
 
 > **Corrección indispensable (PR 2A)**: `GetByIdAsync` de estos contenedores usaba `ReadItemAsync(id, PartitionKey(id))`, que con partición `/usuarioId` devuelve **404 siempre** (partition key incorrecta). Se reemplazó por consulta parametrizada `SELECT TOP 1 * FROM c WHERE c.id = @id` con `MaxItemCount=1`: corrige el fallo funcional sin cambiar el contrato del repositorio. Si se quiere un point-read real, el contrato debe evolucionar a `GetByIdAsync(usuarioId, id)` (pendiente).
 
@@ -176,3 +198,8 @@ Si la validación de arranque detecta `CosmosSchemaValidationException` (contene
 - `PlanSeederTests`: 3 planes determinísticos, idempotencia total/parcial, legacy por nombre sin duplicados, Conflict tolerado, 401 propaga, cancelación, sin scan del contenedor (point-reads + COUNT).
 - `CosmosPartitionKeysTests` (Category=Security): serialización consistente de partition keys.
 - `IncidenteQueryBuilderTests` (Category=Security): SQL sin input crudo del usuario, parámetros enlazados.
+
+## 14. Pruebas adicionales (PR 2C — ingesta y batch)
+
+- `CosmosViajeRepositoryTelemetryTests` (15: 11 de ingesta + 4 de la auditoría atómica): point-read de telemetría con `PartitionKey(viajeId)`; lote atómico con un único `ExecuteAsync`; **409 del `TransactionalBatch` resuelto por re-lectura point-read** (idéntico → duplicado; diferente → `ConflictException`); **batch fallido con operación individual 200 → cero insertados**; `FailedDependency` resuelto como candidato; carrera con reintento solo de pendientes (1+1); agotamiento de reintentos → `CosmosException` segura; resultados mezclados; **sin upsert/replace**; detección de errores de operación indexada; parte de Category=Security.
+- Documentación completa del endpoint, contrato e idempotencia en `docs/TELEMETRY_INGESTION.md`.

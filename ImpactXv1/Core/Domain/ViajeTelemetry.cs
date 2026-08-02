@@ -11,4 +11,11 @@ public class ViajeTelemetry
     public double Velocidad { get; set; }
     public double? Altitud { get; set; }
     public double? Heading { get; set; }
+
+    /// <summary>
+    /// Fecha de recepción del evento en el servidor (UTC), separada
+    /// claramente de <see cref="Timestamp"/> (cuándo ocurrió el evento según
+    /// el cliente). Se excluye de la comparación idempotente.
+    /// </summary>
+    public DateTime RecibidoEn { get; set; } = DateTime.UtcNow;
 }
