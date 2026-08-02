@@ -956,6 +956,8 @@ Elimina el token FCM del usuario autenticado.
 | `ImpactX.Tests/Integration/TripsTelemetryIngestionTests.cs` | ✅ Nuevo — 21 pruebas (6 Category=Security: 401 ambas rutas, 404 IDOR, 413 metadata) |
 | `ImpactX.Tests/Unit/TelemetryBatchValidatorTests.cs` | ✅ Modificado — +1 prueba de tamaño serializado del lote máximo válido (100 eventos ≤ 32 KB) |
 | `ImpactX.Tests/Unit/ViajeServiceTelemetryIngestionTests.cs` | ✅ Modificado — +3 pruebas de invariante `Recibidos == Insertados + Duplicados` (todos nuevos, todos duplicados, mezcla pre-check + carrera); verificación de no llamar al batch sin eventos nuevos |
+| `ImpactXv1/Core/Telemetry/TelemetryEventEquality.cs` | ✅ Modificado — comparaciones directas de punto flotante reemplazadas por helpers de igualdad exacta (`ExactEquals`) para resolver 6 avisos de CodeQL; sin epsilon |
+| `ImpactX.Tests/Unit/TelemetryEventEqualityTests.cs` | ✅ Nuevo — 8 pruebas de igualdad exacta (mismos valores → true; cambio en Lat/Lng/Velocidad/Altitud/Heading → false; null vs null → true; null vs valor → false) |
 
 ### Resultados Ronda 12
 
@@ -969,14 +971,15 @@ Elimina el token FCM del usuario autenticado.
 | 6 | Seguridad (IDOR) | Viaje inexistente → 404; viaje ajeno → `ForbiddenException` mapeado a 404 genérico sin revelar existencia/propietario (integración + unitario, Category=Security) |
 | 7 | Payload | `[RequestSizeLimit(32768)]` verificado en metadata (413 real solo en Kestrel; TestServer no lo aplica — documentado); `[EnableRateLimiting("telemetry-ingestion")]` reutilizado |
 | 8 | OpenAPI | POST documentado con requestBody (`TelemetryBatchRequest`), respuestas 200/400/401/403/404/409/429/500 y schemas de eventos/resultado; descripción con límites e idempotencia |
-| 9 | Pruebas dirigidas | 92/92 (filtro final de auditoría: CosmosViajeRepositoryTelemetryTests + ViajeRepositoryTelemetryTests + ViajeServiceTelemetryIngestionTests + TripsTelemetryIngestionTests + TelemetryBatchValidatorTests) |
+| 9 | Pruebas dirigidas | 106/106 (filtro del PR: TelemetryEventEqualityTests + CosmosViajeRepositoryTelemetryTests + ViajeRepositoryTelemetryTests + ViajeServiceTelemetryIngestionTests + TripsTelemetryIngestionTests + TelemetryBatchValidatorTests; 92 previas + 8 de igualdad exacta + 6 preexistentes con "Telemetry" en el nombre de método) |
 | 10 | Security regression | 183/183 (Category=Security; 166 baseline + 17 nuevas de PR 2C) |
-| 11 | Suite completa | **829 pruebas**, 0 fallos (737 baseline + 92 de PR 2C: ingesta 84 + auditoría atómica 8). Build Release 0 errores. 77 contratos V1 conservados |
+| 11 | Suite completa | **837 pruebas**, 0 fallos (737 baseline + 100 de PR 2C: ingesta 84 + auditoría atómica 8 + igualdad exacta 8). Build Release 0 errores. 77 contratos V1 conservados |
 | 12 | Python | 30 tests, 0 fallos |
-| 13 | Secret scanner | 0 violaciones (293 archivos) |
+| 13 | Secret scanner | 0 violaciones (294 archivos) |
 | 14 | NuGet audit | 0 vulnerables |
 | 15 | actionlint | Limpio (7 workflows) |
 | 16 | Roslyn | `dotnet format --verify-no-changes` limpio en 19 C# modificados/nuevos (CRLF) |
 | 17 | git diff --check | Sin errores de whitespace |
 | 18 | Payload máximo | Lote máximo válido (100 eventos con todos los campos) serializa ≈ 19 KB ≤ 32 KB (`MaxBodyBytes`): límite conservado y verificado por prueba |
-| 19 | Pendiente | Abrir PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar). |
+| 19 | CodeQL (igualdad exacta) | 6 avisos de comparación de punto flotante en `TelemetryEventEquality.cs` resueltos con helpers `ExactEquals` (igualdad exacta semántica, sin epsilon/redondeo/BitConverter); `double?` vía `Nullable.Equals` (null vs null → true; null vs valor → false); comentario documentando que la exactitud es intencional (idempotencia por EventId) |
+| 20 | Pendiente | Abrir PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar). |

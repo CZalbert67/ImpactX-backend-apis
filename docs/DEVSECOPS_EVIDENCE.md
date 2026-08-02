@@ -268,13 +268,14 @@ Código
 | 24 | Batch EF atómico | `ViajeRepositoryTelemetryTests` (7, ingesta) | Lote insertado con un único `SaveChangesAsync`; duplicado idéntico no re-insertado; lote mezclado sin duplicar; contenido diferente → `ConflictException` (Category=Security). |
 | 25 | Contrato HTTP | `TripsTelemetryIngestionTests` (21, integración) | 401 sin JWT en rutas legacy y V1 (Category=Security); 400 para `eventId` duplicado en el lote y `timestamp` sin sufijo UTC; 404 viaje inexistente y **viaje ajeno sin fuga de datos** (Category=Security); 409 estado no permitido y contenido diferente; re-envío de lote → duplicados sin doble inserción; `GET` paginado sigue funcionando tras la ingesta; **payload > 32 KB**: `[RequestSizeLimit(32768)]` verificado en metadata (413 real solo en Kestrel — TestServer no aplica el límite; documentado) (Category=Security). |
 | 26 | OpenAPI | `TripsTelemetryIngestionTests` + transformer | `POST /api/v1/trips/{id}/telemetry` documentado: requestBody `TelemetryBatchRequest`, respuestas 200/400/401/403/404/409/429/500, schemas `TelemetryBatchRequest`/`TelemetryEventRequest`/`TelemetryIngestionResultDto` con todas sus propiedades, descripción con límites e idempotencia. |
-| 27 | Filtro final de auditoría | 92/92 (`CosmosViajeRepositoryTelemetryTests` + `ViajeRepositoryTelemetryTests` + `ViajeServiceTelemetryIngestionTests` + `TripsTelemetryIngestionTests` + `TelemetryBatchValidatorTests`) | Todas las pruebas de ingesta y de la auditoría atómica (84 de ingesta + 8 de auditoría) pasan juntas: 92/92. |
+| 27 | Filtro final de auditoría | 106/106 (`TelemetryEventEqualityTests` + `CosmosViajeRepositoryTelemetryTests` + `ViajeRepositoryTelemetryTests` + `ViajeServiceTelemetryIngestionTests` + `TripsTelemetryIngestionTests` + `TelemetryBatchValidatorTests`) | Todas las pruebas de ingesta, auditoría atómica e igualdad exacta (92 previas + 8 de igualdad + 6 preexistentes con "Telemetry" en el nombre de método) pasan juntas: 106/106. |
 | 28 | Security regression | `Category=Security` (183 tests) | **183 pruebas de seguridad, 0 fallos** (166 baseline + 17 nuevas de PR 2C). |
-| 29 | Suite completa | `dotnet test ImpactX.slnx --configuration Release` | **829 pruebas**, 0 fallos (737 baseline + 92 de PR 2C: 84 de ingesta + 8 de la auditoría atómica). 77 contratos V1. |
+| 29 | Suite completa | `dotnet test ImpactX.slnx --configuration Release` | **837 pruebas**, 0 fallos (737 baseline + 100 de PR 2C: 84 de ingesta + 8 de la auditoría atómica + 8 de igualdad exacta). 77 contratos V1. |
 | 30 | Python | `python3 -m unittest discover -s scripts/security/tests` | 30 tests, 0 fallos. |
-| 31 | Secret scanner | `check_hardcoded_secrets.py` | 0 violaciones (293 archivos). |
+| 31 | Secret scanner | `check_hardcoded_secrets.py` | 0 violaciones (294 archivos). |
 | 32 | NuGet audit | `dotnet list package --vulnerable --include-transitive` | 0 vulnerables. |
 | 33 | actionlint | `actionlint .github/workflows/*.yml` | Limpio (7 workflows). |
 | 34 | Roslyn | `dotnet format --verify-no-changes` (19 C# modificados/nuevos) | Limpio (fin de línea CRLF aplicado). |
 | 35 | git diff --check | `git diff --check` | Sin errores de whitespace. |
-| 36 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR (Azure/Cosmos real no contactados en esta rama; no afirmar validación). |
+| 36 | CodeQL (igualdad exacta) | CodeQL (PR #30) | 6 avisos de comparación de punto flotante en `TelemetryEventEquality.cs` resueltos con helpers `ExactEquals` (igualdad exacta semántica, sin epsilon); cubiertos por `TelemetryEventEqualityTests` (8). |
+| 37 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR (Azure/Cosmos real no contactados en esta rama; no afirmar validación). |

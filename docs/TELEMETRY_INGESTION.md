@@ -168,6 +168,10 @@ mapea el `ForbiddenException` interno a 404), 404 (viaje inexistente), 409
   - `ViajeRepositoryTelemetryTests` — lote insertado con un solo
     `SaveChangesAsync`, duplicado idéntico no insertado, batch mezclado sin
     duplicar, conflicto de contenido → `ConflictException` (Category=Security).
+  - `TelemetryEventEqualityTests` — igualdad exacta por `EventId`: mismos
+    valores → `true`; cambio en Lat/Lng/Velocidad/Altitud/Heading → `false`;
+    null vs null → `true`; null vs valor → `false` (sin epsilon; la exactitud
+    es intencional para la idempotencia).
 - **Integración** (`TripsTelemetryIngestionTests`, TestServer + EF InMemory):
   401 sin JWT en ambas rutas (legacy y V1, Category=Security); 400 con
   `eventId` duplicado en el lote y con timestamp sin sufijo UTC; 404 para

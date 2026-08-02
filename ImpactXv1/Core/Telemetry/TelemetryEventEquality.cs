@@ -14,18 +14,27 @@ public static class TelemetryEventEquality
 {
     public static bool IsIdentical(ViajeTelemetry persistido, TelemetryEventRequest recibido)
         => persistido.Timestamp == recibido.Timestamp
-           && persistido.Lat == recibido.Lat
-           && persistido.Lng == recibido.Lng
-           && persistido.Velocidad == recibido.Velocidad
-           && persistido.Altitud == recibido.Altitud
-           && persistido.Heading == recibido.Heading;
+           && ExactEquals(persistido.Lat, recibido.Lat)
+           && ExactEquals(persistido.Lng, recibido.Lng)
+           && ExactEquals(persistido.Velocidad, recibido.Velocidad)
+           && ExactEquals(persistido.Altitud, recibido.Altitud)
+           && ExactEquals(persistido.Heading, recibido.Heading);
 
     public static bool IsIdentical(ViajeTelemetry a, ViajeTelemetry b)
         => a.ViajeId == b.ViajeId
            && a.Timestamp == b.Timestamp
-           && a.Lat == b.Lat
-           && a.Lng == b.Lng
-           && a.Velocidad == b.Velocidad
-           && a.Altitud == b.Altitud
-           && a.Heading == b.Heading;
+           && ExactEquals(a.Lat, b.Lat)
+           && ExactEquals(a.Lng, b.Lng)
+           && ExactEquals(a.Velocidad, b.Velocidad)
+           && ExactEquals(a.Altitud, b.Altitud)
+           && ExactEquals(a.Heading, b.Heading);
+
+    // La comparación exacta de punto flotante es intencional: determina la
+    // idempotencia por EventId; ninguna tolerancia debe convertir contenido
+    // diferente en idéntico.
+    private static bool ExactEquals(double left, double right)
+        => left.Equals(right);
+
+    private static bool ExactEquals(double? left, double? right)
+        => Nullable.Equals(left, right);
 }
