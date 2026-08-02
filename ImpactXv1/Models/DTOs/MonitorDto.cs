@@ -31,11 +31,13 @@ public class InviteMonitorResponse
 
 public class InvitationInfoDto
 {
-    public Guid Id { get; set; }
-    public Guid UsuarioId { get; set; }
+    // Compatibilidad: contiene el PublicProfileId del usuario que invita,
+    // nunca la primary key interna ni identificadores de base de datos.
+    public string Id { get; set; } = string.Empty;
+    public string PublicProfileId { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string? Nombre { get; set; }
     public string? CorreoInvitado { get; set; }
-    public string? Username { get; set; }
-    public string? AppUserId { get; set; }
     public string Estado { get; set; } = string.Empty;
     public DateTime CreadoEn { get; set; }
     public DateTime? Expiracion { get; set; }

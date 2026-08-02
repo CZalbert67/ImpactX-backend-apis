@@ -117,7 +117,7 @@ public class UsersController : ControllerBase
 
     [HttpGet("search")]
     [HttpGet("/api/v1/profile/search")]
-    public async Task<IActionResult> SearchUsers([FromQuery] string q)
+    public async Task<IActionResult> SearchUsers([FromQuery] string q, [FromQuery] string? by = null)
     {
         if (string.IsNullOrWhiteSpace(q) || q.Length < 2)
             return Ok(Array.Empty<UserSearchResultDto>());
@@ -125,8 +125,44 @@ public class UsersController : ControllerBase
         var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         Guid? excludeId = usuarioIdClaim is not null ? Guid.Parse(usuarioIdClaim) : null;
 
-        var results = await _userService.SearchUsersAsync(q, excludeId);
+        var results = await _userService.SearchUsersAsync(q, by, excludeId);
         return Ok(results);
+    }
+
+    [HttpGet("me/username")]
+    [HttpGet("/api/v1/profile/username")]
+    public async Task<IActionResult> GetUsername()
+    {
+        var usuarioId = GetUsuarioId();
+        var profile = await _userService.GetProfileAsync(usuarioId);
+        return Ok(new { profile.PublicProfileId, profile.Username });
+    }
+
+    [HttpPut("me/username")]
+    [HttpPut("/api/v1/profile/username")]
+    public async Task<IActionResult> UpdateUsername([FromBody] UpdateUsernameRequest request)
+    {
+        var usuarioId = GetUsuarioId();
+        var profile = await _userService.UpdateUsernameAsync(usuarioId, request);
+        return Ok(profile);
+    }
+
+    [HttpGet("me/onboarding")]
+    [HttpGet("/api/v1/profile/onboarding")]
+    public async Task<IActionResult> GetOnboarding()
+    {
+        var usuarioId = GetUsuarioId();
+        var onboarding = await _userService.GetOnboardingAsync(usuarioId);
+        return Ok(onboarding);
+    }
+
+    [HttpPut("me/onboarding")]
+    [HttpPut("/api/v1/profile/onboarding")]
+    public async Task<IActionResult> UpdateOnboarding([FromBody] UpdateOnboardingRequest request)
+    {
+        var usuarioId = GetUsuarioId();
+        var onboarding = await _userService.UpdateOnboardingAsync(usuarioId, request);
+        return Ok(onboarding);
     }
 
     private Guid GetUsuarioId()

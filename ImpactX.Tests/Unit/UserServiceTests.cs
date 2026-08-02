@@ -296,7 +296,7 @@ public class UserServiceTests
                 new Usuario { Id = Guid.NewGuid(), Username = "test2" },
             ]);
 
-        var result = await _userService.SearchUsersAsync("test", usuarioId);
+        var result = await _userService.SearchUsersAsync("test", null, usuarioId);
 
         Assert.Single(result);
         Assert.Equal("test2", result[0].Username);

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ImpactX.Core.Domain;
+using ImpactX.Core.Identity;
 using ImpactX.Core.Interfaces.Repositories;
 
 namespace ImpactX.Infrastructure.Data.Repositories.EF;
@@ -20,34 +21,88 @@ public class UsuarioRepository : IUsuarioRepository
 
     public async Task<Usuario?> GetByCorreoAsync(string correo)
     {
-        return await _context.Usuarios.FirstOrDefaultAsync(u => u.Correo == correo);
+        var normalized = EmailNormalizer.Normalize(correo);
+        if (normalized.Length == 0)
+            return null;
+
+        return await _context.Usuarios.FirstOrDefaultAsync(u =>
+            u.CorreoNormalizado == normalized || u.Correo.ToLower() == normalized);
     }
 
     public async Task<Usuario?> GetByUsernameAsync(string username)
     {
-        return await _context.Usuarios.FirstOrDefaultAsync(u => u.Username == username);
+        var normalized = UsernamePolicy.Normalize(username);
+        if (normalized is null)
+            return null;
+
+        return await _context.Usuarios.FirstOrDefaultAsync(u =>
+            u.Username == normalized || u.Username.ToLower() == normalized);
     }
 
-    public async Task<List<Usuario>> SearchAsync(string query)
+    public async Task<Usuario?> GetByPublicProfileIdAsync(string publicProfileId)
+    {
+        return await _context.Usuarios.FirstOrDefaultAsync(u => u.PublicProfileId == publicProfileId);
+    }
+
+    public async Task<List<Usuario>> SearchAsync(string query, string? by = null)
     {
         var lower = query.ToLowerInvariant();
-        return await _context.Usuarios
-            .Where(u => u.Username.ToLower().Contains(lower)
+        var mode = by?.Trim().ToLowerInvariant();
+
+        var baseQuery = mode switch
+        {
+            "username" => _context.Usuarios.Where(u => u.Username.ToLower().Contains(lower)),
+            "publicprofileid" => _context.Usuarios.Where(u => u.PublicProfileId.ToLower().Contains(lower)),
+            _ => _context.Usuarios.Where(u => u.Username.ToLower().Contains(lower)
                      || u.Nombre.ToLower().Contains(lower)
-                     || u.AppId.ToLower().Contains(lower)
-                     || u.Correo.ToLower().Contains(lower))
-            .Take(20)
-            .ToListAsync();
+                     || u.PublicProfileId.ToLower().Contains(lower))
+        };
+
+        return await baseQuery.Take(20).ToListAsync();
     }
 
     public async Task<bool> ExistsByCorreoAsync(string correo)
     {
-        return await _context.Usuarios.AnyAsync(u => u.Correo == correo);
+        var normalized = EmailNormalizer.Normalize(correo);
+        if (normalized.Length == 0)
+            return false;
+
+        return await _context.Usuarios.AnyAsync(u =>
+            u.CorreoNormalizado == normalized || u.Correo.ToLower() == normalized);
     }
 
     public async Task<bool> ExistsByUsernameAsync(string username)
     {
-        return await _context.Usuarios.AnyAsync(u => u.Username == username);
+        var normalized = UsernamePolicy.Normalize(username);
+        if (normalized is null)
+            return false;
+
+        return await _context.Usuarios.AnyAsync(u => u.Username.ToLower() == normalized);
+    }
+
+    public async Task<bool> ExistsByPublicProfileIdAsync(string publicProfileId)
+    {
+        return await _context.Usuarios.AnyAsync(u => u.PublicProfileId == publicProfileId);
+    }
+
+    public async Task<bool> ExistsByUsernameIncludingHistoryAsync(string username)
+    {
+        var normalized = UsernamePolicy.Normalize(username);
+        if (normalized is null)
+            return false;
+
+        return await _context.Usuarios.AnyAsync(u =>
+            u.Username.ToLower() == normalized || u.UsernamesAnteriores.Contains(normalized));
+    }
+
+    public async Task<bool> ExistsByUsernameHistoryExcludingUsuarioAsync(string username, Guid usuarioId)
+    {
+        var normalized = UsernamePolicy.Normalize(username);
+        if (normalized is null)
+            return false;
+
+        return await _context.Usuarios.AnyAsync(u =>
+            u.Id != usuarioId && u.UsernamesAnteriores.Contains(normalized));
     }
 
     public async Task AddAsync(Usuario usuario)

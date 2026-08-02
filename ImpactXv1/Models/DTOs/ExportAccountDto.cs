@@ -2,7 +2,7 @@ namespace ImpactX.Models.DTOs;
 
 public class ExportAccountDto
 {
-    public Guid Id { get; set; }
+    public string PublicProfileId { get; set; } = string.Empty;
     public string Nombre { get; set; } = string.Empty;
     public string Correo { get; set; } = string.Empty;
     public string? Telefono { get; set; }

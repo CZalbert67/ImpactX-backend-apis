@@ -813,6 +813,9 @@ public class ApiContractV1SecurityTests : IClassFixture<CustomWebApplicationFact
             password = "Password123!"
         });
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
-        return (result!.Token!, result!.Usuario!.Id);
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        var jwt = handler.ReadJwtToken(result!.Token!);
+        var userId = Guid.Parse(jwt.Claims.First(c => c.Type == "nameid" || c.Type == System.Security.Claims.ClaimTypes.NameIdentifier).Value);
+        return (result.Token!, userId);
     }
 }

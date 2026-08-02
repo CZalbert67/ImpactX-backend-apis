@@ -13,7 +13,10 @@ public interface IUserService
     Task<DriverProfileDto> UpdateDriverProfileAsync(Guid usuarioId, UpdateDriverProfileRequest request);
     Task<MedicalProfileDto> GetMedicalProfileAsync(Guid usuarioId);
     Task<MedicalProfileDto> UpdateMedicalProfileAsync(Guid usuarioId, UpdateMedicalProfileRequest request);
-    Task<List<UserSearchResultDto>> SearchUsersAsync(string query, Guid? excludeUserId = null);
+    Task<OnboardingDto> GetOnboardingAsync(Guid usuarioId);
+    Task<OnboardingDto> UpdateOnboardingAsync(Guid usuarioId, UpdateOnboardingRequest request);
+    Task<UserProfileDto> UpdateUsernameAsync(Guid usuarioId, UpdateUsernameRequest request);
+    Task<List<UserSearchResultDto>> SearchUsersAsync(string query, string? by = null, Guid? excludeUserId = null);
     Task UpdateFcmTokenAsync(Guid usuarioId, UpdateFcmTokenRequest request);
     Task DeleteFcmTokenAsync(Guid usuarioId);
 }

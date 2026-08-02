@@ -175,13 +175,18 @@ public class MonitorService : IMonitorService
         if (monitor.Expiracion.HasValue && DateTime.UtcNow > monitor.Expiracion.Value)
             throw new ConflictException("El token de invitación ha expirado.");
 
+        var invitador = await _usuarioRepository.GetByIdAsync(monitor.UsuarioId);
+        var publicProfileId = string.IsNullOrWhiteSpace(invitador?.PublicProfileId)
+            ? invitador?.Username ?? string.Empty
+            : invitador!.PublicProfileId;
+
         return new InvitationInfoDto
         {
-            Id = monitor.Id,
-            UsuarioId = monitor.UsuarioId,
+            Id = publicProfileId,
+            PublicProfileId = publicProfileId,
+            Username = monitor.Username ?? invitador?.Username ?? string.Empty,
+            Nombre = invitador?.Nombre,
             CorreoInvitado = monitor.CorreoInvitado,
-            Username = monitor.Username,
-            AppUserId = monitor.AppUserId,
             Estado = monitor.Estado,
             CreadoEn = monitor.CreadoEn,
             Expiracion = monitor.Expiracion,
