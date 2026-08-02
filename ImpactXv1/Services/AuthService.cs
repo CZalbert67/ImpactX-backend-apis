@@ -153,7 +153,7 @@ public class AuthService : IAuthService
             };
         }
 
-        var compatChanged = await EnsureIdentityCompatibilityAsync(usuario);
+        await EnsureIdentityCompatibilityAsync(usuario);
         usuario.LastLoginAt = DateTime.UtcNow;
         await _usuarioRepository.UpdateAsync(usuario);
 
