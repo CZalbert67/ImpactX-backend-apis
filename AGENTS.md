@@ -36,7 +36,7 @@ dotnet add package <PackageName>
 - **Contacts** (emergency contacts CRUD)
 - **Monitors** (invite, accept, reject, revoke, restore, **Premium allows 6**)
 - **Routes** (Rutas)
-- **Trips** (Viajes + telemetry)
+- **Trips** (Viajes + telemetry: GET paginado, PATCH legacy por evento, **POST ingesta por lotes con idempotencia por EventId**)
 - **Wearables**
 - **Alerts** (Alertas + **monitor notification integration**)
 - **Incidents** (Incidentes)
@@ -256,6 +256,20 @@ if (app.Environment.IsDevelopment())
 - **OpenAPI**: el alias aparece en `/openapi/v1.json` (filtro `ShouldInclude` de `api/v1/`); `pageSize` y `continuationToken` documentados automáticamente por `OpenApiV1OperationTransformer`.
 - **Pruebas**: `WearableControllerTests` +6 — 401 sin JWT en ambas rutas (2, Category=Security), mismo status + estructura JSON en ambas rutas autenticadas (1), OpenAPI contiene `/api/v1/wearable/all` con `pageSize`/`continuationToken` (2), ausencia de la ruta plural (1).
 - **Total real**: pendiente de la validación final de esta rama.
+- **Pendiente**: abrir el PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar).
+
+## R0.8 — Telemetry Ingestion and Idempotency / PR 2C (implementado)
+- **Branch**: `feat/backend-telemetry-ingestion-idempotency`
+- **Endpoint**: `POST /api/v1/trips/{id}/telemetry` (rutas duales legacy/V1 sobre la misma acción en `TripsController`) — ingesta por lotes de telemetría con **idempotencia por `EventId`** (GUID del cliente = `Id` persistido en `TelemetriaViaje`, partition key `/viajeId`, sin upsert, sin consultas globales). `[Authorize]` de clase, `usuarioId` siempre del JWT. `[EnableRateLimiting("telemetry-ingestion")]` (misma política que el PATCH legacy) + `[RequestSizeLimit(32768)]` → 413 en Kestrel para payloads > 32 KB. El lote máximo válido (100 eventos con todos los campos) serializa **≈ 19 KB** y cabe en los 32 KB (verificado por prueba).
+- **Contrato**: `TelemetryBatchRequest` (`eventos`: 1–100), `TelemetryEventRequest` (`eventId` GUID único en el lote, `timestamp` UTC obligatorio con sufijo `Z`/`+00:00` vía `UtcTimestampJsonConverter` — sin sufijo → 400; tolerancia de 5 min al futuro; rangos lat `[-90,90]`, lng `[-180,180]`, velocidad `[0,400]`, altitud `[-1000,10000]`, heading `[0,360)`; NaN/Infinity → 400) y `TelemetryIngestionResultDto` (`viajeId`, `recibidos`, `insertados`, `duplicados`, `primerEventoUtc`, `ultimoEventoUtc`). Límites y validación en `Core/Telemetry/` (`TelemetryIngestionLimits`, `TelemetryBatchValidator`, `TelemetryEventEquality`).
+- **Idempotencia**: point-read por evento antes del batch; evento existente **idéntico** → duplicado (no se reinserta); **diferente** → `ConflictException` → 409 genérico (protege el registro original). Sin eventos nuevos el servicio **no crea ningún batch**. `RecibidoEn` (nuevo campo en `ViajeTelemetry`, UTC del servidor) **no** participa en la igualdad idempotente. **Semántica atómica (auditada)**: un batch fallido **nunca** cuenta inserciones — los estados individuales de operación (200/409/FailedDependency) no declaran escrituras dentro de un batch global fallido; la clasificación tras el fallo es por point-read (`id` + `PartitionKey(viajeId)`). Carrera → reintento acotado: batch reconstruido **solo con pendientes**, **máximo 1 inicial + 2 reintentos** (`CancellationToken` respetado); conflicto de contenido → 409 sin reintentar ni revelar EventId; todos idénticos → `Insertados=0`/`Duplicados=Recibidos` sin segundo batch; agotamiento → `CosmosException` segura sin afirmar inserciones. **Invariante 200**: `Recibidos == Insertados + Duplicados`.
+- **Estados**: solo `Activo`/`Pausado` (misma regla legacy); otro estado → 409. Viaje inexistente → 404; viaje ajeno → `ForbiddenException` interno mapeado a **404** genérico por `ProblemDetailsMiddleware` (sin revelar existencia).
+- **Repos**: `IViajeRepository` + `GetTelemetryByEventIdAsync` + `AddTelemetryBatchAsync`. Cosmos: `ReadItemAsync(id, PartitionKey(viajeId))` + `TransactionalBatch` + ctor `internal` para tests (sin upsert/replace; `TransactionalBatchResponse`/`ItemResponse<T>` mockeables: ctores protegidos + getters virtuales). EF: pre-check `ViajeId+Id` (InMemory no lanza en claves duplicadas — verificado) + `AddRange` + un `SaveChangesAsync` (sin simular TransactionalBatch).
+- **Servicio**: `ViajeService.IngestTelemetryAsync` — valida → propiedad del viaje → estado → duplicados → batch → resultado; logs solo con conteos, nunca detalles del payload.
+- **OpenAPI**: descripción del POST (límites, reintentos seguros, EventId, UTC) en `OpenApiV1OperationTransformer` + `[ProducesResponseType(typeof(TelemetryIngestionResultDto), 200)]` (el generador no infiere 200 para `IActionResult`).
+- **Total real**: 837 pruebas (737 baseline + 100 de PR 2C: ingesta 84 + auditoría atómica 8 + igualdad exacta de CodeQL 8), 183 Category=Security (166 + 17), 77 contratos V1, 30 Python, scanner 0 violaciones (294 archivos), NuGet 0 vulnerables, actionlint limpio, dotnet format limpio en C# modificados/nuevos (CRLF), git diff --check limpio. Build y tests pasan en Release (837/837; dirigidas del filtro CodeQL 106/106, Security 183/183).
+- **Históricos**: 415/104 → 474/114/58 → 487/115/70 → 490/115/75 → 532/137 → 547/142 → 558/144 → 607/146 → 662/158 → 705/158 → 731/164 → **737/166 → 829/183 → 837/183**.
+- **Documentación**: `docs/TELEMETRY_INGESTION.md` (nuevo) + AGENTS.md/BACKEND_AUDIT/DEVSECOPS_EVIDENCE/COSMOS_DATA_ARCHITECTURE actualizados.
 - **Pendiente**: abrir el PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar).
 
 ## Rules

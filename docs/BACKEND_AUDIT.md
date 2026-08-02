@@ -929,3 +929,57 @@ Elimina el token FCM del usuario autenticado.
 | 4 | OpenAPI | `/api/v1/wearable/all` presente en `/openapi/v1.json` con `pageSize` y `continuationToken` documentados por `OpenApiV1OperationTransformer` |
 | 5 | Pruebas dirigidas | Wearable + ApiContractV1 + PaginationContract, Category=Security y suite completa: pendientes de la validación final de esta rama |
 | 6 | Pendiente | Abrir PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar). |
+
+## Ronda 12 — Telemetry Ingestion and Idempotency / PR 2C
+
+### Cambios realizados
+
+| Archivo | Acción |
+|---|---|
+| `ImpactXv1/Controllers/TripsController.cs` | ✅ Modificado — `POST {id:guid}/telemetry` (rutas duales legacy/V1 sobre la misma acción): `[EnableRateLimiting("telemetry-ingestion")]`, `[RequestSizeLimit(32768)]`, `[ProducesResponseType(typeof(TelemetryIngestionResultDto), 200)]` + 409 |
+| `ImpactXv1/Core/Domain/ViajeTelemetry.cs` | ✅ Modificado — campo `RecibidoEn` (UTC del servidor; excluido de la igualdad idempotente) |
+| `ImpactXv1/Core/Domain/TelemetryBatchWriteResult.cs` | ✅ Nuevo — `Insertados`/`Duplicados` devueltos por el repositorio |
+| `ImpactXv1/Core/Telemetry/TelemetryIngestionLimits.cs` | ✅ Nuevo — límites únicos (lote 1–100, 32 KB, tolerancia 5 min, rangos lat/lng/vel/alt/heading) |
+| `ImpactXv1/Core/Telemetry/TelemetryBatchValidator.cs` | ✅ Nuevo — validación del lote → 400 (`BadRequestException`) |
+| `ImpactXv1/Core/Telemetry/TelemetryEventEquality.cs` | ✅ Nuevo — igualdad idempotente de eventos (ignora `RecibidoEn`) |
+| `ImpactXv1/Models/DTOs/TelemetryIngestionDtos.cs` | ✅ Nuevo — `TelemetryBatchRequest`, `TelemetryEventRequest`, `TelemetryIngestionResultDto` |
+| `ImpactXv1/Converters/UtcTimestampJsonConverter.cs` | ✅ Nuevo — exige UTC explícito (`Z`/`+00:00`); violación → `JsonException` → 400 |
+| `ImpactXv1/Services/IViajeService.cs` + `ImpactXv1/Services/ViajeService.cs` | ✅ Modificados — `IngestTelemetryAsync`: valida → propiedad del viaje → estado → duplicados → batch → resultado; logs solo con conteos |
+| `ImpactXv1/Core/Interfaces/Repositories/IViajeRepository.cs` | ✅ Modificado — `GetTelemetryByEventIdAsync` + `AddTelemetryBatchAsync` |
+| `ImpactXv1/Infrastructure/Data/Repositories/Cosmos/CosmosViajeRepository.cs` | ✅ Modificado — point-read con `PartitionKey(viajeId)` + `TransactionalBatch` + resolución de 409 por re-lectura point-read; ctor `internal` para tests; sin upsert/replace |
+| `ImpactXv1/Infrastructure/Data/Repositories/EF/ViajeRepository.cs` | ✅ Modificado — pre-check `ViajeId+Id` + `AddRange` + un solo `SaveChangesAsync` |
+| `ImpactXv1/Extensions/OpenApiV1OperationTransformer.cs` | ✅ Modificado — descripción del POST (límites, reintentos seguros, EventId, UTC) |
+| `ImpactX.Tests/Unit/TelemetryBatchValidatorTests.cs` | ✅ Nuevo — 21 pruebas (teorías de lote/GUID/UTC/rangos/NaN) |
+| `ImpactX.Tests/Unit/ViajeServiceTelemetryIngestionTests.cs` | ✅ Nuevo — 15 pruebas (3 Category=Security: IDOR 404, conflicto de contenido, logs) |
+| `ImpactX.Tests/Unit/CosmosViajeRepositoryTelemetryTests.cs` | ✅ Nuevo — 15 pruebas (7 Category=Security: partición del point-read, batch fallido con operación individual 200 → cero insertados, FailedDependency, carrera con duplicado idéntico, conflicto de contenido sin reintento, agotamiento de reintentos) |
+| `ImpactX.Tests/Unit/ViajeRepositoryTelemetryTests.cs` | ✅ Nuevo — 7 pruebas (1 Category=Security: conflicto de contenido) |
+| `ImpactX.Tests/Integration/TripsTelemetryIngestionTests.cs` | ✅ Nuevo — 21 pruebas (6 Category=Security: 401 ambas rutas, 404 IDOR, 413 metadata) |
+| `ImpactX.Tests/Unit/TelemetryBatchValidatorTests.cs` | ✅ Modificado — +1 prueba de tamaño serializado del lote máximo válido (100 eventos ≤ 32 KB) |
+| `ImpactX.Tests/Unit/ViajeServiceTelemetryIngestionTests.cs` | ✅ Modificado — +3 pruebas de invariante `Recibidos == Insertados + Duplicados` (todos nuevos, todos duplicados, mezcla pre-check + carrera); verificación de no llamar al batch sin eventos nuevos |
+| `ImpactXv1/Core/Telemetry/TelemetryEventEquality.cs` | ✅ Modificado — comparaciones directas de punto flotante reemplazadas por helpers de igualdad exacta (`ExactEquals`) para resolver 6 avisos de CodeQL; sin epsilon |
+| `ImpactX.Tests/Unit/TelemetryEventEqualityTests.cs` | ✅ Nuevo — 8 pruebas de igualdad exacta (mismos valores → true; cambio en Lat/Lng/Velocidad/Altitud/Heading → false; null vs null → true; null vs valor → false) |
+
+### Resultados Ronda 12
+
+| # | Verificación | Resultado |
+|---|---|---|
+| 1 | Endpoint | `POST /api/v1/trips/{id}/telemetry` recibe lotes de 1–100 eventos; rutas duales legacy (`/api/trips`) y V1 (`/api/v1/trips`) atienden la misma acción; `usuarioId` siempre del JWT |
+| 2 | Idempotencia | Reintento de lote idéntico → `duplicados` sin re-insertar; `eventId` reenviado con contenido diferente → 409 ProblemDetails genérico; sin eventos nuevos el servicio no crea ningún batch |
+| 3 | **Atomicidad (auditoría)** | **Bug corregido**: el batch fallido contaba operaciones individuales 200 como insertadas y trataba `FailedDependency` como fatal. Ahora un batch fallido **nunca** cuenta inserciones — los estados individuales (200/409/FailedDependency) no prueban persistencia dentro de un batch global fallido; la clasificación es por point-read (`id` + `PartitionKey(viajeId)`); `FailedDependency` se resuelve como candidato (inexistente → reintento; idéntico → duplicado; diferente → 409). Reintentos: **1 inicial + 2 adicionales** (máximo 3 intentos), `CancellationToken` respetado; solo un batch exitoso incrementa `Insertados`; todos duplicados idénticos → sin segundo batch; agotamiento → `CosmosException` segura sin afirmar inserciones; sin ciclo infinito. **Invariante 200**: `Recibidos == Insertados + Duplicados` |
+| 4 | Atomicidad física | Un único `TransactionalBatch` por lote en una partición `/viajeId` (Cosmos); un único `SaveChangesAsync` (EF); sin upsert/replace |
+| 5 | UTC | `timestamp` sin sufijo `Z`/`+00:00` → 400; futuro > 5 min → 400; `RecibidoEn` del servidor separado e independiente de la igualdad |
+| 6 | Seguridad (IDOR) | Viaje inexistente → 404; viaje ajeno → `ForbiddenException` mapeado a 404 genérico sin revelar existencia/propietario (integración + unitario, Category=Security) |
+| 7 | Payload | `[RequestSizeLimit(32768)]` verificado en metadata (413 real solo en Kestrel; TestServer no lo aplica — documentado); `[EnableRateLimiting("telemetry-ingestion")]` reutilizado |
+| 8 | OpenAPI | POST documentado con requestBody (`TelemetryBatchRequest`), respuestas 200/400/401/403/404/409/429/500 y schemas de eventos/resultado; descripción con límites e idempotencia |
+| 9 | Pruebas dirigidas | 106/106 (filtro del PR: TelemetryEventEqualityTests + CosmosViajeRepositoryTelemetryTests + ViajeRepositoryTelemetryTests + ViajeServiceTelemetryIngestionTests + TripsTelemetryIngestionTests + TelemetryBatchValidatorTests; 92 previas + 8 de igualdad exacta + 6 preexistentes con "Telemetry" en el nombre de método) |
+| 10 | Security regression | 183/183 (Category=Security; 166 baseline + 17 nuevas de PR 2C) |
+| 11 | Suite completa | **837 pruebas**, 0 fallos (737 baseline + 100 de PR 2C: ingesta 84 + auditoría atómica 8 + igualdad exacta 8). Build Release 0 errores. 77 contratos V1 conservados |
+| 12 | Python | 30 tests, 0 fallos |
+| 13 | Secret scanner | 0 violaciones (294 archivos) |
+| 14 | NuGet audit | 0 vulnerables |
+| 15 | actionlint | Limpio (7 workflows) |
+| 16 | Roslyn | `dotnet format --verify-no-changes` limpio en 19 C# modificados/nuevos (CRLF) |
+| 17 | git diff --check | Sin errores de whitespace |
+| 18 | Payload máximo | Lote máximo válido (100 eventos con todos los campos) serializa ≈ 19 KB ≤ 32 KB (`MaxBodyBytes`): límite conservado y verificado por prueba |
+| 19 | CodeQL (igualdad exacta) | 6 avisos de comparación de punto flotante en `TelemetryEventEquality.cs` resueltos con helpers `ExactEquals` (igualdad exacta semántica, sin epsilon/redondeo/BitConverter); `double?` vía `Nullable.Equals` (null vs null → true; null vs valor → false); comentario documentando que la exactitud es intencional (idempotencia por EventId) |
+| 20 | Pendiente | Abrir PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar). |

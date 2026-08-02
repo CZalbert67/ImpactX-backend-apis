@@ -2,6 +2,7 @@ using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Telemetry;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -119,6 +120,81 @@ public class ViajeService : IViajeService
         }
 
         return request.Puntos;
+    }
+
+    public async Task<TelemetryIngestionResultDto> IngestTelemetryAsync(Guid usuarioId, Guid viajeId, TelemetryBatchRequest request, CancellationToken cancellationToken = default)
+    {
+        TelemetryBatchValidator.Validate(request);
+
+        // Validación de propiedad con point-read por partición: un viaje ajeno
+        // es indistinguible de uno inexistente (404 seguro, sin filtrar propiedad).
+        var viaje = await GetOwnedViajeAsync(usuarioId, viajeId);
+
+        // Mismas reglas de estado que la ingesta legacy: solo activo o pausado.
+        if (viaje.Estado != "Activo" && viaje.Estado != "Pausado")
+            throw new ConflictException("Solo se puede enviar telemetría de un viaje activo o pausado.");
+
+        // Idempotencia por EventId: point-read por (viajeId, eventId). Los
+        // eventos nuevos se escriben en un solo lote atómico; los duplicados
+        // idénticos se omiten; un EventId con contenido diferente es 409.
+        var nuevos = new List<ViajeTelemetry>(request.Eventos.Count);
+        var duplicados = 0;
+
+        foreach (var evento in request.Eventos)
+        {
+            var existente = await _viajeRepository.GetTelemetryByEventIdAsync(viajeId, evento.EventId, cancellationToken);
+
+            if (existente is null)
+            {
+                nuevos.Add(new ViajeTelemetry
+                {
+                    Id = evento.EventId,
+                    ViajeId = viajeId,
+                    UsuarioId = usuarioId,
+                    Timestamp = evento.Timestamp,
+                    Lat = evento.Lat,
+                    Lng = evento.Lng,
+                    Velocidad = evento.Velocidad,
+                    Altitud = evento.Altitud,
+                    Heading = evento.Heading,
+                    RecibidoEn = DateTime.UtcNow,
+                });
+            }
+            else if (TelemetryEventEquality.IsIdentical(existente, evento))
+            {
+                duplicados++;
+            }
+            else
+            {
+                throw new ConflictException("El evento ya existe con contenido diferente.");
+            }
+        }
+
+        // Sin eventos nuevos: no se crea ningún batch (todo duplicado
+        // idéntico); un batch fallido nunca cuenta inserciones.
+        var escritura = nuevos.Count == 0
+            ? new TelemetryBatchWriteResult()
+            : await _viajeRepository.AddTelemetryBatchAsync(viajeId, nuevos, cancellationToken);
+
+        // El timestamp del evento es el del cliente (UTC); la recepción del
+        // servidor vive separada en ViajeTelemetry.RecibidoEn.
+        var resultado = new TelemetryIngestionResultDto
+        {
+            ViajeId = viajeId,
+            Recibidos = request.Eventos.Count,
+            Insertados = escritura.Insertados,
+            Duplicados = duplicados + escritura.Duplicados,
+            PrimerEventoUtc = request.Eventos.Min(e => e.Timestamp),
+            UltimoEventoUtc = request.Eventos.Max(e => e.Timestamp),
+        };
+
+        // Logs únicamente con conteos: sin EventId, sin GPS, sin payload.
+        // El correlation id se adjunta automáticamente vía logging scope.
+        _logger.LogInformation(
+            "Lote de telemetría procesado: {Recibidos} recibidos, {Insertados} insertados, {Duplicados} duplicados",
+            resultado.Recibidos, resultado.Insertados, resultado.Duplicados);
+
+        return resultado;
     }
 
     public async Task<ViajeDto?> GetActiveAsync(Guid usuarioId)

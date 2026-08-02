@@ -67,6 +67,18 @@ public class TripsController : ControllerBase
         return Ok(new { sincronizados = puntos.Count, puntos });
     }
 
+    [HttpPost("{id:guid}/telemetry")]
+    [EnableRateLimiting("telemetry-ingestion")]
+    [RequestSizeLimit(ImpactX.Core.Telemetry.TelemetryIngestionLimits.MaxBodyBytes)]
+    [ProducesResponseType(typeof(TelemetryIngestionResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> IngestTelemetry(Guid id, [FromBody] TelemetryBatchRequest request, CancellationToken cancellationToken)
+    {
+        var usuarioId = GetUsuarioId();
+        var result = await _viajeService.IngestTelemetryAsync(usuarioId, id, request, cancellationToken);
+        return Ok(result);
+    }
+
     [HttpGet("active")]
     public async Task<IActionResult> GetActive()
     {

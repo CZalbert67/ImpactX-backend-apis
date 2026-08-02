@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using ImpactX.Core.Domain;
+using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Telemetry;
 
 namespace ImpactX.Infrastructure.Data.Repositories.EF;
 
@@ -66,6 +68,51 @@ public class ViajeRepository : IViajeRepository
     {
         await _context.ViajeTelemetries.AddAsync(telemetry);
         await _context.SaveChangesAsync();
+    }
+
+    public async Task<ViajeTelemetry?> GetTelemetryByEventIdAsync(Guid viajeId, Guid eventId, CancellationToken cancellationToken = default)
+    {
+        // Lectura punto a punto equivalente al point-read de Cosmos:
+        // filtro por viaje (partición) e id del evento, sin barridos globales.
+        return await _context.ViajeTelemetries
+            .FirstOrDefaultAsync(t => t.ViajeId == viajeId && t.Id == eventId, cancellationToken);
+    }
+
+    public async Task<TelemetryBatchWriteResult> AddTelemetryBatchAsync(Guid viajeId, IReadOnlyList<ViajeTelemetry> eventos, CancellationToken cancellationToken = default)
+    {
+        // Misma semántica observable que Cosmos: un solo SaveChangesAsync es
+        // una sola transacción (todos o ninguno); los eventos que ya existen
+        // se resuelven como duplicado idéntico o conflicto real (409); un
+        // EventId existente nunca se sobrescribe ni se duplica.
+        var pendientes = new List<ViajeTelemetry>(eventos.Count);
+        var duplicados = 0;
+
+        foreach (var evento in eventos)
+        {
+            var existente = await _context.ViajeTelemetries
+                .FirstOrDefaultAsync(t => t.ViajeId == viajeId && t.Id == evento.Id, cancellationToken);
+
+            if (existente is null)
+            {
+                pendientes.Add(evento);
+            }
+            else if (TelemetryEventEquality.IsIdentical(existente, evento))
+            {
+                duplicados++;
+            }
+            else
+            {
+                throw new ConflictException("El evento ya existe con contenido diferente.");
+            }
+        }
+
+        if (pendientes.Count > 0)
+        {
+            await _context.ViajeTelemetries.AddRangeAsync(pendientes, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        return new TelemetryBatchWriteResult { Insertados = pendientes.Count, Duplicados = duplicados };
     }
 
     public async Task<List<ViajeTelemetry>> GetTelemetryByViajeAsync(Guid viajeId)
