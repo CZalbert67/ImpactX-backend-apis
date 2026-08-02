@@ -1,5 +1,6 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Notifications;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -7,6 +8,7 @@ namespace ImpactX.Services;
 public interface INotificationService
 {
     Task<List<NotificacionDto>> GetNotificationsAsync(Guid usuarioId);
+    Task<PagedResult<NotificacionDto>> GetNotificationsPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken);
     Task<int> GetUnreadCountAsync(Guid usuarioId);
     Task ToggleReadAsync(Guid usuarioId, Guid notificacionId, ToggleReadRequest request);
     Task MarkAllAsReadAsync(Guid usuarioId);

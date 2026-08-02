@@ -1,6 +1,7 @@
 using System.Text;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -23,6 +24,18 @@ public class IncidentService : IIncidentService
 
     public async Task<List<IncidenteListItemDto>> GetIncidentsAsync(Guid usuarioId, IncidentFilterRequest filter)
     {
+        // Contrato legacy OFFSET/LIMIT conservado; límites validados para
+        // evitar cargas indefinidas. No se mezcla con continuationToken.
+        if (filter.Pagina < 1)
+            throw new BadRequestException("Pagina debe ser mayor o igual a 1.");
+
+        if (filter.Tamano < PaginationDefaults.MinPageSize ||
+            filter.Tamano > PaginationDefaults.MaxPageSize)
+        {
+            throw new BadRequestException(
+                $"Tamano debe estar entre {PaginationDefaults.MinPageSize} y {PaginationDefaults.MaxPageSize}.");
+        }
+
         var incidentes = await _incidenteRepository.GetFilteredAsync(
             usuarioId, filter.Severidad, filter.Desde, filter.Hasta, filter.Pagina, filter.Tamano);
 
@@ -31,7 +44,7 @@ public class IncidentService : IIncidentService
 
     public async Task<IncidenteDetailDto> GetIncidentDetailAsync(Guid usuarioId, Guid incidenteId)
     {
-        var incidente = await _incidenteRepository.GetByIdAsync(incidenteId)
+        var incidente = await _incidenteRepository.GetByIdAsync(usuarioId, incidenteId)
             ?? throw new NotFoundException("Incidente no encontrado.");
 
         if (incidente.UsuarioId != usuarioId)
@@ -61,7 +74,7 @@ public class IncidentService : IIncidentService
 
     public async Task MarkAsFalseAlarmAsync(Guid usuarioId, Guid incidenteId, MarkFalseAlarmRequest request)
     {
-        var incidente = await _incidenteRepository.GetByIdAsync(incidenteId)
+        var incidente = await _incidenteRepository.GetByIdAsync(usuarioId, incidenteId)
             ?? throw new NotFoundException("Incidente no encontrado.");
 
         if (incidente.UsuarioId != usuarioId)
@@ -77,7 +90,7 @@ public class IncidentService : IIncidentService
 
     public async Task UpdateNoteAsync(Guid usuarioId, Guid incidenteId, NoteRequest request)
     {
-        var incidente = await _incidenteRepository.GetByIdAsync(incidenteId)
+        var incidente = await _incidenteRepository.GetByIdAsync(usuarioId, incidenteId)
             ?? throw new NotFoundException("Incidente no encontrado.");
 
         if (incidente.UsuarioId != usuarioId)
@@ -96,7 +109,7 @@ public class IncidentService : IIncidentService
         if (planName != "Premium" && planName != "Enterprise")
             throw new ForbiddenException("La visualización en mapas solo está disponible en plan Premium.");
 
-        var incidente = await _incidenteRepository.GetByIdAsync(incidenteId)
+        var incidente = await _incidenteRepository.GetByIdAsync(usuarioId, incidenteId)
             ?? throw new NotFoundException("Incidente no encontrado.");
 
         if (incidente.UsuarioId != usuarioId)

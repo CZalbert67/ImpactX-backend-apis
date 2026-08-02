@@ -1,4 +1,5 @@
 using ImpactX.Core.Exceptions;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -6,6 +7,7 @@ namespace ImpactX.Services;
 public interface IWearableService
 {
     Task<WearableDto?> GetWearableAsync(Guid usuarioId);
+    Task<PagedResult<WearableDto>> GetWearablesPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken);
     Task<PairResponse> PairAsync(Guid usuarioId, PairWearableRequest request);
     Task<WearableDto> PairConfirmAsync(Guid usuarioId, PairConfirmRequest request);
     Task<List<TelemetryPointDto>> SyncAsync(Guid usuarioId, SyncTelemetryRequest request);

@@ -137,7 +137,7 @@ public class MonitorServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var monitor = new Monitor { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Pendiente", TokenInvitacion = "OLD" };
-        _monitorRepo.Setup(r => r.GetByIdAsync(monitor.Id)).ReturnsAsync(monitor);
+        _monitorRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), monitor.Id)).ReturnsAsync(monitor);
 
         await _monitorService.ResendInviteAsync(usuarioId, monitor.Id);
 
@@ -150,7 +150,7 @@ public class MonitorServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var monitor = new Monitor { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activo" };
-        _monitorRepo.Setup(r => r.GetByIdAsync(monitor.Id)).ReturnsAsync(monitor);
+        _monitorRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), monitor.Id)).ReturnsAsync(monitor);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             _monitorService.ResendInviteAsync(usuarioId, monitor.Id));
@@ -161,7 +161,7 @@ public class MonitorServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var monitor = new Monitor { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activo" };
-        _monitorRepo.Setup(r => r.GetByIdAsync(monitor.Id)).ReturnsAsync(monitor);
+        _monitorRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), monitor.Id)).ReturnsAsync(monitor);
 
         await _monitorService.RevokeMonitorAsync(usuarioId, monitor.Id);
 
@@ -175,7 +175,7 @@ public class MonitorServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var monitor = new Monitor { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Revocado", RevocadoEn = DateTime.UtcNow };
-        _monitorRepo.Setup(r => r.GetByIdAsync(monitor.Id)).ReturnsAsync(monitor);
+        _monitorRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), monitor.Id)).ReturnsAsync(monitor);
 
         await _monitorService.RestoreMonitorAsync(usuarioId, monitor.Id);
 
@@ -189,7 +189,7 @@ public class MonitorServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var monitor = new Monitor { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activo" };
-        _monitorRepo.Setup(r => r.GetByIdAsync(monitor.Id)).ReturnsAsync(monitor);
+        _monitorRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), monitor.Id)).ReturnsAsync(monitor);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             _monitorService.RestoreMonitorAsync(usuarioId, monitor.Id));
@@ -301,7 +301,7 @@ public class MonitorServiceTests
         var usuarioId = Guid.NewGuid();
         var otroUsuarioId = Guid.NewGuid();
         var monitor = new Monitor { Id = Guid.NewGuid(), UsuarioId = otroUsuarioId, Estado = "Activo" };
-        _monitorRepo.Setup(r => r.GetByIdAsync(monitor.Id)).ReturnsAsync(monitor);
+        _monitorRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), monitor.Id)).ReturnsAsync(monitor);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _monitorService.RevokeMonitorAsync(usuarioId, monitor.Id));

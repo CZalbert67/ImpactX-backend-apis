@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
@@ -77,30 +78,30 @@ public class CosmosRefreshTokenRepository : IRefreshTokenRepository
 
     public async Task RevokeAllByUsuarioIdAsync(Guid usuarioId, DateTime revokedAt, CancellationToken cancellationToken = default)
     {
+        // Proceso completo incremental: pagina, revoca por página y continúa
+        // con el token; no acumula todos los tokens en memoria.
         var query = new QueryDefinition(
             "SELECT * FROM c WHERE c.usuarioId = @usuarioId AND c.revokedAt = null")
             .WithParameter("@usuarioId", usuarioId.ToString());
 
-        var tokens = new List<RefreshToken>();
-        using var iterator = _container.GetItemQueryIterator<RefreshToken>(query,
-            requestOptions: new QueryRequestOptions
-            {
-                PartitionKey = CosmosPartitionKeys.For(usuarioId),
-                MaxItemCount = 100
-            });
-        while (iterator.HasMoreResults)
-        {
-            var response = await iterator.ReadNextAsync(cancellationToken);
-            tokens.AddRange(response);
-        }
+        string? continuationToken = null;
+        var pk = CosmosPartitionKeys.For(usuarioId);
 
-        foreach (var token in tokens)
+        do
         {
-            token.RevokedAt = revokedAt;
-            await _container.ReplaceItemAsync(token,
-                token.Id.ToString(),
-                CosmosPartitionKeys.For(token.UsuarioId),
-                cancellationToken: cancellationToken);
-        }
+            var page = await CosmosPageReader.ReadSinglePageAsync<RefreshToken>(
+                _container, query, pk, PaginationDefaults.MaxPageSize, continuationToken, cancellationToken);
+
+            foreach (var token in page.Items)
+            {
+                token.RevokedAt = revokedAt;
+                await _container.ReplaceItemAsync(token,
+                    token.Id.ToString(),
+                    CosmosPartitionKeys.For(token.UsuarioId),
+                    cancellationToken: cancellationToken);
+            }
+
+            continuationToken = page.ContinuationToken;
+        } while (continuationToken is not null);
     }
 }

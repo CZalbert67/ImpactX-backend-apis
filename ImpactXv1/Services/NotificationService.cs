@@ -3,6 +3,7 @@ using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
 using ImpactX.Core.Notifications;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using Microsoft.Extensions.Logging;
 using Monitor = ImpactX.Core.Domain.Monitor;
@@ -40,6 +41,19 @@ public class NotificationService : INotificationService
         return notificaciones.Select(MapToDto).ToList();
     }
 
+    public async Task<PagedResult<NotificacionDto>> GetNotificationsPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _notificacionRepository.GetByUserPagedAsync(usuarioId, size, continuationToken);
+        return new PagedResult<NotificacionDto>
+        {
+            Items = page.Items.Select(MapToDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
+    }
+
     public async Task<int> GetUnreadCountAsync(Guid usuarioId)
     {
         return await _notificacionRepository.CountUnreadByUserAsync(usuarioId);
@@ -47,7 +61,7 @@ public class NotificationService : INotificationService
 
     public async Task ToggleReadAsync(Guid usuarioId, Guid notificacionId, ToggleReadRequest request)
     {
-        var notificacion = await _notificacionRepository.GetByIdAsync(notificacionId)
+        var notificacion = await _notificacionRepository.GetByIdAsync(usuarioId, notificacionId)
             ?? throw new NotFoundException("Notificación no encontrada.");
 
         if (notificacion.UsuarioId != usuarioId)
@@ -71,7 +85,7 @@ public class NotificationService : INotificationService
 
     public async Task DeleteAsync(Guid usuarioId, Guid notificacionId)
     {
-        var notificacion = await _notificacionRepository.GetByIdAsync(notificacionId)
+        var notificacion = await _notificacionRepository.GetByIdAsync(usuarioId, notificacionId)
             ?? throw new NotFoundException("Notificación no encontrada.");
 
         if (notificacion.UsuarioId != usuarioId)

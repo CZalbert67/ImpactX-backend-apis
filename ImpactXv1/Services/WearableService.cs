@@ -1,6 +1,7 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -25,6 +26,19 @@ public class WearableService : IWearableService
     {
         var wearable = await _wearableRepository.GetByUsuarioIdAsync(usuarioId);
         return wearable is null ? null : MapToDto(wearable);
+    }
+
+    public async Task<PagedResult<WearableDto>> GetWearablesPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _wearableRepository.GetAllByUsuarioIdPagedAsync(usuarioId, size, continuationToken);
+        return new PagedResult<WearableDto>
+        {
+            Items = page.Items.Select(MapToDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
     }
 
     public async Task<PairResponse> PairAsync(Guid usuarioId, PairWearableRequest request)

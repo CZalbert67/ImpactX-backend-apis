@@ -121,7 +121,7 @@ public class NotificationServiceTests
             UsuarioId = usuarioId,
             Leida = false,
         };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(notificacion.Id)).ReturnsAsync(notificacion);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), notificacion.Id)).ReturnsAsync(notificacion);
 
         await _notificationService.ToggleReadAsync(usuarioId, notificacion.Id, new ToggleReadRequest
         {
@@ -144,7 +144,7 @@ public class NotificationServiceTests
             Leida = true,
             LeidaEn = DateTime.UtcNow,
         };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(notificacion.Id)).ReturnsAsync(notificacion);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), notificacion.Id)).ReturnsAsync(notificacion);
 
         await _notificationService.ToggleReadAsync(usuarioId, notificacion.Id, new ToggleReadRequest
         {
@@ -164,7 +164,7 @@ public class NotificationServiceTests
             Id = Guid.NewGuid(),
             UsuarioId = Guid.NewGuid(),
         };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(notificacion.Id)).ReturnsAsync(notificacion);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), notificacion.Id)).ReturnsAsync(notificacion);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _notificationService.ToggleReadAsync(usuarioId, notificacion.Id, new ToggleReadRequest { Leida = true }));
@@ -173,7 +173,7 @@ public class NotificationServiceTests
     [Fact]
     public async Task ToggleReadAsync_NotFound_Throws()
     {
-        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Notificacion?)null);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ReturnsAsync((Notificacion?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
             _notificationService.ToggleReadAsync(Guid.NewGuid(), Guid.NewGuid(), new ToggleReadRequest { Leida = true }));
@@ -199,7 +199,7 @@ public class NotificationServiceTests
             Id = Guid.NewGuid(),
             UsuarioId = usuarioId,
         };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(notificacion.Id)).ReturnsAsync(notificacion);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), notificacion.Id)).ReturnsAsync(notificacion);
 
         await _notificationService.DeleteAsync(usuarioId, notificacion.Id);
 
@@ -215,7 +215,7 @@ public class NotificationServiceTests
             Id = Guid.NewGuid(),
             UsuarioId = Guid.NewGuid(),
         };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(notificacion.Id)).ReturnsAsync(notificacion);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), notificacion.Id)).ReturnsAsync(notificacion);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _notificationService.DeleteAsync(usuarioId, notificacion.Id));
@@ -224,7 +224,7 @@ public class NotificationServiceTests
     [Fact]
     public async Task DeleteAsync_NotFound_Throws()
     {
-        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Notificacion?)null);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ReturnsAsync((Notificacion?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
             _notificationService.DeleteAsync(Guid.NewGuid(), Guid.NewGuid()));
@@ -277,7 +277,7 @@ public class NotificationServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var noti = new Notificacion { Id = Guid.NewGuid(), UsuarioId = usuarioId, Leida = false };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(noti.Id)).ReturnsAsync(noti);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), noti.Id)).ReturnsAsync(noti);
 
         await _notificationService.ToggleReadAsync(usuarioId, noti.Id, new ToggleReadRequest { Leida = true });
 

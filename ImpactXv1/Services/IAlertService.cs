@@ -1,3 +1,4 @@
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -12,4 +13,5 @@ public interface IAlertService
     Task<AlertStatusDto> GetStatusAsync(Guid usuarioId, Guid alertaId);
     Task<AlertActionResponse> CloseAsync(Guid usuarioId, Guid alertaId, CloseAlertRequest request);
     Task<List<AlertStatusDto>> SyncOfflineAsync(Guid usuarioId, SyncOfflineRequest request);
+    Task<PagedResult<AlertStatusDto>> GetAlertsPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken);
 }

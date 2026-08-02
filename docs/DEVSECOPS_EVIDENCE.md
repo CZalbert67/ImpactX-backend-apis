@@ -224,3 +224,26 @@ Código
 | 15 | Roslyn | `dotnet format --verify-no-changes` | Limpio en archivos C# modificados/nuevos. |
 | 16 | git diff --check | `git diff --check` | Sin errores de whitespace. |
 | 17 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR (Azure/Cosmos real no contactados en esta rama; no afirmar validación). |
+
+### R0.6 — Pagination and Query Efficiency / PR 2B (completado 2026-08-01)
+
+| # | Control | Prueba/Workflow | Qué valida |
+|---|---|---|---|
+| 1 | Validación de paginación | `PaginationValidatorTests` (17) | pageSize default 20, rango 1–100, fuera de rango → `BadRequestException` (400); token nulo permitido; token vacío/whitespace, con CR/LF o > 2048 chars → 400; token de longitud máxima permitido. |
+| 2 | Token EF opaco | `OffsetContinuationTokenTests` (8) | Round-trip encode/decode (0, 20, 1000); tokens malformados (base64 inválido, `offset:-1`, `offset:` vacío, token de otro formato, vacío) → 400 genérico, sin detalles internos. |
+| 3 | Paginación de servicios | `ViajeServiceTests` (4 nuevas) + `IncidentServiceTests` (4 nuevas: bounds Pagina/Tamano) | `GetTripsPagedAsync` mapea página y respeta token; pageSize fuera de rango → 400; `GetTelemetryPagedAsync` con viaje propio devuelve página; **viaje de otro usuario → `ForbiddenException` (IDOR)**; incidentes con `Pagina=0`/`Tamano=0`/`Tamano=101` → 400; `Tamano=100` permitido. |
+| 4 | Contrato legacy paginado | `PaginationContractTests` (7) | `GET /api/contacts?pageSize=2` devuelve body `List<T>` (2 ítems) + header `X-Continuation-Token`; segunda página con token devuelve el resto **sin** header en la última página; **JSON raíz array sin campos de paginación**; `pageSize=0`/`pageSize=101` → 400; token inválido/malformado → 400; monitors paginados OK. |
+| 5 | Endpoints nuevos paginados | `PaginationContractTests` (2) | `GET /api/trips` devuelve body `PagedResult<T>` (items, continuationToken, hasMoreResults, pageSize); **telemetría de viaje ajeno → 404** (point-read null, sin revelar existencia). |
+| 5b | EfPageReader | `EfPageReaderTests` (11) | 0/parcial/llena; página exacta y parcial final **sin token**; `pageSize+1` decide `HasMoreResults`; segunda página avanza offset correcto; 4 tokens malformados → 400. |
+| 5c | CosmosPageReader | `CosmosPageReaderTests` (8) | Un único `ReadNextAsync`; `MaxItemCount=pageSize`; `PartitionKey` aplicado; token SDK no descodificado/inalterado; token nulo cuando no hay más; 400 Cosmos → `BadRequestException` genérica (sin token ni activity-id); errores 5xx propagan. |
+| 6 | CORS expone headers de paginación | `ApiContractV1Tests.ActualResponse_ExposesPaginationHeaders` (1) | Respuesta real con origen permitido expone `X-Continuation-Token` y `X-Correlation-Id` en `Access-Control-Expose-Headers`. Token fuera de `WithHeaders` (viaja como query param). |
+| 6b | Seguridad de paginación | `PaginationContractTests` (6, Category=Security) | CR/LF y token > 2048 chars → 400 sin eco del token; 400 como ProblemDetails sin token en body; header `X-Continuation-Token` sin CR/LF; token de otro usuario no filtra datos ajenos (respuesta vacía); IDOR telemetría → 404 sin revelar propietario. |
+| 7 | Security regression | `Category=Security` (164 tests) | 164 pruebas de seguridad, 0 fallos (158 + 6 nuevas de paginación). |
+| 8 | Suite completa | `dotnet test ImpactX.slnx --configuration Release` | **731 pruebas**, 0 fallos (antes 705/158; +26). 77 contratos V1. Idéntico en Debug. |
+| 9 | Python | `python3 -m unittest discover -s scripts/security/tests` | 30 tests, 0 fallos. |
+| 10 | Secret scanner | `check_hardcoded_secrets.py` | 0 violaciones (282 archivos). |
+| 11 | NuGet audit | `dotnet list package --vulnerable --include-transitive` | 0 vulnerables. |
+| 12 | Roslyn | `dotnet format --verify-no-changes` (full, con include de modificados) | Limpio en C# modificados/nuevos. |
+| 13 | git diff --check | `git diff --check` | Sin errores de whitespace. |
+| 14 | OpenAPI en vivo | `/openapi/v1.json` (79 paths) | `pageSize` documentado con `minimum: 1, maximum: 100` y descripción; `continuationToken` documentado como token opaco del header; nuevos endpoints trips/telemetry/alerts/wearable-all presentes. |
+| 15 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR (Azure/Cosmos real no contactados en esta rama; no afirmar validación). |

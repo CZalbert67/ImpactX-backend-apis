@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -20,11 +21,12 @@ public class RoutesController : ControllerBase
     }
 
     [HttpGet("frequent")]
-    public async Task<IActionResult> GetFrequent()
+    public async Task<IActionResult> GetFrequent(int? pageSize, string? continuationToken)
     {
         var usuarioId = GetUsuarioId();
-        var rutas = await _rutaService.GetFrequentAsync(usuarioId);
-        return Ok(rutas);
+        var page = await _rutaService.GetFrequentPagedAsync(usuarioId, pageSize, continuationToken);
+        PagedResultHttp.ApplyContinuationToken(Response, page);
+        return Ok(page.Items);
     }
 
     [HttpPost("frequent")]
@@ -60,11 +62,12 @@ public class RoutesController : ControllerBase
     }
 
     [HttpGet("history")]
-    public async Task<IActionResult> GetHistory()
+    public async Task<IActionResult> GetHistory(int? pageSize, string? continuationToken)
     {
         var usuarioId = GetUsuarioId();
-        var rutas = await _rutaService.GetHistoryAsync(usuarioId);
-        return Ok(rutas);
+        var page = await _rutaService.GetHistoryPagedAsync(usuarioId, pageSize, continuationToken);
+        PagedResultHttp.ApplyContinuationToken(Response, page);
+        return Ok(page.Items);
     }
 
     private Guid GetUsuarioId()

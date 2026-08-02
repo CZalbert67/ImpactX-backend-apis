@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using Monitor = ImpactX.Core.Domain.Monitor;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
@@ -35,11 +36,22 @@ public class CosmosMonitorRepository : IMonitorRepository
         return results;
     }
 
+    public async Task<PagedResult<Monitor>> GetByUserPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId ORDER BY c.creadoEn DESC")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        return await CosmosPageReader.ReadSinglePageAsync<Monitor>(
+            _container, query, CosmosPartitionKeys.For(usuarioId),
+            pageSize, continuationToken, cancellationToken);
+    }
+
     public async Task<Monitor?> GetByIdAsync(Guid id)
     {
         // Cross-partition justificada: el contrato solo recibe el id y
-        // Monitores particiona por /usuarioId. Corrige el ReadItemAsync
-        // anterior con partition key incorrecta que siempre devolvía 404.
+        // Monitores particiona por /usuarioId. Los servicios que conocen el
+        // usuario deben usar GetByIdAsync(usuarioId, id) (point-read).
         var query = new QueryDefinition(
             "SELECT TOP 1 * FROM c WHERE c.id = @id")
             .WithParameter("@id", id.ToString());
@@ -52,6 +64,21 @@ public class CosmosMonitorRepository : IMonitorRepository
             return response.FirstOrDefault();
         }
         return null;
+    }
+
+    public async Task<Monitor?> GetByIdAsync(Guid usuarioId, Guid id)
+    {
+        try
+        {
+            var response = await _container.ReadItemAsync<Monitor>(
+                id.ToString(),
+                CosmosPartitionKeys.For(usuarioId));
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
     }
 
     public async Task<List<Monitor>> GetActiveByUserAsync(Guid usuarioId)

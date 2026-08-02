@@ -2,6 +2,7 @@ using ImpactX.Core.Exceptions;
 using Monitor = ImpactX.Core.Domain.Monitor;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using Microsoft.Extensions.Logging;
 
@@ -30,6 +31,19 @@ public class MonitorService : IMonitorService
     {
         var monitors = await _monitorRepository.GetByUserAsync(usuarioId);
         return monitors.Select(MapToDto).ToList();
+    }
+
+    public async Task<PagedResult<MonitorDto>> GetMonitorsPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _monitorRepository.GetByUserPagedAsync(usuarioId, size, continuationToken);
+        return new PagedResult<MonitorDto>
+        {
+            Items = page.Items.Select(MapToDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
     }
 
     public async Task<InviteMonitorResponse> InviteAsync(Guid usuarioId, InviteMonitorRequest request)
@@ -102,7 +116,7 @@ public class MonitorService : IMonitorService
 
     public async Task ResendInviteAsync(Guid usuarioId, Guid monitorId)
     {
-        var monitor = await _monitorRepository.GetByIdAsync(monitorId)
+        var monitor = await _monitorRepository.GetByIdAsync(usuarioId, monitorId)
             ?? throw new NotFoundException("Invitación no encontrada.");
 
         if (monitor.UsuarioId != usuarioId)
@@ -118,7 +132,7 @@ public class MonitorService : IMonitorService
 
     public async Task RestoreMonitorAsync(Guid usuarioId, Guid monitorId)
     {
-        var monitor = await _monitorRepository.GetByIdAsync(monitorId)
+        var monitor = await _monitorRepository.GetByIdAsync(usuarioId, monitorId)
             ?? throw new NotFoundException("Monitor no encontrado.");
 
         if (monitor.UsuarioId != usuarioId)
@@ -134,7 +148,7 @@ public class MonitorService : IMonitorService
 
     public async Task RevokeMonitorAsync(Guid usuarioId, Guid monitorId)
     {
-        var monitor = await _monitorRepository.GetByIdAsync(monitorId)
+        var monitor = await _monitorRepository.GetByIdAsync(usuarioId, monitorId)
             ?? throw new NotFoundException("Monitor no encontrado.");
 
         if (monitor.UsuarioId != usuarioId)

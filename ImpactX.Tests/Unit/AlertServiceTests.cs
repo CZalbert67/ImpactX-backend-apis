@@ -113,7 +113,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Pendiente" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         var result = await _alertService.ConfirmOkAsync(usuarioId, alerta.Id);
 
@@ -131,7 +131,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Cerrada" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             _alertService.ConfirmOkAsync(usuarioId, alerta.Id));
@@ -143,7 +143,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = Guid.NewGuid(), Estado = "Pendiente" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _alertService.ConfirmOkAsync(usuarioId, alerta.Id));
@@ -154,7 +154,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Enviada" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         var result = await _alertService.BypassCriticalAsync(usuarioId, alerta.Id);
 
@@ -170,7 +170,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Cerrada" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             _alertService.BypassCriticalAsync(usuarioId, alerta.Id));
@@ -187,7 +187,7 @@ public class AlertServiceTests
             Estado = "Pendiente",
             Timeline = [["2024-01-01T00:00:00Z", "Impacto detectado: crash"]],
         };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         var result = await _alertService.RetryAsync(usuarioId, alerta.Id);
 
@@ -203,7 +203,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Enviada" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             _alertService.RetryAsync(usuarioId, alerta.Id));
@@ -221,7 +221,7 @@ public class AlertServiceTests
             Severidad = "crash",
             Estado = "Enviada",
         };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         var result = await _alertService.GetStatusAsync(usuarioId, alerta.Id);
 
@@ -236,7 +236,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = Guid.NewGuid() };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _alertService.GetStatusAsync(usuarioId, alerta.Id));
@@ -245,7 +245,7 @@ public class AlertServiceTests
     [Fact]
     public async Task GetStatusAsync_NotFound_Throws()
     {
-        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Alerta?)null);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ReturnsAsync((Alerta?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
             _alertService.GetStatusAsync(Guid.NewGuid(), Guid.NewGuid()));
@@ -264,7 +264,7 @@ public class AlertServiceTests
             Lat = 19.43,
             Lng = -99.13,
         };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         var result = await _alertService.CloseAsync(usuarioId, alerta.Id, new CloseAlertRequest
         {
@@ -284,7 +284,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activa" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         var result = await _alertService.CloseAsync(usuarioId, alerta.Id, new CloseAlertRequest
         {
@@ -301,7 +301,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activa" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         await Assert.ThrowsAsync<BadRequestException>(() =>
             _alertService.CloseAsync(usuarioId, alerta.Id, new CloseAlertRequest
@@ -316,7 +316,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = Guid.NewGuid(), Estado = "Activa" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _alertService.CloseAsync(usuarioId, alerta.Id, new CloseAlertRequest
@@ -393,7 +393,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Pendiente" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         await _alertService.ConfirmOkAsync(usuarioId, alerta.Id);
 
@@ -406,7 +406,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Severidad = "crash", Estado = "Activa" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         await _alertService.CloseAsync(usuarioId, alerta.Id, new CloseAlertRequest { MetodoCierre = "Atendido" });
 
@@ -418,7 +418,7 @@ public class AlertServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Pendiente" };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         await _alertService.BypassCriticalAsync(usuarioId, alerta.Id);
 
@@ -437,7 +437,7 @@ public class AlertServiceTests
             Estado = "Pendiente",
             Timeline = [["2024-01-01T00:00:00Z", "Impacto detectado: crash"]],
         };
-        _alertaRepo.Setup(r => r.GetByIdAsync(alerta.Id)).ReturnsAsync(alerta);
+        _alertaRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), alerta.Id)).ReturnsAsync(alerta);
 
         await _alertService.RetryAsync(usuarioId, alerta.Id);
 

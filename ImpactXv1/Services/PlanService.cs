@@ -1,6 +1,7 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -58,6 +59,27 @@ public class PlanService : IPlanService
             dtos.Add(MapToSuscripcionDto(s, plan));
         }
         return dtos;
+    }
+
+    public async Task<PagedResult<SuscripcionDto>> GetSubscriptionHistoryPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _suscripcionRepository.GetHistoryByUserPagedAsync(usuarioId, size, continuationToken);
+
+        var dtos = new List<SuscripcionDto>();
+        foreach (var s in page.Items)
+        {
+            var plan = await _planRepository.GetByIdAsync(s.PlanId);
+            dtos.Add(MapToSuscripcionDto(s, plan));
+        }
+
+        return new PagedResult<SuscripcionDto>
+        {
+            Items = dtos,
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
     }
 
     public async Task<SuscripcionDto> ChangePlanAsync(Guid usuarioId, ChangePlanRequest request)
@@ -133,16 +155,32 @@ public class PlanService : IPlanService
         return pagos.Select(MapToPagoDto).ToList();
     }
 
+    public async Task<PagedResult<PagoDto>> GetPaymentsPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _pagoRepository.GetByUserPagedAsync(usuarioId, size, continuationToken);
+        return new PagedResult<PagoDto>
+        {
+            Items = page.Items.Select(MapToPagoDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
+    }
+
     public async Task<PagoDto?> GetPaymentReceiptAsync(Guid id, Guid usuarioId)
     {
-        var pago = await _pagoRepository.GetByIdAsync(id);
+        // Point-read por (usuarioId, id): sin cross-partition; un pago de otro
+        // usuario o inexistente resuelve a null sin revelar existencia.
+        var pago = await _pagoRepository.GetByIdAsync(usuarioId, id);
         return pago is null || pago.UsuarioId != usuarioId ? null : MapToPagoDto(pago);
     }
 
     public async Task<int> ExpireSubscriptionsAsync()
     {
-        var expired = await _suscripcionRepository.GetExpiredAsync();
-        foreach (var s in expired)
+        // Proceso completo incremental: el repositorio pagina y procesa cada
+        // suscripción expirada sin acumular todo el conjunto en memoria.
+        var expired = await _suscripcionRepository.ExpireAllAsync(async (s, ct) =>
         {
             s.Estado = "Expirada";
             await _suscripcionRepository.UpdateAsync(s);
@@ -153,8 +191,8 @@ public class PlanService : IPlanService
                 usuario.PlanActivo = "Free";
                 await _usuarioRepository.UpdateAsync(usuario);
             }
-        }
-        return expired.Count;
+        });
+        return expired;
     }
 
     private static PlanDto MapToPlanDto(Plan p) => new()

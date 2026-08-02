@@ -72,7 +72,7 @@ public class IncidentServiceTests
             Timeline = [["2024-01-01", "Test"]],
             ContactosNotificados = ["contacto1@test.com"],
         };
-        _incidenteRepo.Setup(r => r.GetByIdAsync(incidente.Id)).ReturnsAsync(incidente);
+        _incidenteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), incidente.Id)).ReturnsAsync(incidente);
 
         var result = await _incidentService.GetIncidentDetailAsync(usuarioId, incidente.Id);
 
@@ -88,7 +88,7 @@ public class IncidentServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var incidente = new Incidente { Id = Guid.NewGuid(), UsuarioId = Guid.NewGuid() };
-        _incidenteRepo.Setup(r => r.GetByIdAsync(incidente.Id)).ReturnsAsync(incidente);
+        _incidenteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), incidente.Id)).ReturnsAsync(incidente);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _incidentService.GetIncidentDetailAsync(usuarioId, incidente.Id));
@@ -97,7 +97,7 @@ public class IncidentServiceTests
     [Fact]
     public async Task GetIncidentDetailAsync_NotFound_Throws()
     {
-        _incidenteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Incidente?)null);
+        _incidenteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ReturnsAsync((Incidente?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
             _incidentService.GetIncidentDetailAsync(Guid.NewGuid(), Guid.NewGuid()));
@@ -108,7 +108,7 @@ public class IncidentServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var incidente = new Incidente { Id = Guid.NewGuid(), UsuarioId = usuarioId };
-        _incidenteRepo.Setup(r => r.GetByIdAsync(incidente.Id)).ReturnsAsync(incidente);
+        _incidenteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), incidente.Id)).ReturnsAsync(incidente);
 
         await _incidentService.MarkAsFalseAlarmAsync(usuarioId, incidente.Id, new MarkFalseAlarmRequest
         {
@@ -125,7 +125,7 @@ public class IncidentServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var incidente = new Incidente { Id = Guid.NewGuid(), UsuarioId = Guid.NewGuid() };
-        _incidenteRepo.Setup(r => r.GetByIdAsync(incidente.Id)).ReturnsAsync(incidente);
+        _incidenteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), incidente.Id)).ReturnsAsync(incidente);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _incidentService.MarkAsFalseAlarmAsync(usuarioId, incidente.Id, new MarkFalseAlarmRequest()));
@@ -136,7 +136,7 @@ public class IncidentServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var incidente = new Incidente { Id = Guid.NewGuid(), UsuarioId = usuarioId };
-        _incidenteRepo.Setup(r => r.GetByIdAsync(incidente.Id)).ReturnsAsync(incidente);
+        _incidenteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), incidente.Id)).ReturnsAsync(incidente);
 
         await _incidentService.UpdateNoteAsync(usuarioId, incidente.Id, new NoteRequest
         {
@@ -152,7 +152,7 @@ public class IncidentServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var incidente = new Incidente { Id = Guid.NewGuid(), UsuarioId = Guid.NewGuid() };
-        _incidenteRepo.Setup(r => r.GetByIdAsync(incidente.Id)).ReturnsAsync(incidente);
+        _incidenteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), incidente.Id)).ReturnsAsync(incidente);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _incidentService.UpdateNoteAsync(usuarioId, incidente.Id, new NoteRequest { Nota = "test" }));
@@ -170,7 +170,7 @@ public class IncidentServiceTests
             Lng = -99.13,
             Lugar = "CDMX",
         };
-        _incidenteRepo.Setup(r => r.GetByIdAsync(incidente.Id)).ReturnsAsync(incidente);
+        _incidenteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), incidente.Id)).ReturnsAsync(incidente);
         _planService.Setup(p => p.GetCurrentSubscriptionAsync(usuarioId))
             .ReturnsAsync(new SuscripcionDto { PlanNombre = "Premium" });
 
@@ -224,7 +224,36 @@ public class IncidentServiceTests
     }
 
     [Fact]
-    public async Task ExportAsync_ExportData_ContainsHeader()
+    public async Task GetIncidentsAsync_InvalidPagina_ThrowsBadRequest()
+    {
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            _incidentService.GetIncidentsAsync(Guid.NewGuid(), new IncidentFilterRequest { Pagina = 0 }));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(101)]
+    public async Task GetIncidentsAsync_InvalidTamano_ThrowsBadRequest(int tamano)
+    {
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            _incidentService.GetIncidentsAsync(Guid.NewGuid(), new IncidentFilterRequest { Tamano = tamano }));
+    }
+
+    [Fact]
+    public async Task GetIncidentsAsync_MaxTamano_IsAllowed()
+    {
+        var usuarioId = Guid.NewGuid();
+        _incidenteRepo.Setup(r => r.GetFilteredAsync(usuarioId, null, null, null, 1, 100))
+            .ReturnsAsync([]);
+
+        var result = await _incidentService.GetIncidentsAsync(
+            usuarioId, new IncidentFilterRequest { Tamano = 100 });
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task ExportAsync_ExportsCsv()
     {
         var usuarioId = Guid.NewGuid();
         _planService.Setup(p => p.GetCurrentSubscriptionAsync(usuarioId))

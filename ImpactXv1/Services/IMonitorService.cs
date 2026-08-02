@@ -1,4 +1,5 @@
 using ImpactX.Core.Exceptions;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -6,6 +7,7 @@ namespace ImpactX.Services;
 public interface IMonitorService
 {
     Task<List<MonitorDto>> GetMonitorsAsync(Guid usuarioId);
+    Task<PagedResult<MonitorDto>> GetMonitorsPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken);
     Task<InviteMonitorResponse> InviteAsync(Guid usuarioId, InviteMonitorRequest request);
     Task ResendInviteAsync(Guid usuarioId, Guid monitorId);
     Task RestoreMonitorAsync(Guid usuarioId, Guid monitorId);

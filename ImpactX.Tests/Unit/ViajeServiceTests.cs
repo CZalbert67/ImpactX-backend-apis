@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -53,7 +54,7 @@ public class ViajeServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var viaje = new Viaje { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activo" };
-        _viajeRepo.Setup(r => r.GetByIdAsync(viaje.Id)).ReturnsAsync(viaje);
+        _viajeRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), viaje.Id)).ReturnsAsync(viaje);
 
         var result = await _viajeService.PauseAsync(usuarioId, viaje.Id);
 
@@ -67,7 +68,7 @@ public class ViajeServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var viaje = new Viaje { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Finalizado" };
-        _viajeRepo.Setup(r => r.GetByIdAsync(viaje.Id)).ReturnsAsync(viaje);
+        _viajeRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), viaje.Id)).ReturnsAsync(viaje);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             _viajeService.PauseAsync(usuarioId, viaje.Id));
@@ -78,7 +79,7 @@ public class ViajeServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var viaje = new Viaje { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Pausado" };
-        _viajeRepo.Setup(r => r.GetByIdAsync(viaje.Id)).ReturnsAsync(viaje);
+        _viajeRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), viaje.Id)).ReturnsAsync(viaje);
 
         var result = await _viajeService.ResumeAsync(usuarioId, viaje.Id);
 
@@ -97,7 +98,7 @@ public class ViajeServiceTests
             Estado = "Activo",
             Inicio = DateTime.UtcNow.AddMinutes(-30),
         };
-        _viajeRepo.Setup(r => r.GetByIdAsync(viaje.Id)).ReturnsAsync(viaje);
+        _viajeRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), viaje.Id)).ReturnsAsync(viaje);
         _viajeRepo.Setup(r => r.GetTelemetryByViajeAsync(viaje.Id))
             .ReturnsAsync([
                 new ViajeTelemetry { Lat = 19.43, Lng = -99.13, Velocidad = 50 },
@@ -120,7 +121,7 @@ public class ViajeServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var viaje = new Viaje { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Finalizado" };
-        _viajeRepo.Setup(r => r.GetByIdAsync(viaje.Id)).ReturnsAsync(viaje);
+        _viajeRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), viaje.Id)).ReturnsAsync(viaje);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             _viajeService.FinishAsync(usuarioId, viaje.Id));
@@ -131,7 +132,7 @@ public class ViajeServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var viaje = new Viaje { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activo" };
-        _viajeRepo.Setup(r => r.GetByIdAsync(viaje.Id)).ReturnsAsync(viaje);
+        _viajeRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), viaje.Id)).ReturnsAsync(viaje);
 
         var result = await _viajeService.UpdateTelemetryAsync(usuarioId, viaje.Id, new TelemetryUpdateRequest
         {
@@ -174,9 +175,73 @@ public class ViajeServiceTests
         var usuarioId = Guid.NewGuid();
         var otroUsuarioId = Guid.NewGuid();
         var viaje = new Viaje { Id = Guid.NewGuid(), UsuarioId = otroUsuarioId, Estado = "Activo" };
-        _viajeRepo.Setup(r => r.GetByIdAsync(viaje.Id)).ReturnsAsync(viaje);
+        _viajeRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), viaje.Id)).ReturnsAsync(viaje);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _viajeService.PauseAsync(usuarioId, viaje.Id));
+    }
+
+    [Fact]
+    public async Task GetTripsPagedAsync_ReturnsMappedPage()
+    {
+        var usuarioId = Guid.NewGuid();
+        var viaje = new Viaje { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activo" };
+        var page = new PagedResult<Viaje>
+        {
+            Items = [viaje],
+            ContinuationToken = "token",
+            HasMoreResults = true,
+            PageSize = 20,
+        };
+        _viajeRepo.Setup(r => r.GetByUserPagedAsync(usuarioId, 20, null)).ReturnsAsync(page);
+
+        var result = await _viajeService.GetTripsPagedAsync(usuarioId, null, null);
+
+        Assert.Single(result.Items);
+        Assert.Equal(viaje.Id, result.Items[0].Id);
+        Assert.Equal("token", result.ContinuationToken);
+        Assert.True(result.HasMoreResults);
+    }
+
+    [Fact]
+    public async Task GetTripsPagedAsync_OutOfRangePageSize_ThrowsBadRequest()
+    {
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            _viajeService.GetTripsPagedAsync(Guid.NewGuid(), 101, null));
+    }
+
+    [Fact]
+    public async Task GetTelemetryPagedAsync_OwnTrip_ReturnsPage()
+    {
+        var usuarioId = Guid.NewGuid();
+        var viaje = new Viaje { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Finalizado" };
+        var punto = new ViajeTelemetry { Id = Guid.NewGuid(), ViajeId = viaje.Id, Lat = 19.43, Lng = -99.13, Velocidad = 50 };
+        var page = new PagedResult<ViajeTelemetry>
+        {
+            Items = [punto],
+            ContinuationToken = null,
+            HasMoreResults = false,
+            PageSize = 20,
+        };
+        _viajeRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), viaje.Id)).ReturnsAsync(viaje);
+        _viajeRepo.Setup(r => r.GetTelemetryByViajePagedAsync(viaje.Id, 20, null)).ReturnsAsync(page);
+
+        var result = await _viajeService.GetTelemetryPagedAsync(usuarioId, viaje.Id, null, null);
+
+        Assert.Single(result.Items);
+        Assert.Equal(19.43, result.Items[0].Lat);
+        Assert.False(result.HasMoreResults);
+    }
+
+    [Fact]
+    public async Task GetTelemetryPagedAsync_OtherUsersTrip_Throws()
+    {
+        var usuarioId = Guid.NewGuid();
+        var otroUsuarioId = Guid.NewGuid();
+        var viaje = new Viaje { Id = Guid.NewGuid(), UsuarioId = otroUsuarioId, Estado = "Finalizado" };
+        _viajeRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), viaje.Id)).ReturnsAsync(viaje);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            _viajeService.GetTelemetryPagedAsync(usuarioId, viaje.Id, null, null));
     }
 }
