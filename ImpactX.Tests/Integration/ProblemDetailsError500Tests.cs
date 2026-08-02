@@ -96,9 +96,13 @@ public class ProblemDetailsError500Tests : IDisposable
         public Task<Usuario?> GetByIdAsync(Guid id) => _inner.GetByIdAsync(id);
         public Task<Usuario?> GetByCorreoAsync(string correo) => _inner.GetByCorreoAsync(correo);
         public Task<Usuario?> GetByUsernameAsync(string username) => _inner.GetByUsernameAsync(username);
-        public Task<List<Usuario>> SearchAsync(string query) => _inner.SearchAsync(query);
+        public Task<Usuario?> GetByPublicProfileIdAsync(string publicProfileId) => _inner.GetByPublicProfileIdAsync(publicProfileId);
+        public Task<List<Usuario>> SearchAsync(string query, string? by = null) => _inner.SearchAsync(query, by);
         public Task<bool> ExistsByCorreoAsync(string correo) => _inner.ExistsByCorreoAsync(correo);
         public Task<bool> ExistsByUsernameAsync(string username) => _inner.ExistsByUsernameAsync(username);
+        public Task<bool> ExistsByPublicProfileIdAsync(string publicProfileId) => _inner.ExistsByPublicProfileIdAsync(publicProfileId);
+        public Task<bool> ExistsByUsernameIncludingHistoryAsync(string username) => _inner.ExistsByUsernameIncludingHistoryAsync(username);
+        public Task<bool> ExistsByUsernameHistoryExcludingUsuarioAsync(string username, Guid usuarioId) => _inner.ExistsByUsernameHistoryExcludingUsuarioAsync(username, usuarioId);
         public async Task AddAsync(Usuario usuario)
         {
             await _inner.AddAsync(usuario);

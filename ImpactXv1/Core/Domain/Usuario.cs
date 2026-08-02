@@ -13,6 +13,22 @@ public class Usuario
     [JsonPropertyName("username")]
     public string Username { get; set; } = string.Empty;
 
+    [JsonProperty("publicProfileId")]
+    [JsonPropertyName("publicProfileId")]
+    public string PublicProfileId { get; set; } = string.Empty;
+
+    [JsonProperty("correoNormalizado")]
+    [JsonPropertyName("correoNormalizado")]
+    public string CorreoNormalizado { get; set; } = string.Empty;
+
+    [JsonProperty("usernamesAnteriores")]
+    [JsonPropertyName("usernamesAnteriores")]
+    public List<string> UsernamesAnteriores { get; set; } = [];
+
+    [JsonProperty("onboarding")]
+    [JsonPropertyName("onboarding")]
+    public OnboardingProgress? Onboarding { get; set; }
+
     [JsonProperty("appId")]
     [JsonPropertyName("appId")]
     public string AppId { get; set; } = string.Empty;

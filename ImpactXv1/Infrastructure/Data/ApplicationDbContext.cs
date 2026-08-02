@@ -36,10 +36,15 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(u => u.Correo).IsUnique();
             entity.Property(u => u.Nombre).HasMaxLength(200).IsRequired();
             entity.Property(u => u.Correo).HasMaxLength(256).IsRequired();
+            entity.Property(u => u.CorreoNormalizado).HasMaxLength(256);
+            entity.Property(u => u.PublicProfileId).HasMaxLength(64);
             entity.Property(u => u.Telefono).HasMaxLength(20);
             entity.Property(u => u.PasswordHash).HasMaxLength(500).IsRequired();
             entity.Property(u => u.PlanActivo).HasMaxLength(50);
             entity.Property(u => u.FcmToken).HasMaxLength(1000);
+            entity.PrimitiveCollection(u => u.UsernamesAnteriores);
+
+            entity.OwnsOne(u => u.Onboarding);
 
             entity.OwnsOne(u => u.PerfilConduccion, p =>
             {

@@ -2,10 +2,10 @@ namespace ImpactX.Models.DTOs;
 
 public class UserProfileDto
 {
-    public Guid Id { get; set; }
+    // Compatibilidad: contiene PublicProfileId, nunca la primary key interna.
+    public string Id { get; set; } = string.Empty;
+    public string PublicProfileId { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
-    public string AppId { get; set; } = string.Empty;
-    public string InviteCode { get; set; } = string.Empty;
     public string Nombre { get; set; } = string.Empty;
     public string Correo { get; set; } = string.Empty;
     public string? Telefono { get; set; }
@@ -13,6 +13,7 @@ public class UserProfileDto
     public bool EmailConfirmed { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
+    public OnboardingDto? Onboarding { get; set; }
     public DriverProfileDto? PerfilConduccion { get; set; }
     public MedicalProfileDto? FichaMedica { get; set; }
     public UserPreferencesDto? Preferencias { get; set; }
@@ -86,6 +87,33 @@ public class UpdateMedicalProfileRequest
     public string? Nota { get; set; }
 }
 
+public class OnboardingDto
+{
+    public string Status { get; set; } = nameof(ImpactX.Core.Domain.OnboardingStatus.Pending);
+    public int CurrentStep { get; set; } = 1;
+    public string MedicalProfileStatus { get; set; } = nameof(ImpactX.Core.Domain.MedicalProfileOnboardingStatus.Pending);
+    public bool PrivacyAccepted { get; set; }
+    public bool LocationIncidentConsent { get; set; }
+    public bool DrivingPatternConsent { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public DateTime? UpdatedAtUtc { get; set; }
+}
+
+public class UpdateOnboardingRequest
+{
+    public int? CurrentStep { get; set; }
+    public string? Status { get; set; }
+    public string? MedicalProfileStatus { get; set; }
+    public bool? PrivacyAccepted { get; set; }
+    public bool? LocationIncidentConsent { get; set; }
+    public bool? DrivingPatternConsent { get; set; }
+}
+
+public class UpdateUsernameRequest
+{
+    public string? Username { get; set; }
+}
+
 public class PermisosDto
 {
     public PermisosPlataformaDto? Mobile { get; set; }
@@ -109,9 +137,9 @@ public class SettingsDto
 
 public class UserSearchResultDto
 {
-    public Guid Id { get; set; }
+    // Compatibilidad: contiene PublicProfileId, nunca la primary key interna.
+    public string Id { get; set; } = string.Empty;
+    public string PublicProfileId { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
-    public string AppId { get; set; } = string.Empty;
     public string Nombre { get; set; } = string.Empty;
-    public string? Correo { get; set; }
 }

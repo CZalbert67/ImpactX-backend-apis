@@ -1,5 +1,6 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
+using ImpactX.Core.Identity;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
 using ImpactX.Core.Security;
@@ -49,6 +50,7 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
     {
+        var correoNormalizado = EmailNormalizer.Normalize(request.Correo);
         if (await _usuarioRepository.ExistsByCorreoAsync(request.Correo))
         {
             return new AuthResponse
@@ -58,22 +60,22 @@ public class AuthService : IAuthService
             };
         }
 
-        var username = GenerateUsername(request.Nombre);
-        while (await _usuarioRepository.ExistsByUsernameAsync(username))
-        {
-            username = GenerateUsername(request.Nombre);
-        }
+        var username = await GenerateUniqueUsernameAsync(request.Nombre);
+        var publicProfileId = await GenerateUniquePublicProfileIdAsync();
 
         var usuario = new Usuario
         {
             Nombre = request.Nombre,
             Username = username,
+            PublicProfileId = publicProfileId,
+            CorreoNormalizado = correoNormalizado,
             AppId = GenerateAppId(request.Nombre),
             InviteCode = GenerateInviteCode(request.Nombre),
-            Correo = request.Correo,
+            Correo = request.Correo.Trim(),
             Telefono = request.Telefono ?? string.Empty,
             PasswordHash = _encryptionService.HashPassword(request.Password),
-            PlanActivo = request.PlanActivo
+            PlanActivo = request.PlanActivo,
+            Onboarding = new OnboardingProgress()
         };
 
         await _usuarioRepository.AddAsync(usuario);
@@ -101,12 +103,12 @@ public class AuthService : IAuthService
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict
             || ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
         {
-            _logger.LogWarning("Asignación del plan Free omitida para usuario {UsuarioId} (Cosmos {StatusCode}).",
-                usuario.Id, ex.StatusCode);
+            _logger.LogWarning("Asignación del plan Free omitida (Cosmos {StatusCode}).",
+                ex.StatusCode);
         }
         catch (DbUpdateException)
         {
-            _logger.LogWarning("Asignación del plan Free omitida para usuario {UsuarioId} (EF).", usuario.Id);
+            _logger.LogWarning("Asignación del plan Free omitida (EF).");
         }
         catch (OperationCanceledException)
         {
@@ -121,7 +123,17 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
-        var usuario = await _usuarioRepository.GetByCorreoAsync(request.Correo);
+        if (!string.IsNullOrWhiteSpace(request.Identifier) &&
+            !string.IsNullOrWhiteSpace(request.Correo) &&
+            !string.Equals(request.Identifier.Trim(), request.Correo.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new BadRequestException("No se pueden proporcionar 'identifier' y 'correo' simultáneamente con valores diferentes.");
+        }
+
+        var identifier = ResolveIdentifier(request);
+        var usuario = LooksLikeEmail(identifier)
+            ? await _usuarioRepository.GetByCorreoAsync(identifier)
+            : await _usuarioRepository.GetByUsernameAsync(identifier);
 
         if (usuario is null || !_encryptionService.VerifyPassword(request.Password, usuario.PasswordHash))
         {
@@ -141,6 +153,7 @@ public class AuthService : IAuthService
             };
         }
 
+        var compatChanged = await EnsureIdentityCompatibilityAsync(usuario);
         usuario.LastLoginAt = DateTime.UtcNow;
         await _usuarioRepository.UpdateAsync(usuario);
 
@@ -148,6 +161,61 @@ public class AuthService : IAuthService
         var refreshToken = await CreateRefreshTokenAsync(usuario);
 
         return CreateAuthResponse(usuario, accessToken, refreshToken, "Inicio de sesión exitoso.");
+    }
+
+    private static string ResolveIdentifier(LoginRequest request)
+    {
+        return string.IsNullOrWhiteSpace(request.Identifier)
+            ? (request.Correo?.Trim() ?? string.Empty)
+            : request.Identifier.Trim();
+    }
+
+    private static bool LooksLikeEmail(string identifier)
+    {
+        return identifier.IndexOf('@') > 0;
+    }
+
+    private async Task<bool> EnsureIdentityCompatibilityAsync(Usuario usuario)
+    {
+        var changed = false;
+
+        if (string.IsNullOrWhiteSpace(usuario.PublicProfileId))
+        {
+            usuario.PublicProfileId = await GenerateUniquePublicProfileIdAsync();
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(usuario.CorreoNormalizado))
+        {
+            usuario.CorreoNormalizado = EmailNormalizer.Normalize(usuario.Correo);
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(usuario.Username))
+        {
+            usuario.Username = await GenerateUniqueUsernameAsync(usuario.Nombre);
+            changed = true;
+            _logger.LogWarning("Cuenta legacy sin username; se generó uno automáticamente.");
+        }
+        else if (usuario.Username.StartsWith("@", StringComparison.Ordinal))
+        {
+            var normalized = UsernamePolicy.Normalize(usuario.Username.TrimStart('@'));
+            if (normalized is not null && normalized != usuario.Username
+                && !await _usuarioRepository.ExistsByUsernameAsync(normalized))
+            {
+                usuario.Username = normalized;
+                changed = true;
+                _logger.LogWarning("Username legacy con '@' migrado a formato estándar.");
+            }
+        }
+
+        if (usuario.Onboarding is null)
+        {
+            usuario.Onboarding = new OnboardingProgress();
+            changed = true;
+        }
+
+        return changed;
     }
 
     public async Task<RecoverPasswordResponse> RecoverPasswordAsync(RecoverPasswordRequest request)
@@ -318,7 +386,9 @@ public class AuthService : IAuthService
 
         return new ExportAccountDto
         {
-            Id = usuario.Id,
+            PublicProfileId = string.IsNullOrWhiteSpace(usuario.PublicProfileId)
+                ? usuario.Username
+                : usuario.PublicProfileId,
             Nombre = usuario.Nombre,
             Correo = usuario.Correo,
             Telefono = usuario.Telefono,
@@ -366,6 +436,11 @@ public class AuthService : IAuthService
         existingToken.RevokedAt = DateTime.UtcNow;
         await _refreshTokenRepository.UpdateAsync(existingToken);
 
+        if (await EnsureIdentityCompatibilityAsync(usuario))
+        {
+            await _usuarioRepository.UpdateAsync(usuario);
+        }
+
         var accessToken = _tokenService.GenerateAccessToken(usuario);
         var newRefreshToken = await CreateRefreshTokenAsync(usuario);
 
@@ -396,9 +471,9 @@ public class AuthService : IAuthService
             Mensaje = mensaje,
             Usuario = new UsuarioDto
             {
-                Id = usuario.Id,
+                Id = usuario.PublicProfileId,
+                PublicProfileId = usuario.PublicProfileId,
                 Username = usuario.Username,
-                AppId = usuario.AppId,
                 Nombre = usuario.Nombre,
                 Correo = usuario.Correo,
                 Telefono = usuario.Telefono,
@@ -407,14 +482,32 @@ public class AuthService : IAuthService
         };
     }
 
-    private static string GenerateUsername(string nombre)
+    private async Task<string> GenerateUniqueUsernameAsync(string nombre)
     {
-        var baseName = "@" + nombre.ToLowerInvariant()
-            .Replace(" ", "_")
-            .Replace(".", "_")
-            .Replace("-", "_");
-        var suffix = Random.Shared.Next(100, 999);
-        return $"{baseName}_{suffix}";
+        for (var i = 0; i < 25; i++)
+        {
+            var candidate = UsernamePolicy.Generate(nombre);
+            if (!await _usuarioRepository.ExistsByUsernameAsync(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new InvalidOperationException("No se pudo generar un username único.");
+    }
+
+    private async Task<string> GenerateUniquePublicProfileIdAsync()
+    {
+        for (var i = 0; i < 25; i++)
+        {
+            var candidate = PublicProfileIdGenerator.Generate();
+            if (!await _usuarioRepository.ExistsByPublicProfileIdAsync(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new InvalidOperationException("No se pudo generar un PublicProfileId único.");
     }
 
     private static string GenerateAppId(string nombre)
