@@ -722,20 +722,42 @@ public class FamilySubscriptionService : IFamilySubscriptionService
     private static void ValidateInvitationTarget(FamilyInvitation invitation, Usuario user)
     {
         var email = NormalizeUserEmail(user);
-        var matches = invitation.TargetUserId == user.Id
-            || (!string.IsNullOrWhiteSpace(invitation.TargetEmailNormalized)
-                && string.Equals(invitation.TargetEmailNormalized, email,
-                    StringComparison.OrdinalIgnoreCase))
-            || (!string.IsNullOrWhiteSpace(invitation.TargetPublicProfileId)
-                && string.Equals(invitation.TargetPublicProfileId, user.PublicProfileId,
-                    StringComparison.Ordinal))
-            || (!string.IsNullOrWhiteSpace(invitation.TargetUsername)
-                && string.Equals(invitation.TargetUsername, user.Username,
-                    StringComparison.OrdinalIgnoreCase));
-        if (!matches)
+        if (!InvitationTargetsUser(invitation, user, email))
         {
             throw new ForbiddenException("Esta invitación no está dirigida a este usuario.");
         }
+    }
+
+    private static bool InvitationTargetsUser(
+        FamilyInvitation invitation,
+        Usuario user,
+        string email)
+    {
+        if (invitation.TargetUserId == user.Id)
+        {
+            return true;
+        }
+
+        if (MatchesTarget(
+                invitation.TargetEmailNormalized,
+                email,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (MatchesTarget(
+                invitation.TargetPublicProfileId,
+                user.PublicProfileId,
+                StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return MatchesTarget(
+            invitation.TargetUsername,
+            user.Username,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ExpireInvitations(FamilySubscription subscription)
@@ -762,30 +784,68 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             ? target.EmailNormalized
             : NormalizeUserEmail(target.User);
         var duplicateInvitation = subscription.Invitations.Any(value =>
-            value.Status == FamilyInvitationStatus.Pending
-            && ((target.User is not null && value.TargetUserId == target.User.Id)
-                || (!string.IsNullOrWhiteSpace(targetEmail)
-                    && string.Equals(
-                        value.TargetEmailNormalized,
-                        targetEmail,
-                        StringComparison.OrdinalIgnoreCase))
-                || (target.User is not null
-                    && !string.IsNullOrWhiteSpace(target.User.PublicProfileId)
-                    && string.Equals(
-                        value.TargetPublicProfileId,
-                        target.User.PublicProfileId,
-                        StringComparison.Ordinal))
-                || (target.User is not null
-                    && !string.IsNullOrWhiteSpace(target.User.Username)
-                    && string.Equals(
-                        value.TargetUsername,
-                        target.User.Username,
-                        StringComparison.OrdinalIgnoreCase))));
+            IsPendingInvitationForTarget(value, target, targetEmail));
 
         if (duplicateMember || duplicateInvitation)
         {
             throw new ConflictException("Ya existe una membresía o invitación pendiente para esta persona.");
         }
+    }
+
+
+    private static bool IsPendingInvitationForTarget(
+        FamilyInvitation invitation,
+        ResolvedInvitationTarget target,
+        string? targetEmail)
+    {
+        if (invitation.Status != FamilyInvitationStatus.Pending)
+        {
+            return false;
+        }
+
+        if (target.User is not null && invitation.TargetUserId == target.User.Id)
+        {
+            return true;
+        }
+
+        if (MatchesTarget(
+                invitation.TargetEmailNormalized,
+                targetEmail,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (target.User is null)
+        {
+            return false;
+        }
+
+        if (MatchesTarget(
+                invitation.TargetPublicProfileId,
+                target.User.PublicProfileId,
+                StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return MatchesTarget(
+            invitation.TargetUsername,
+            target.User.Username,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesTarget(
+        string? storedValue,
+        string? targetValue,
+        StringComparison comparison)
+    {
+        if (string.IsNullOrWhiteSpace(storedValue))
+        {
+            return false;
+        }
+
+        return string.Equals(storedValue, targetValue, comparison);
     }
 
     private async Task<ResolvedInvitationTarget> ResolveTargetAsync(

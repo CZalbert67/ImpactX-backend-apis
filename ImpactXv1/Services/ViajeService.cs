@@ -54,8 +54,8 @@ public class ViajeService : IViajeService
         await _viajeRepository.AddAsync(viaje);
 
         _logger.LogInformation(
-            "Viaje {ViajeId} iniciado para usuario {UsuarioId} por cliente {Client}; fallback móvil: {MobileFallbackUsed}",
-            viaje.Id, usuarioId, client, viaje.MobileFallbackUsed);
+            "Viaje {ViajeId} iniciado para usuario {UsuarioId}",
+            viaje.Id, usuarioId);
 
         return MapToDto(viaje);
     }

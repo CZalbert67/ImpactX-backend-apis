@@ -372,12 +372,7 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
     {
         var relationships = await _repository.GetForUserAsync(senderUserId, cancellationToken);
         return relationships.Any(relationship =>
-            relationship.Status == MonitoringRelationshipStatus.Accepted
-            && relationship.Permissions.SendMessages
-            && ((relationship.MonitorUserId == senderUserId
-                    && relationship.MonitoredUserId == recipientUserId)
-                || (relationship.MonitorUserId == recipientUserId
-                    && relationship.MonitoredUserId == senderUserId)));
+            CanMessageBetween(relationship, senderUserId, recipientUserId));
     }
 
     public async Task<MonitoringRelationshipDto> GetAcceptedBetweenAsync(
@@ -387,9 +382,7 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
     {
         var relationships = await _repository.GetForUserAsync(firstUserId, cancellationToken);
         var relationship = relationships.FirstOrDefault(value =>
-            value.Status == MonitoringRelationshipStatus.Accepted
-            && ((value.MonitorUserId == firstUserId && value.MonitoredUserId == secondUserId)
-                || (value.MonitorUserId == secondUserId && value.MonitoredUserId == firstUserId)))
+            IsAcceptedBetween(value, firstUserId, secondUserId))
             ?? throw new NotFoundException("Relación de monitoreo no encontrada.");
         return await MapAsync(relationship);
     }
@@ -430,29 +423,7 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
     {
         var relationships = await _repository.GetForUserAsync(monitorUserId, cancellationToken);
         var duplicate = relationships.Any(relationship =>
-            relationship.MonitorUserId == monitorUserId
-            && (relationship.Status == MonitoringRelationshipStatus.Pending
-                || relationship.Status == MonitoringRelationshipStatus.Accepted)
-            && (
-                (target.User is not null
-                    && relationship.MonitoredUserId == target.User.Id)
-                || (!string.IsNullOrWhiteSpace(target.EmailNormalized)
-                    && string.Equals(
-                        relationship.TargetEmailNormalized,
-                        target.EmailNormalized,
-                        StringComparison.OrdinalIgnoreCase))
-                || (target.User is not null
-                    && !string.IsNullOrWhiteSpace(target.User.PublicProfileId)
-                    && string.Equals(
-                        relationship.TargetPublicProfileId,
-                        target.User.PublicProfileId,
-                        StringComparison.Ordinal))
-                || (target.User is not null
-                    && !string.IsNullOrWhiteSpace(target.User.Username)
-                    && string.Equals(
-                        relationship.TargetUsername,
-                        target.User.Username,
-                        StringComparison.OrdinalIgnoreCase))));
+            IsActiveOrPendingForTarget(relationship, monitorUserId, target));
 
         if (duplicate)
         {
@@ -573,19 +544,149 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         var email = string.IsNullOrWhiteSpace(user.CorreoNormalizado)
             ? EmailNormalizer.Normalize(user.Correo)
             : user.CorreoNormalizado;
-        var matches = relationship.MonitoredUserId == user.Id
-            || (!string.IsNullOrWhiteSpace(relationship.TargetEmailNormalized)
-                && string.Equals(relationship.TargetEmailNormalized, email,
-                    StringComparison.OrdinalIgnoreCase))
-            || (!string.IsNullOrWhiteSpace(relationship.TargetPublicProfileId)
-                && relationship.TargetPublicProfileId == user.PublicProfileId)
-            || (!string.IsNullOrWhiteSpace(relationship.TargetUsername)
-                && string.Equals(relationship.TargetUsername, user.Username,
-                    StringComparison.OrdinalIgnoreCase));
-        if (!matches)
+        if (!RelationshipTargetsUser(relationship, user, email))
         {
             throw new ForbiddenException("Esta invitación no está dirigida a este usuario.");
         }
+    }
+
+
+    private static bool CanMessageBetween(
+        MonitoringRelationship relationship,
+        Guid senderUserId,
+        Guid recipientUserId)
+    {
+        if (!IsAcceptedBetween(relationship, senderUserId, recipientUserId))
+        {
+            return false;
+        }
+
+        return relationship.Permissions.SendMessages;
+    }
+
+    private static bool IsAcceptedBetween(
+        MonitoringRelationship relationship,
+        Guid firstUserId,
+        Guid secondUserId)
+    {
+        if (relationship.Status != MonitoringRelationshipStatus.Accepted)
+        {
+            return false;
+        }
+
+        return IsBetween(relationship, firstUserId, secondUserId);
+    }
+
+    private static bool IsBetween(
+        MonitoringRelationship relationship,
+        Guid firstUserId,
+        Guid secondUserId)
+    {
+        if (relationship.MonitorUserId == firstUserId)
+        {
+            return relationship.MonitoredUserId == secondUserId;
+        }
+
+        return relationship.MonitorUserId == secondUserId
+            && relationship.MonitoredUserId == firstUserId;
+    }
+
+    private static bool IsActiveOrPendingForTarget(
+        MonitoringRelationship relationship,
+        Guid monitorUserId,
+        ResolvedTarget target)
+    {
+        if (relationship.MonitorUserId != monitorUserId)
+        {
+            return false;
+        }
+
+        if (!IsPendingOrAccepted(relationship.Status))
+        {
+            return false;
+        }
+
+        if (target.User is not null && relationship.MonitoredUserId == target.User.Id)
+        {
+            return true;
+        }
+
+        if (MatchesTarget(
+                relationship.TargetEmailNormalized,
+                target.EmailNormalized,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (target.User is null)
+        {
+            return false;
+        }
+
+        if (MatchesTarget(
+                relationship.TargetPublicProfileId,
+                target.User.PublicProfileId,
+                StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return MatchesTarget(
+            relationship.TargetUsername,
+            target.User.Username,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPendingOrAccepted(MonitoringRelationshipStatus status)
+    {
+        return status == MonitoringRelationshipStatus.Pending
+            || status == MonitoringRelationshipStatus.Accepted;
+    }
+
+    private static bool RelationshipTargetsUser(
+        MonitoringRelationship relationship,
+        Usuario user,
+        string email)
+    {
+        if (relationship.MonitoredUserId == user.Id)
+        {
+            return true;
+        }
+
+        if (MatchesTarget(
+                relationship.TargetEmailNormalized,
+                email,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (MatchesTarget(
+                relationship.TargetPublicProfileId,
+                user.PublicProfileId,
+                StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return MatchesTarget(
+            relationship.TargetUsername,
+            user.Username,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesTarget(
+        string? storedValue,
+        string? targetValue,
+        StringComparison comparison)
+    {
+        if (string.IsNullOrWhiteSpace(storedValue))
+        {
+            return false;
+        }
+
+        return string.Equals(storedValue, targetValue, comparison);
     }
 
     private static void EnsurePending(MonitoringRelationship relationship)
