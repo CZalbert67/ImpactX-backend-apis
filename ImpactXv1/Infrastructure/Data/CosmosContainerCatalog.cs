@@ -136,6 +136,9 @@ public static class CosmosContainerCatalog
     public static readonly CosmosContainerDefinition Incidentes =
         Create("Incidentes", "/usuarioId", -1, "Incidente");
 
+    public static readonly CosmosContainerDefinition Vehicles =
+        Create("Vehicles", "/ownerUserId", -1, "Vehicle");
+
     public static IReadOnlyList<CosmosContainerDefinition> All { get; }
 
     private static readonly Dictionary<string, CosmosContainerDefinition> ByName;
@@ -161,7 +164,8 @@ public static class CosmosContainerCatalog
             Wearables,
             AppInvites,
             ChatThreads,
-            Incidentes
+            Incidentes,
+            Vehicles
         };
 
         ByName = new Dictionary<string, CosmosContainerDefinition>(StringComparer.Ordinal);

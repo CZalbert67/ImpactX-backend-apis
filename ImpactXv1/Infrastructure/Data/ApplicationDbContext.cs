@@ -27,6 +27,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Alerta> Alertas => Set<Alerta>();
     public DbSet<Incidente> Incidentes => Set<Incidente>();
     public DbSet<Notificacion> Notificaciones => Set<Notificacion>();
+    public DbSet<Vehicle> Vehicles => Set<Vehicle>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -245,6 +246,24 @@ public class ApplicationDbContext : DbContext
             entity.Property(n => n.ClaveIdempotencia).HasMaxLength(300);
             entity.HasIndex(n => n.UsuarioId);
             entity.HasIndex(n => n.ClaveIdempotencia).IsUnique();
+        });
+
+        modelBuilder.Entity<Vehicle>(entity =>
+        {
+            entity.HasKey(v => v.Id);
+            entity.HasIndex(v => v.PublicVehicleId).IsUnique();
+            entity.HasIndex(v => v.OwnerUserId);
+            entity.Property(v => v.PublicVehicleId).HasMaxLength(30).IsRequired();
+            entity.Property(v => v.Marca).HasMaxLength(100).IsRequired();
+            entity.Property(v => v.Modelo).HasMaxLength(100).IsRequired();
+            entity.Property(v => v.TipoVehiculo)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
+            entity.Property(v => v.UsoPrincipalVehiculo)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
         });
     }
 }

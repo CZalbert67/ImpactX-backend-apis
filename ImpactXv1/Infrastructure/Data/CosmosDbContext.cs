@@ -29,6 +29,7 @@ public class CosmosDbContext
     public Container AppInvites { get; }
     public Container ChatThreads { get; }
     public Container Incidentes { get; }
+    public Container Vehicles { get; }
 
     public CosmosDbContext(IOptions<CosmosDatabaseOptions> options)
     {
@@ -66,6 +67,7 @@ public class CosmosDbContext
         AppInvites = GetContainer(CosmosContainerCatalog.AppInvites);
         ChatThreads = GetContainer(CosmosContainerCatalog.ChatThreads);
         Incidentes = GetContainer(CosmosContainerCatalog.Incidentes);
+        Vehicles = GetContainer(CosmosContainerCatalog.Vehicles);
     }
 
     private Container GetContainer(CosmosContainerDefinition definition)
