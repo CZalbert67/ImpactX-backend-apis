@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Tests.Integration;
@@ -31,6 +32,90 @@ public class WearableControllerTests : IClassFixture<CustomWebApplicationFactory
     {
         var response = await _client.GetAsync("/api/wearable");
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task GetWearableAll_LegacyWithoutAuth_ReturnsUnauthorized()
+    {
+        var response = await _client.GetAsync("/api/wearable/all");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task GetWearableAll_V1WithoutAuth_ReturnsUnauthorized()
+    {
+        var response = await _client.GetAsync("/api/v1/wearable/all");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetWearableAll_V1AndLegacy_ReturnSameStatusAndJsonStructure()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var legacy = await _client.GetAsync("/api/wearable/all?pageSize=10");
+        var v1 = await _client.GetAsync("/api/v1/wearable/all?pageSize=10");
+
+        Assert.Equal(HttpStatusCode.OK, legacy.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, v1.StatusCode);
+        Assert.Equal(legacy.StatusCode, v1.StatusCode);
+
+        var legacyDoc = JsonDocument.Parse(await legacy.Content.ReadAsStringAsync());
+        var v1Doc = JsonDocument.Parse(await v1.Content.ReadAsStringAsync());
+
+        var legacyProps = legacyDoc.RootElement.EnumerateObject().Select(p => p.Name).OrderBy(n => n).ToArray();
+        var v1Props = v1Doc.RootElement.EnumerateObject().Select(p => p.Name).OrderBy(n => n).ToArray();
+        Assert.Equal(legacyProps, v1Props);
+        Assert.Contains("items", legacyProps);
+        Assert.Contains("pageSize", legacyProps);
+        Assert.Contains("hasMoreResults", legacyProps);
+        Assert.Equal(
+            legacyDoc.RootElement.GetProperty("pageSize").GetInt32(),
+            v1Doc.RootElement.GetProperty("pageSize").GetInt32());
+    }
+
+    [Fact]
+    public async Task OpenApi_ContainsWearableAllV1Route()
+    {
+        var response = await _client.GetAsync("/openapi/v1.json");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var paths = doc.RootElement.GetProperty("paths");
+
+        Assert.True(paths.TryGetProperty("/api/v1/wearable/all", out var pathItem));
+        Assert.True(pathItem.TryGetProperty("get", out _));
+    }
+
+    [Fact]
+    public async Task OpenApi_WearableAll_DocumentsPaginationParameters()
+    {
+        var response = await _client.GetAsync("/openapi/v1.json");
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var pathItem = doc.RootElement.GetProperty("paths").GetProperty("/api/v1/wearable/all");
+        var operation = pathItem.GetProperty("get");
+        var parameters = operation.GetProperty("parameters");
+
+        var pageSize = parameters.EnumerateArray().First(p => p.GetProperty("name").GetString() == "pageSize");
+        var token = parameters.EnumerateArray().First(p => p.GetProperty("name").GetString() == "continuationToken");
+
+        Assert.Equal("query", pageSize.GetProperty("in").GetString());
+        Assert.Equal("query", token.GetProperty("in").GetString());
+        Assert.Equal(JsonValueKind.Object, pageSize.GetProperty("schema").ValueKind);
+        Assert.Equal(JsonValueKind.Object, token.GetProperty("schema").ValueKind);
+    }
+
+    [Fact]
+    public async Task OpenApi_DoesNotContainPluralWearableV1Route()
+    {
+        var response = await _client.GetAsync("/openapi/v1.json");
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var paths = doc.RootElement.GetProperty("paths").EnumerateObject().ToList();
+
+        Assert.DoesNotContain(paths, p => p.Name.Contains("/api/v1/wearables", StringComparison.Ordinal));
     }
 
     [Fact]

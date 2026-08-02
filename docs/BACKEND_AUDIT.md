@@ -909,3 +909,23 @@ Elimina el token FCM del usuario autenticado.
 | 11 | Contrato legacy | Body `List<T>` conservado (JSON raíz array, sin campos de paginación — verificado); token solo en header; sin token en última página (verificado) |
 | 12 | Seguridad paginación | CR/LF y token > 2048 → 400 sin eco; 400 como ProblemDetails sin token; header sin CR/LF; token de otro usuario no filtra datos ajenos; IDOR telemetría 404 sin revelar propietario |
 | 13 | Pendiente | Abrir PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar). |
+
+## Ronda 11 — Wearable V1 Route Alias / R0.7
+
+### Cambios realizados
+
+| Archivo | Acción |
+|---|---|
+| `ImpactXv1/Controllers/WearableController.cs` | ✅ Modificado — alias `[HttpGet("/api/v1/wearable/all")]` apilado sobre el mismo método `GetWearables` que atiende `GET /api/wearable/all` (patrón de `UsersController`/`SubscriptionController`). Sin lógica duplicada, sin DTOs/paginación/repositorios/Cosmos modificados, sin ruta plural |
+| `ImpactX.Tests/Integration/WearableControllerTests.cs` | ✅ Modificado — +6 pruebas: 401 sin JWT en ambas rutas (2, Category=Security), mismo status + estructura JSON autenticadas (1), OpenAPI contiene `/api/v1/wearable/all` con `pageSize`/`continuationToken` (2), ruta plural ausente (1) |
+
+### Resultados Ronda 11
+
+| # | Verificación | Resultado |
+|---|---|---|
+| 1 | Alias V1 | `GET /api/v1/wearable/all` responde por el mismo método que `GET /api/wearable/all`: misma autorización, mismos parámetros opcionales e idéntico body `PagedResult<T>` |
+| 2 | Ruta legacy | `GET /api/wearable/all` conservada exactamente (mismo método, sin duplicación) |
+| 3 | Ruta plural | Ausente: `/api/v1/wearables/all` no existe (verificado por prueba) |
+| 4 | OpenAPI | `/api/v1/wearable/all` presente en `/openapi/v1.json` con `pageSize` y `continuationToken` documentados por `OpenApiV1OperationTransformer` |
+| 5 | Pruebas dirigidas | Wearable + ApiContractV1 + PaginationContract, Category=Security y suite completa: pendientes de la validación final de esta rama |
+| 6 | Pendiente | Abrir PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar). |
