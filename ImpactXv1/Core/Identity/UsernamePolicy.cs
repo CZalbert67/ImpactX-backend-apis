@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Security.Cryptography;
 
 namespace ImpactX.Core.Identity;
@@ -16,16 +17,14 @@ public static class UsernamePolicy
         if (candidate.Length is < MinLength or > MaxLength)
             return null;
 
-        foreach (var c in candidate)
-        {
-            var valid = c is >= 'a' and <= 'z'
-                        or >= '0' and <= '9'
-                        or '.'
-                        or '_'
-                        or >= 'A' and <= 'Z';
-            if (!valid)
-                return null;
-        }
+        if (candidate
+            .Select(c => c is >= 'a' and <= 'z'
+                         or >= '0' and <= '9'
+                         or '.'
+                         or '_'
+                         or >= 'A' and <= 'Z')
+            .Any(valid => !valid))
+            return null;
 
         var lower = candidate.ToLowerInvariant();
 
