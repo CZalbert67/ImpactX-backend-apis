@@ -47,9 +47,10 @@ El wearable **no administra**:
 - Cuentas.
 - Suscripciones.
 - Relaciones de monitoreo.
-- Chats completos.
+- Chats completos o mensajería en tiempo real.
 - Perfiles de otros usuarios.
 - Vehículos.
+- El módulo de mensajes rápidos.
 
 ---
 
@@ -66,7 +67,10 @@ La aplicación móvil:
 - Consulta rutas e incidentes.
 - Gestiona las relaciones monitor–monitoreado.
 - Acepta o rechaza solicitudes.
-- Incluye chat.
+- Consulta y administra plantillas de mensajes rápidos.
+- Envía mensajes rápidos predefinidos.
+- Consulta historial de mensajes.
+- Consume los mismos contratos backend de mensajes rápidos que la web.
 - Recibe alertas y notificaciones.
 - Sincroniza datos locales con el backend.
 - Puede iniciar, pausar, reanudar o finalizar un viaje **únicamente como
@@ -98,7 +102,12 @@ La web **puede**:
 - Enviar y recibir solicitudes internas.
 - Consultar personas que monitorea.
 - Consultar quiénes lo monitorean.
-- Utilizar el chat interno.
+- Consultar las plantillas de mensajes rápidos disponibles.
+- Administrar sus plantillas personalizadas (máximo 10).
+- Enviar mensajes rápidos predefinidos.
+- Consultar el historial de mensajes rápidos.
+- Marcar mensajes como leídos.
+- Consultar el contador de no leídos.
 - Consultar rutas sincronizadas.
 - Consultar el detalle de rutas.
 - Consultar telemetría asociada a `TripId`.
@@ -455,30 +464,101 @@ Reglas:
 
 ---
 
-## 12. Chat
+## 12. Mensajes rápidos ImpactX
 
-El chat está disponible en:
+**No existe chat libre ni mensajería en tiempo real** en esta versión.
 
-- Web.
-- Móvil.
+No se requiere decidir entre polling, SignalR, WebSockets u otra tecnología.
 
-**No** está disponible como chat completo en el wearable.
+Los usuarios envían **únicamente mensajes rápidos predefinidos**.
 
-El chat solo puede utilizarse entre usuarios que tengan una relación de
-monitoreo **aceptada y vigente**.
+### Plantillas del sistema
 
-Debe soportar conceptualmente:
+- Incluidas por ImpactX.
+- Disponibles para todos los usuarios autorizados.
+- No pueden ser modificadas ni eliminadas por usuarios.
+- Se administran como **datos sembrados** del backend.
 
-- Conversaciones.
-- Mensajes enviados y recibidos.
+Mensajes iniciales:
+
+- Estoy bien.
+- Necesito ayuda.
+- Llámame cuando puedas.
+- Revisa mi ubicación.
+- Voy en camino.
+- Tuve un incidente.
+- ¿Estás bien?
+- Confirma que recibiste la alerta.
+
+### Plantillas personalizadas
+
+Cada usuario puede:
+
+- Crear.
+- Consultar.
+- Editar.
+- Eliminar lógicamente.
+- Ordenar.
+- Enviar.
+
+Reglas:
+
+- Máximo **10 plantillas personalizadas activas** por usuario.
+- Máximo **160 caracteres** por plantilla.
+- **No** se permite enviar texto libre desde el formulario de envío.
+- Una plantilla personalizada pertenece **exclusivamente a su creador**.
+- El **backend valida el límite de 10**.
+- Eliminar una plantilla **no** elimina el historial de mensajes enviados.
+
+### Envío
+
+Solo se permite entre usuarios con una relación de monitoreo:
+
+- Aceptada.
+- Vigente.
+- No revocada.
+- No bloqueada.
+- Con permiso para mensajes.
+
+El backend valida remitente, destinatario, relación y plantilla.
+
+### Historial
+
+Cada envío conserva:
+
+- Identificador público seguro.
+- Remitente interno.
+- Destinatario interno.
+- Relación interna.
+- Plantilla pública utilizada.
+- **Copia inmutable** del texto enviado.
+- Fecha UTC.
 - Estado leído / no leído.
-- Contador de no leídos.
-- Paginación.
-- Contexto de ruta.
-- Contexto de incidente.
-- Bloqueo después de revocar o bloquear la relación.
+- Fecha de lectura.
+- Contexto opcional de ruta mediante identificador público.
+- Contexto opcional de incidente mediante identificador público.
 
-**No se decide todavía** entre polling, SignalR u otra tecnología.
+Nunca se exponen identificadores internos.
+
+### Plataformas
+
+**Web:**
+
+- Consulta plantillas.
+- Administra las 10 plantillas personalizadas.
+- Envía mensajes rápidos.
+- Consulta historial.
+- Marca como leído.
+- Consulta no leídos.
+
+**Móvil:**
+
+- Debe poder consumir los mismos contratos backend.
+- Nosotros no desarrollamos la aplicación móvil.
+
+**Wearable:**
+
+- No utiliza el módulo completo de mensajes rápidos.
 
 ---
 
@@ -896,7 +976,12 @@ Los usuarios autorizados pueden consultar:
 | Crear invitación o preinvitación | Sí | Sí | No | Sí | Sí | Invita a un usuario existente o a una persona sin cuenta. |
 | Aceptar o rechazar solicitudes | Sí | Sí | No | Sí | Sí | Estados de la relación. |
 | Gestionar relaciones de monitoreo | Sí | Sí | No | Sí | Sí | Red del propietario; cupo según plan. |
-| Chat completo | Sí | Sí | No | Sí | Sí | Requiere relación aceptada y vigente. |
+| Consultar plantillas de mensajes | Sí | Sí | No | Sí | Sí | Plantillas del sistema + personalizadas del usuario. |
+| Administrar plantillas personalizadas | Sí | Sí | No | Sí | Sí | Máximo 10 activas; 160 caracteres; pertenencia exclusiva. |
+| Enviar mensaje rápido | Sí | Sí | No | Sí | Sí | Relación aceptada, vigente, no revocada/bloqueada y con permiso de mensajes. |
+| Consultar historial de mensajes | Sí | Sí | No | Sí | Sí | Copia inmutable; contexto opcional de ruta/incidente. |
+| Marcar leído | Sí | Sí | No | Sí | Sí | Estado leído / no leído sobre el historial. |
+| Consultar no leídos | Sí | Sí | No | Sí | Sí | Contador de no leídos. |
 | Consultar plan | Sí | Sí | No | Sí | Sí | Ver plan actual, estado e integrantes. |
 | Seleccionar plan | Sí | Sí | No | Sí | Sí | Propietario elige el plan. |
 | Ejecutar pago simulado | Sí | Sí | No | Sí | Sí | Propietario; registrado como simulado. |
@@ -947,8 +1032,6 @@ El documento debe:
   confirma la forma de generación del flujo).
 - Subconjunto exacto de la ficha médica visible con consentimiento.
 - Umbrales exactos de rate limiting.
-- Tecnología de tiempo real del chat: polling, SignalR u otra, según se
-  confirme.
 - Semántica de sincronización offline y de resolución de conflictos en la
   telemetría.
 
@@ -968,3 +1051,7 @@ El documento debe:
   reducción de plan y seguridad). Correcciones finales: mínimo de dos personas
   por plan, cuota de vehículos individual por cada usuario activo y matriz
   coherente para consultar, seleccionar, pagar, administrar, unirse y abandonar.
+- Corrección de alcance: se sustituye el chat dinámico por el modelo definitivo
+  de **mensajes rápidos predefinidos** (plantillas del sistema, plantillas
+  personalizadas, historial con copia inmutable, relación vigilada y sin
+  decisión de tecnología de tiempo real).
