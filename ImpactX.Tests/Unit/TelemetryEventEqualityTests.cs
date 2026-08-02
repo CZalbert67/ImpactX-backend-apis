@@ -11,27 +11,27 @@ public class TelemetryEventEqualityTests
 
     private static ViajeTelemetry Persistido(double lat = 19.43, double lng = -99.13, double velocidad = 50,
         double? altitud = 120.5, double? heading = 90.0) => new()
-    {
-        ViajeId = ViajeId,
-        Timestamp = Timestamp,
-        Lat = lat,
-        Lng = lng,
-        Velocidad = velocidad,
-        Altitud = altitud,
-        Heading = heading,
-    };
+        {
+            ViajeId = ViajeId,
+            Timestamp = Timestamp,
+            Lat = lat,
+            Lng = lng,
+            Velocidad = velocidad,
+            Altitud = altitud,
+            Heading = heading,
+        };
 
     private static TelemetryEventRequest Recibido(double lat = 19.43, double lng = -99.13, double velocidad = 50,
         double? altitud = 120.5, double? heading = 90.0) => new()
-    {
-        EventId = Guid.NewGuid(),
-        Timestamp = Timestamp,
-        Lat = lat,
-        Lng = lng,
-        Velocidad = velocidad,
-        Altitud = altitud,
-        Heading = heading,
-    };
+        {
+            EventId = Guid.NewGuid(),
+            Timestamp = Timestamp,
+            Lat = lat,
+            Lng = lng,
+            Velocidad = velocidad,
+            Altitud = altitud,
+            Heading = heading,
+        };
 
     [Fact]
     public void IsIdentical_SameExactValues_ReturnsTrue()
