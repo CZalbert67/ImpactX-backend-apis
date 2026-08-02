@@ -139,6 +139,18 @@ public static class CosmosContainerCatalog
     public static readonly CosmosContainerDefinition Vehicles =
         Create("Vehicles", "/ownerUserId", -1, "Vehicle");
 
+    public static readonly CosmosContainerDefinition FamilySubscriptions =
+        Create("FamilySubscriptions", "/ownerUserId", -1, "FamilySubscription");
+
+    public static readonly CosmosContainerDefinition MonitoringRelationships =
+        Create("MonitoringRelationships", "/monitorUserId", -1, "MonitoringRelationship");
+
+    public static readonly CosmosContainerDefinition QuickMessageTemplates =
+        Create("QuickMessageTemplates", "/ownerKey", -1, "QuickMessageTemplate");
+
+    public static readonly CosmosContainerDefinition QuickMessages =
+        Create("QuickMessages", "/recipientUserId", -1, "QuickMessage");
+
     public static IReadOnlyList<CosmosContainerDefinition> All { get; }
 
     private static readonly Dictionary<string, CosmosContainerDefinition> ByName;
@@ -165,7 +177,11 @@ public static class CosmosContainerCatalog
             AppInvites,
             ChatThreads,
             Incidentes,
-            Vehicles
+            Vehicles,
+            FamilySubscriptions,
+            MonitoringRelationships,
+            QuickMessageTemplates,
+            QuickMessages
         };
 
         ByName = new Dictionary<string, CosmosContainerDefinition>(StringComparer.Ordinal);

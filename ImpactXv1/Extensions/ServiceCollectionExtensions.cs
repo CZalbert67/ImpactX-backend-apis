@@ -45,6 +45,10 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IAlertaRepository, CosmosAlertaRepository>();
             services.AddScoped<IIncidenteRepository, CosmosIncidenteRepository>();
             services.AddScoped<INotificacionRepository, CosmosNotificacionRepository>();
+            services.AddScoped<IVehicleRepository, CosmosVehicleRepository>();
+            services.AddScoped<IFamilySubscriptionRepository, CosmosFamilySubscriptionRepository>();
+            services.AddScoped<IMonitoringRelationshipRepository, CosmosMonitoringRelationshipRepository>();
+            services.AddScoped<IQuickMessageRepository, CosmosQuickMessageRepository>();
         }
         else
         {
@@ -63,6 +67,10 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IAlertaRepository, AlertaRepository>();
             services.AddScoped<IIncidenteRepository, IncidenteRepository>();
             services.AddScoped<INotificacionRepository, NotificacionRepository>();
+            services.AddScoped<IVehicleRepository, VehicleRepository>();
+            services.AddScoped<IFamilySubscriptionRepository, FamilySubscriptionRepository>();
+            services.AddScoped<IMonitoringRelationshipRepository, MonitoringRelationshipRepository>();
+            services.AddScoped<IQuickMessageRepository, QuickMessageRepository>();
         }
 
         services.AddScoped<IPushNotificationGateway, FirebasePushNotificationGateway>();
@@ -84,6 +92,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IAnalyticsService, AnalyticsService>();
         services.AddScoped<ISettingsService, SettingsService>();
+        services.AddScoped<IVehicleQuotaResolver, VehicleQuotaResolver>();
+        services.AddScoped<IVehicleService, VehicleService>();
+        services.AddScoped<IFamilySubscriptionService, FamilySubscriptionService>();
+        services.AddScoped<IMonitoringRelationshipService, MonitoringRelationshipService>();
+        services.AddScoped<IQuickMessageService, QuickMessageService>();
 
         return services;
     }

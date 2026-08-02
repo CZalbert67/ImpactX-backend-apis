@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -22,6 +23,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("detect")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [EnableRateLimiting("alert-detect")]
     public async Task<IActionResult> Detect([FromBody] DetectAlertRequest request)
     {
@@ -31,6 +33,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("sos")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [EnableRateLimiting("alert-sos")]
     public async Task<IActionResult> SendSos([FromBody] SosRequest request)
     {
@@ -40,6 +43,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("{id:guid}/confirm-ok")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ConfirmOk(Guid id)
     {
@@ -49,6 +53,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("{id:guid}/bypass-critical")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> BypassCritical(Guid id)
     {
@@ -58,6 +63,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("{id:guid}/retry")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Retry(Guid id)
     {
@@ -83,6 +89,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("{id:guid}/close")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Close(Guid id, [FromBody] CloseAlertRequest request)
     {
@@ -92,6 +99,7 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("sync-offline")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     public async Task<IActionResult> SyncOffline([FromBody] SyncOfflineRequest request)
     {
         var usuarioId = GetUsuarioId();

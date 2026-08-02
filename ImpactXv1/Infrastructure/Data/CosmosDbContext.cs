@@ -30,6 +30,10 @@ public class CosmosDbContext
     public Container ChatThreads { get; }
     public Container Incidentes { get; }
     public Container Vehicles { get; }
+    public Container FamilySubscriptions { get; }
+    public Container MonitoringRelationships { get; }
+    public Container QuickMessageTemplates { get; }
+    public Container QuickMessages { get; }
 
     public CosmosDbContext(IOptions<CosmosDatabaseOptions> options)
     {
@@ -68,6 +72,10 @@ public class CosmosDbContext
         ChatThreads = GetContainer(CosmosContainerCatalog.ChatThreads);
         Incidentes = GetContainer(CosmosContainerCatalog.Incidentes);
         Vehicles = GetContainer(CosmosContainerCatalog.Vehicles);
+        FamilySubscriptions = GetContainer(CosmosContainerCatalog.FamilySubscriptions);
+        MonitoringRelationships = GetContainer(CosmosContainerCatalog.MonitoringRelationships);
+        QuickMessageTemplates = GetContainer(CosmosContainerCatalog.QuickMessageTemplates);
+        QuickMessages = GetContainer(CosmosContainerCatalog.QuickMessages);
     }
 
     private Container GetContainer(CosmosContainerDefinition definition)

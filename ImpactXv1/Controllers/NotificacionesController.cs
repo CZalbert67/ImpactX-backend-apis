@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImpactX.Core.Security;
 using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
@@ -11,6 +12,7 @@ namespace ImpactX.Controllers;
 [Route("api/notifications")]
 [Route("api/v1/notifications")]
 [Authorize]
+[RequireClientCapability(ClientTypePolicy.Web, ClientTypePolicy.Mobile)]
 public class NotificacionesController : ControllerBase
 {
     private readonly INotificationService _notificationService;

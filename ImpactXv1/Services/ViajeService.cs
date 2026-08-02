@@ -2,6 +2,7 @@ using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Security;
 using ImpactX.Core.Telemetry;
 using ImpactX.Models.DTOs;
 
@@ -11,11 +12,16 @@ public class ViajeService : IViajeService
 {
     private readonly IViajeRepository _viajeRepository;
     private readonly ILogger<ViajeService> _logger;
+    private readonly IVehicleRepository? _vehicleRepository;
 
-    public ViajeService(IViajeRepository viajeRepository, ILogger<ViajeService> logger)
+    public ViajeService(
+        IViajeRepository viajeRepository,
+        ILogger<ViajeService> logger,
+        IVehicleRepository? vehicleRepository = null)
     {
         _viajeRepository = viajeRepository;
         _logger = logger;
+        _vehicleRepository = vehicleRepository;
     }
 
     public async Task<ViajeDto> StartAsync(Guid usuarioId, StartTripRequest request)
@@ -24,10 +30,20 @@ public class ViajeService : IViajeService
         if (active is not null)
             throw new ConflictException("Ya tienes un viaje activo. Finalízalo antes de iniciar uno nuevo.");
 
+        var vehiclePublicId = await ResolveVehiclePublicIdAsync(usuarioId, request.VehiclePublicId);
+        var client = ClientTypePolicy.Normalize(request.Client);
+        var fallbackReason = string.IsNullOrWhiteSpace(request.FallbackReason)
+            ? null
+            : request.FallbackReason.Trim();
+
         var viaje = new Viaje
         {
             UsuarioId = usuarioId,
             DispositivoId = request.DispositivoId,
+            VehiclePublicId = vehiclePublicId,
+            ControlClient = client,
+            MobileFallbackUsed = client == ClientTypePolicy.Mobile,
+            FallbackReason = fallbackReason,
             Estado = "Activo",
             Inicio = DateTime.UtcNow,
             Proposito = request.Proposito,
@@ -37,7 +53,9 @@ public class ViajeService : IViajeService
 
         await _viajeRepository.AddAsync(viaje);
 
-        _logger.LogInformation("Viaje {ViajeId} iniciado para usuario {UsuarioId}", viaje.Id, usuarioId);
+        _logger.LogInformation(
+            "Viaje {ViajeId} iniciado para usuario {UsuarioId} por cliente {Client}; fallback móvil: {MobileFallbackUsed}",
+            viaje.Id, usuarioId, client, viaje.MobileFallbackUsed);
 
         return MapToDto(viaje);
     }
@@ -249,6 +267,29 @@ public class ViajeService : IViajeService
         return viaje;
     }
 
+    private async Task<string?> ResolveVehiclePublicIdAsync(Guid userId, string? requestedPublicVehicleId)
+    {
+        if (_vehicleRepository is null)
+        {
+            return string.IsNullOrWhiteSpace(requestedPublicVehicleId)
+                ? null
+                : requestedPublicVehicleId.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(requestedPublicVehicleId))
+        {
+            var requested = await _vehicleRepository.GetByPublicIdAsync(
+                userId,
+                requestedPublicVehicleId.Trim());
+            return requested?.PublicVehicleId
+                ?? throw new NotFoundException("Vehículo no encontrado.");
+        }
+
+        var vehicles = await _vehicleRepository.GetAllByOwnerAsync(userId);
+        return vehicles.FirstOrDefault(vehicle => vehicle.EsPrincipal)?.PublicVehicleId
+            ?? vehicles.FirstOrDefault()?.PublicVehicleId;
+    }
+
     private static double CalculateDistance(List<ViajeTelemetry> points)
     {
         double totalKm = 0;
@@ -274,6 +315,10 @@ public class ViajeService : IViajeService
     {
         Id = v.Id,
         DispositivoId = v.DispositivoId,
+        VehiclePublicId = v.VehiclePublicId,
+        ControlClient = v.ControlClient,
+        MobileFallbackUsed = v.MobileFallbackUsed,
+        FallbackReason = v.FallbackReason,
         Estado = v.Estado,
         Inicio = v.Inicio,
         Fin = v.Fin,

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -11,6 +12,7 @@ namespace ImpactX.Controllers;
 [Route("api/routes")]
 [Route("api/v1/routes")]
 [Authorize]
+[RequireClientCapability(ClientTypePolicy.Web, ClientTypePolicy.Mobile)]
 public class RoutesController : ControllerBase
 {
     private readonly IRutaService _rutaService;

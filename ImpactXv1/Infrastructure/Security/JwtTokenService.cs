@@ -6,11 +6,12 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Services;
+using ImpactX.Core.Security;
 using ImpactX.Infrastructure.Security;
 
 namespace ImpactX.Infrastructure.Security;
 
-public class JwtTokenService : ITokenService
+public class JwtTokenService : IClientAwareTokenService
 {
     private readonly IConfiguration _configuration;
 
@@ -26,6 +27,12 @@ public class JwtTokenService : ITokenService
 
     public string GenerateAccessToken(Usuario usuario)
     {
+        return GenerateAccessToken(usuario, ClientTypePolicy.Mobile);
+    }
+
+    public string GenerateAccessToken(Usuario usuario, string client)
+    {
+        var normalizedClient = ClientTypePolicy.Normalize(client);
         var jwtSecret = GetJwtSecret();
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -35,7 +42,8 @@ public class JwtTokenService : ITokenService
             new Claim(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
             new Claim(ClaimTypes.Email, usuario.Correo),
             new Claim(ClaimTypes.Name, usuario.Nombre),
-            new Claim("PlanActivo", usuario.PlanActivo ?? "Free")
+            new Claim("PlanActivo", usuario.PlanActivo ?? "Free"),
+            new Claim("client", normalizedClient)
         };
 
         var issuer = _configuration["Jwt:Issuer"] ?? "ImpactXApi";

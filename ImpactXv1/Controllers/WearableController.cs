@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -39,6 +40,7 @@ public class WearableController : ControllerBase
     }
 
     [HttpPost("pair")]
+    [RequireClientCapability(ClientTypePolicy.Mobile)]
     public async Task<IActionResult> Pair([FromBody] PairWearableRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -47,6 +49,7 @@ public class WearableController : ControllerBase
     }
 
     [HttpPost("pair/confirm")]
+    [RequireClientCapability(ClientTypePolicy.Mobile)]
     public async Task<IActionResult> PairConfirm([FromBody] PairConfirmRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -55,6 +58,7 @@ public class WearableController : ControllerBase
     }
 
     [HttpPost("sync")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     public async Task<IActionResult> Sync([FromBody] SyncTelemetryRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -63,6 +67,7 @@ public class WearableController : ControllerBase
     }
 
     [HttpPost("calibration")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     public async Task<IActionResult> Calibrate([FromBody] CalibrationRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -71,6 +76,7 @@ public class WearableController : ControllerBase
     }
 
     [HttpDelete("unlink")]
+    [RequireClientCapability(ClientTypePolicy.Mobile)]
     public async Task<IActionResult> Unlink()
     {
         var usuarioId = GetUsuarioId();
@@ -79,6 +85,7 @@ public class WearableController : ControllerBase
     }
 
     [HttpPut("permissions")]
+    [RequireClientCapability(ClientTypePolicy.Mobile)]
     public async Task<IActionResult> UpdatePermissions([FromBody] UpdateWearablePermissionsRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -95,6 +102,7 @@ public class WearableController : ControllerBase
     }
 
     [HttpPatch("battery")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     public async Task<IActionResult> UpdateBattery([FromBody] BatteryUpdateRequest request)
     {
         var usuarioId = GetUsuarioId();

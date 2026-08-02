@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImpactX.Core.Security;
 using Microsoft.AspNetCore.RateLimiting;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
@@ -11,6 +12,7 @@ namespace ImpactX.Controllers;
 [Route("api/incidents")]
 [Route("api/v1/incidents")]
 [Authorize]
+[RequireClientCapability(ClientTypePolicy.Web, ClientTypePolicy.Mobile)]
 public class IncidentesController : ControllerBase
 {
     private readonly IIncidentService _incidentService;

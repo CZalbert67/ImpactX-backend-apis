@@ -21,6 +21,10 @@ public class RefreshToken
     [JsonPropertyName("deviceInfo")]
     public string? DeviceInfo { get; set; }
 
+    [JsonProperty("client")]
+    [JsonPropertyName("client")]
+    public string Client { get; set; } = "mobile";
+
     [JsonProperty("expiresAt")]
     [JsonPropertyName("expiresAt")]
     public DateTime ExpiresAt { get; set; }

@@ -15,4 +15,7 @@ public class LoginRequest
 
     [Required]
     public string Password { get; set; } = string.Empty;
+
+    [RegularExpression("^(web|mobile|wearable)$", ErrorMessage = "El cliente debe ser web, mobile o wearable.")]
+    public string Client { get; set; } = "mobile";
 }
