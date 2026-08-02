@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -22,15 +23,18 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("start")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Start([FromBody] StartTripRequest request)
     {
         var usuarioId = GetUsuarioId();
+        request.Client = User.FindFirst("client")?.Value ?? ClientTypePolicy.Mobile;
         var viaje = await _viajeService.StartAsync(usuarioId, request);
         return CreatedAtAction(nameof(GetActive), null, viaje);
     }
 
     [HttpPost("{id:guid}/pause")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Pause(Guid id)
     {
@@ -40,6 +44,7 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/resume")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Resume(Guid id)
     {
@@ -49,6 +54,7 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/finish")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Finish(Guid id)
     {
@@ -58,6 +64,7 @@ public class TripsController : ControllerBase
     }
 
     [HttpPatch("{id:guid}/telemetry")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [EnableRateLimiting("telemetry-ingestion")]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> UpdateTelemetry(Guid id, [FromBody] TelemetryUpdateRequest request)
@@ -68,6 +75,7 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/telemetry")]
+    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
     [EnableRateLimiting("telemetry-ingestion")]
     [RequestSizeLimit(ImpactX.Core.Telemetry.TelemetryIngestionLimits.MaxBodyBytes)]
     [ProducesResponseType(typeof(TelemetryIngestionResultDto), StatusCodes.Status200OK)]

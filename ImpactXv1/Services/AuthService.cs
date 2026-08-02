@@ -115,8 +115,9 @@ public class AuthService : IAuthService
             throw;
         }
 
-        var accessToken = _tokenService.GenerateAccessToken(usuario);
-        var refreshToken = await CreateRefreshTokenAsync(usuario);
+        var client = ClientTypePolicy.Normalize(request.Client);
+        var accessToken = GenerateAccessToken(usuario, client);
+        var refreshToken = await CreateRefreshTokenAsync(usuario, client);
 
         return CreateAuthResponse(usuario, accessToken, refreshToken, "Registro exitoso.");
     }
@@ -157,8 +158,9 @@ public class AuthService : IAuthService
         usuario.LastLoginAt = DateTime.UtcNow;
         await _usuarioRepository.UpdateAsync(usuario);
 
-        var accessToken = _tokenService.GenerateAccessToken(usuario);
-        var refreshToken = await CreateRefreshTokenAsync(usuario);
+        var client = ClientTypePolicy.Normalize(request.Client);
+        var accessToken = GenerateAccessToken(usuario, client);
+        var refreshToken = await CreateRefreshTokenAsync(usuario, client);
 
         return CreateAuthResponse(usuario, accessToken, refreshToken, "Inicio de sesión exitoso.");
     }
@@ -441,19 +443,28 @@ public class AuthService : IAuthService
             await _usuarioRepository.UpdateAsync(usuario);
         }
 
-        var accessToken = _tokenService.GenerateAccessToken(usuario);
-        var newRefreshToken = await CreateRefreshTokenAsync(usuario);
+        var client = ClientTypePolicy.Normalize(existingToken.Client);
+        var accessToken = GenerateAccessToken(usuario, client);
+        var newRefreshToken = await CreateRefreshTokenAsync(usuario, client);
 
         return CreateAuthResponse(usuario, accessToken, newRefreshToken, "Sesión renovada exitosamente.");
     }
 
-    private async Task<string> CreateRefreshTokenAsync(Usuario usuario)
+    private string GenerateAccessToken(Usuario usuario, string client)
+    {
+        return _tokenService is IClientAwareTokenService clientAwareTokenService
+            ? clientAwareTokenService.GenerateAccessToken(usuario, client)
+            : _tokenService.GenerateAccessToken(usuario);
+    }
+
+    private async Task<string> CreateRefreshTokenAsync(Usuario usuario, string client)
     {
         var token = _tokenService.GenerateRefreshToken();
         var refreshToken = new RefreshToken
         {
             UsuarioId = usuario.Id,
             Token = token,
+            Client = ClientTypePolicy.Normalize(client),
             ExpiresAt = DateTime.UtcNow.AddDays(7)
         };
 

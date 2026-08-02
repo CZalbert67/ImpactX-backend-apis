@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -10,6 +11,7 @@ namespace ImpactX.Controllers;
 [ApiController]
 [Route("api/users")]
 [Authorize]
+[RequireClientCapability(ClientTypePolicy.Web, ClientTypePolicy.Mobile)]
 public class UsersController : ControllerBase
 {
     private readonly IUserService _userService;
@@ -117,6 +119,7 @@ public class UsersController : ControllerBase
 
     [HttpGet("search")]
     [HttpGet("/api/v1/profile/search")]
+    [EnableRateLimiting("monitor-invite-details")]
     public async Task<IActionResult> SearchUsers([FromQuery] string q, [FromQuery] string? by = null)
     {
         if (string.IsNullOrWhiteSpace(q) || q.Length < 2)

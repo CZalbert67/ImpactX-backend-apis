@@ -27,6 +27,11 @@ public class ApplicationDbContext : DbContext
     public DbSet<Alerta> Alertas => Set<Alerta>();
     public DbSet<Incidente> Incidentes => Set<Incidente>();
     public DbSet<Notificacion> Notificaciones => Set<Notificacion>();
+    public DbSet<Vehicle> Vehicles => Set<Vehicle>();
+    public DbSet<FamilySubscription> FamilySubscriptions => Set<FamilySubscription>();
+    public DbSet<MonitoringRelationship> MonitoringRelationships => Set<MonitoringRelationship>();
+    public DbSet<QuickMessageTemplate> QuickMessageTemplates => Set<QuickMessageTemplate>();
+    public DbSet<QuickMessage> QuickMessages => Set<QuickMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -86,6 +91,7 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(r => r.Token).IsUnique();
             entity.Property(r => r.Token).HasMaxLength(500).IsRequired();
             entity.Property(r => r.DeviceInfo).HasMaxLength(500);
+            entity.Property(r => r.Client).HasMaxLength(20).IsRequired();
         });
 
         modelBuilder.Entity<PasswordResetToken>(entity =>
@@ -132,6 +138,9 @@ public class ApplicationDbContext : DbContext
         {
             entity.HasKey(v => v.Id);
             entity.Property(v => v.DispositivoId).HasMaxLength(200);
+            entity.Property(v => v.VehiclePublicId).HasMaxLength(30);
+            entity.Property(v => v.ControlClient).HasMaxLength(20).IsRequired();
+            entity.Property(v => v.FallbackReason).HasMaxLength(500);
             entity.Property(v => v.Estado).HasMaxLength(50);
             entity.Property(v => v.Proposito).HasMaxLength(200);
             entity.Property(v => v.RutaOrigen).HasMaxLength(500);
@@ -245,6 +254,154 @@ public class ApplicationDbContext : DbContext
             entity.Property(n => n.ClaveIdempotencia).HasMaxLength(300);
             entity.HasIndex(n => n.UsuarioId);
             entity.HasIndex(n => n.ClaveIdempotencia).IsUnique();
+        });
+
+        modelBuilder.Entity<Vehicle>(entity =>
+        {
+            entity.HasKey(v => v.Id);
+            entity.HasIndex(v => v.PublicVehicleId).IsUnique();
+            entity.HasIndex(v => v.OwnerUserId);
+            entity.Property(v => v.PublicVehicleId).HasMaxLength(30).IsRequired();
+            entity.Property(v => v.Marca).HasMaxLength(100).IsRequired();
+            entity.Property(v => v.Modelo).HasMaxLength(100).IsRequired();
+            entity.Property(v => v.TipoVehiculo)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
+            entity.Property(v => v.UsoPrincipalVehiculo)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
+        });
+
+
+        modelBuilder.Entity<FamilySubscription>(entity =>
+        {
+            entity.HasKey(subscription => subscription.Id);
+            entity.HasIndex(subscription => subscription.PublicSubscriptionId).IsUnique();
+            entity.HasIndex(subscription => subscription.OwnerUserId);
+            entity.Property(subscription => subscription.PublicSubscriptionId)
+                .HasMaxLength(30)
+                .IsRequired();
+            entity.Property(subscription => subscription.PlanName)
+                .HasMaxLength(30)
+                .IsRequired();
+            entity.Property(subscription => subscription.PendingPlanName)
+                .HasMaxLength(30);
+            entity.Property(subscription => subscription.Status)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
+            entity.Ignore(subscription => subscription.ETag);
+
+            entity.OwnsMany(subscription => subscription.Memberships, membership =>
+            {
+                membership.WithOwner().HasForeignKey("FamilySubscriptionId");
+                membership.HasKey(value => value.Id);
+                membership.Property(value => value.Id).ValueGeneratedNever();
+                membership.Property(value => value.PublicMembershipId)
+                    .HasMaxLength(30)
+                    .IsRequired();
+                membership.Property(value => value.Role)
+                    .HasConversion<string>()
+                    .HasMaxLength(20)
+                    .IsRequired();
+                membership.Property(value => value.Status)
+                    .HasConversion<string>()
+                    .HasMaxLength(20)
+                    .IsRequired();
+                membership.Property(value => value.PublicProfileIdSnapshot).HasMaxLength(64);
+                membership.Property(value => value.UsernameSnapshot).HasMaxLength(50);
+                membership.Property(value => value.DisplayNameSnapshot).HasMaxLength(200);
+                membership.HasIndex(value => value.PublicMembershipId).IsUnique();
+                membership.HasIndex(value => value.UserId);
+            });
+
+            entity.OwnsMany(subscription => subscription.Invitations, invitation =>
+            {
+                invitation.WithOwner().HasForeignKey("FamilySubscriptionId");
+                invitation.HasKey(value => value.Id);
+                invitation.Property(value => value.Id).ValueGeneratedNever();
+                invitation.Property(value => value.PublicInvitationId)
+                    .HasMaxLength(30)
+                    .IsRequired();
+                invitation.Property(value => value.TargetEmailNormalized).HasMaxLength(256);
+                invitation.Property(value => value.TargetPublicProfileId).HasMaxLength(64);
+                invitation.Property(value => value.TargetUsername).HasMaxLength(50);
+                invitation.Property(value => value.CodeHash).HasMaxLength(64);
+                invitation.Property(value => value.Status)
+                    .HasConversion<string>()
+                    .HasMaxLength(20)
+                    .IsRequired();
+                invitation.HasIndex(value => value.PublicInvitationId).IsUnique();
+                invitation.HasIndex(value => value.CodeHash);
+            });
+
+            entity.OwnsMany(subscription => subscription.Payments, payment =>
+            {
+                payment.WithOwner().HasForeignKey("FamilySubscriptionId");
+                payment.HasKey(value => value.Id);
+                payment.Property(value => value.Id).ValueGeneratedNever();
+                payment.Property(value => value.PublicPaymentId)
+                    .HasMaxLength(30)
+                    .IsRequired();
+                payment.Property(value => value.Result).HasMaxLength(30).IsRequired();
+                payment.Property(value => value.PlanName).HasMaxLength(30).IsRequired();
+                payment.Property(value => value.Currency).HasMaxLength(10).IsRequired();
+                payment.HasIndex(value => value.PublicPaymentId).IsUnique();
+            });
+        });
+
+
+        modelBuilder.Entity<MonitoringRelationship>(entity =>
+        {
+            entity.HasKey(relationship => relationship.Id);
+            entity.HasIndex(relationship => relationship.PublicRelationshipId).IsUnique();
+            entity.HasIndex(relationship => relationship.MonitorUserId);
+            entity.HasIndex(relationship => relationship.MonitoredUserId);
+            entity.HasIndex(relationship => relationship.InvitationCodeHash);
+            entity.Property(relationship => relationship.PublicRelationshipId)
+                .HasMaxLength(30)
+                .IsRequired();
+            entity.Property(relationship => relationship.TargetEmailNormalized).HasMaxLength(256);
+            entity.Property(relationship => relationship.TargetPublicProfileId).HasMaxLength(64);
+            entity.Property(relationship => relationship.TargetUsername).HasMaxLength(50);
+            entity.Property(relationship => relationship.InvitationCodeHash).HasMaxLength(64);
+            entity.Property(relationship => relationship.Status)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
+            entity.Property(relationship => relationship.Direction)
+                .HasConversion<string>()
+                .HasMaxLength(40)
+                .IsRequired();
+            entity.OwnsOne(relationship => relationship.Permissions);
+            entity.Ignore(relationship => relationship.ETag);
+        });
+
+
+        modelBuilder.Entity<QuickMessageTemplate>(entity =>
+        {
+            entity.HasKey(template => template.Id);
+            entity.HasIndex(template => template.PublicTemplateId).IsUnique();
+            entity.HasIndex(template => new { template.OwnerUserId, template.Active });
+            entity.Property(template => template.PublicTemplateId).HasMaxLength(30).IsRequired();
+            entity.Property(template => template.OwnerKey).HasMaxLength(64).IsRequired();
+            entity.Property(template => template.Text).HasMaxLength(160).IsRequired();
+        });
+
+        modelBuilder.Entity<QuickMessage>(entity =>
+        {
+            entity.HasKey(message => message.Id);
+            entity.HasIndex(message => message.PublicMessageId).IsUnique();
+            entity.HasIndex(message => new { message.RecipientUserId, message.IsRead });
+            entity.HasIndex(message => message.SenderUserId);
+            entity.Property(message => message.PublicMessageId).HasMaxLength(30).IsRequired();
+            entity.Property(message => message.PublicRelationshipId).HasMaxLength(30).IsRequired();
+            entity.Property(message => message.PublicTemplateId).HasMaxLength(40).IsRequired();
+            entity.Property(message => message.TextSnapshot).HasMaxLength(160).IsRequired();
+            entity.Property(message => message.RoutePublicId).HasMaxLength(64);
+            entity.Property(message => message.IncidentPublicId).HasMaxLength(64);
         });
     }
 }

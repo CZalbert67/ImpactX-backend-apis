@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -10,6 +11,7 @@ namespace ImpactX.Controllers;
 [Route("api/permissions")]
 [Route("api/v1/permissions")]
 [Authorize]
+[RequireClientCapability(ClientTypePolicy.Web, ClientTypePolicy.Mobile)]
 public class PermissionsController : ControllerBase
 {
     private readonly IPermissionService _permissionService;

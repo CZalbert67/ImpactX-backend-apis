@@ -23,7 +23,12 @@ public class CosmosContainerCatalogTests
         "Wearables",
         "AppInvites",
         "ChatThreads",
-        "Incidentes"
+        "Incidentes",
+        "Vehicles",
+        "FamilySubscriptions",
+        "MonitoringRelationships",
+        "QuickMessageTemplates",
+        "QuickMessages"
     ];
 
     [Fact]
@@ -105,8 +110,17 @@ public class CosmosContainerCatalogTests
         Assert.Equal("/id", Get("Usuarios").PartitionKeyPath);
         Assert.Equal("/id", Get("Planes").PartitionKeyPath);
         Assert.Equal("/viajeId", Get("TelemetriaViaje").PartitionKeyPath);
-        Assert.All(CosmosContainerCatalog.All.Where(d => d.Name is not "Usuarios" and not "Planes" and not "TelemetriaViaje"),
-            d => Assert.Equal("/usuarioId", d.PartitionKeyPath));
+        Assert.Equal("/ownerUserId", Get("Vehicles").PartitionKeyPath);
+        Assert.Equal("/ownerUserId", Get("FamilySubscriptions").PartitionKeyPath);
+        Assert.Equal("/monitorUserId", Get("MonitoringRelationships").PartitionKeyPath);
+        Assert.Equal("/ownerKey", Get("QuickMessageTemplates").PartitionKeyPath);
+        Assert.Equal("/recipientUserId", Get("QuickMessages").PartitionKeyPath);
+
+        var legacyUserPartitionContainers = CosmosContainerCatalog.All.Where(d => d.Name is not
+            "Usuarios" and not "Planes" and not "TelemetriaViaje" and not "Vehicles" and not
+            "FamilySubscriptions" and not "MonitoringRelationships" and not "QuickMessageTemplates" and not
+            "QuickMessages");
+        Assert.All(legacyUserPartitionContainers, d => Assert.Equal("/usuarioId", d.PartitionKeyPath));
     }
 
     [Fact]

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -12,6 +13,7 @@ namespace ImpactX.Controllers;
 [Route("api/monitors")]
 [Route("api/v1/monitors")]
 [Authorize]
+[RequireClientCapability(ClientTypePolicy.Web, ClientTypePolicy.Mobile)]
 public class MonitorsController : ControllerBase
 {
     private readonly IMonitorService _monitorService;

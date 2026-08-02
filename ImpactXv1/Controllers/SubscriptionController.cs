@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -10,6 +11,7 @@ namespace ImpactX.Controllers;
 [ApiController]
 [Route("api/subscription")]
 [Authorize]
+[RequireClientCapability(ClientTypePolicy.Web, ClientTypePolicy.Mobile)]
 public class SubscriptionController : ControllerBase
 {
     private readonly IPlanService _planService;
@@ -101,10 +103,11 @@ public class SubscriptionController : ControllerBase
     }
 
     [HttpPost("expire")]
-    public async Task<IActionResult> ExpireSubscriptions()
+    [ApiExplorerSettings(IgnoreApi = true)]
+    [Obsolete("Operación interna. La expiración se ejecuta desde procesos de backend, no por clientes.")]
+    public IActionResult ExpireSubscriptions()
     {
-        var count = await _planService.ExpireSubscriptionsAsync();
-        return Ok(new { expiradas = count });
+        return Forbid();
     }
 
     private Guid GetUsuarioId()
