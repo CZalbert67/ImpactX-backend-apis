@@ -16,18 +16,15 @@ public class QuickMessageService : IQuickMessageService
     private readonly IQuickMessageRepository _repository;
     private readonly IMonitoringRelationshipService _monitoringService;
     private readonly IUsuarioRepository _usuarioRepository;
-    private readonly INotificacionRepository _notificacionRepository;
 
     public QuickMessageService(
         IQuickMessageRepository repository,
         IMonitoringRelationshipService monitoringService,
-        IUsuarioRepository usuarioRepository,
-        INotificacionRepository notificacionRepository)
+        IUsuarioRepository usuarioRepository)
     {
         _repository = repository;
         _monitoringService = monitoringService;
         _usuarioRepository = usuarioRepository;
-        _notificacionRepository = notificacionRepository;
     }
 
     public async Task<IReadOnlyList<QuickMessageTemplateDto>> GetTemplatesAsync(
@@ -184,26 +181,6 @@ public class QuickMessageService : IQuickMessageService
             IsRead = false
         };
         await _repository.AddMessageAsync(message, cancellationToken);
-
-        try
-        {
-            var notif = new Notificacion
-            {
-                Id = Guid.NewGuid(),
-                UsuarioId = recipient.Id,
-                Titulo = "Mensaje Nuevo",
-                Mensaje = $"Has recibido un nuevo mensaje de @{sender.Username}: \"{templateText}\"",
-                Tipo = "Message",
-                PublicRelationshipId = relationship.PublicRelationshipId,
-                CreadoEn = DateTime.UtcNow
-            };
-            await _notificacionRepository.AddAsync(notif);
-        }
-        catch (System.Exception)
-        {
-            // Non-blocking notification fail
-        }
-
         return MapMessage(message, sender, recipient);
     }
 

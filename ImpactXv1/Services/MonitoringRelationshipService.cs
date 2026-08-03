@@ -142,29 +142,6 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         };
 
         await _repository.AddAsync(relationship, cancellationToken);
-
-        if (target.User is not null)
-        {
-            try
-            {
-                var notif = new Notificacion
-                {
-                    Id = Guid.NewGuid(),
-                    UsuarioId = target.User.Id,
-                    Titulo = "Te han mandado una invitación",
-                    Mensaje = $"El usuario @{monitor.Username} te ha enviado una invitación para ser tu monitor.",
-                    Tipo = "Invitation",
-                    PublicRelationshipId = relationship.PublicRelationshipId,
-                    CreadoEn = DateTime.UtcNow
-                };
-                await _notificacionRepository.AddAsync(notif);
-            }
-            catch (Exception)
-            {
-                // Non-blocking notification fail
-            }
-        }
-
         return new CreateMonitoringInvitationResponse
         {
             Relationship = await MapAsync(relationship, monitor),
