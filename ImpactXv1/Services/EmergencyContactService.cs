@@ -17,20 +17,17 @@ public class EmergencyContactService : IEmergencyContactService
     private readonly IContactoRepository _repository;
     private readonly IUsuarioRepository _usuarioRepository;
     private readonly IFamilySubscriptionService _familySubscriptionService;
-    private readonly INotificacionRepository _notificacionRepository;
     private readonly ILogger<EmergencyContactService> _logger;
 
     public EmergencyContactService(
         IContactoRepository repository,
         IUsuarioRepository usuarioRepository,
         IFamilySubscriptionService familySubscriptionService,
-        INotificacionRepository notificacionRepository,
         ILogger<EmergencyContactService> logger)
     {
         _repository = repository;
         _usuarioRepository = usuarioRepository;
         _familySubscriptionService = familySubscriptionService;
-        _notificacionRepository = notificacionRepository;
         _logger = logger;
     }
 
@@ -136,29 +133,6 @@ public class EmergencyContactService : IEmergencyContactService
         };
 
         await _repository.AddAsync(relationship);
-
-        if (target.User is not null)
-        {
-            try
-            {
-                var notif = new Notificacion
-                {
-                    Id = Guid.NewGuid(),
-                    UsuarioId = target.User.Id,
-                    Titulo = "Te han mandado una invitación",
-                    Mensaje = $"El usuario @{owner.Username} te ha enviado una invitación para ser su contacto SOS.",
-                    Tipo = "Invitation",
-                    PublicRelationshipId = relationship.PublicContactId,
-                    CreadoEn = DateTime.UtcNow
-                };
-                await _notificacionRepository.AddAsync(notif);
-            }
-            catch (Exception)
-            {
-                // Non-blocking notification fail
-            }
-        }
-
         _logger.LogInformation(
             "Emergency contact invitation {PublicContactId} created for owner {OwnerUserId}",
             relationship.PublicContactId,
@@ -234,25 +208,6 @@ public class EmergencyContactService : IEmergencyContactService
         contact.InvitationCodeHash = null;
         contact.EsPrincipal = contact.RequestedPrimary;
         await _repository.UpdateAsync(contact);
-
-        try
-        {
-            var notif = new Notificacion
-            {
-                Id = Guid.NewGuid(),
-                UsuarioId = contact.UsuarioId,
-                Titulo = "Invitación aceptada",
-                Mensaje = $"El usuario @{user.Username} ha aceptado tu invitación de contacto SOS.",
-                Tipo = "Accepted",
-                PublicRelationshipId = contact.PublicContactId,
-                CreadoEn = DateTime.UtcNow
-            };
-            await _notificacionRepository.AddAsync(notif);
-        }
-        catch (Exception)
-        {
-            // Non-blocking notification fail
-        }
     }
 
     public async Task RejectInvitationAsync(

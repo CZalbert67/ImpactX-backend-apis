@@ -17,18 +17,15 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
     private readonly IMonitoringRelationshipRepository _repository;
     private readonly IUsuarioRepository _usuarioRepository;
     private readonly IFamilySubscriptionService _familySubscriptionService;
-    private readonly INotificacionRepository _notificacionRepository;
 
     public MonitoringRelationshipService(
         IMonitoringRelationshipRepository repository,
         IUsuarioRepository usuarioRepository,
-        IFamilySubscriptionService familySubscriptionService,
-        INotificacionRepository notificacionRepository)
+        IFamilySubscriptionService familySubscriptionService)
     {
         _repository = repository;
         _usuarioRepository = usuarioRepository;
         _familySubscriptionService = familySubscriptionService;
-        _notificacionRepository = notificacionRepository;
     }
 
     public async Task<IReadOnlyList<MonitoringRelationshipDto>> GetRelationshipsAsync(
@@ -104,29 +101,6 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         };
 
         await _repository.AddAsync(relationship, cancellationToken);
-
-        if (target.User is not null)
-        {
-            try
-            {
-                var notif = new Notificacion
-                {
-                    Id = Guid.NewGuid(),
-                    UsuarioId = target.User.Id,
-                    Titulo = "Te han mandado una invitación",
-                    Mensaje = $"El usuario @{monitor.Username} te ha enviado una invitación para ser tu monitor.",
-                    Tipo = "Invitation",
-                    PublicRelationshipId = relationship.PublicRelationshipId,
-                    CreadoEn = DateTime.UtcNow
-                };
-                await _notificacionRepository.AddAsync(notif);
-            }
-            catch (Exception)
-            {
-                // Non-blocking notification fail
-            }
-        }
-
         return new CreateMonitoringInvitationResponse
         {
             Relationship = await MapAsync(relationship, monitor),
@@ -199,25 +173,6 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         relationship.Permissions.ViewMedicalProfile = false;
         relationship.MedicalConsentGrantedAtUtc = null;
         await _repository.UpdateAsync(relationship, cancellationToken);
-
-        try
-        {
-            var notif = new Notificacion
-            {
-                Id = Guid.NewGuid(),
-                UsuarioId = relationship.InitiatedByUserId,
-                Titulo = "Invitación aceptada",
-                Mensaje = $"El usuario @{monitoredUser.Username} ha aceptado tu invitación.",
-                Tipo = "Accepted",
-                PublicRelationshipId = relationship.PublicRelationshipId,
-                CreadoEn = DateTime.UtcNow
-            };
-            await _notificacionRepository.AddAsync(notif);
-        }
-        catch (Exception)
-        {
-            // Non-blocking notification fail
-        }
     }
 
     public async Task RejectAsync(
