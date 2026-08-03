@@ -20,4 +20,7 @@ public class Notificacion
     public DateTime? EnviadoEn { get; set; }
     public string? ClaveIdempotencia { get; set; }
     public string? PublicRelationshipId { get; set; }
+    public string? Evento { get; set; }
+    public string? DeepLink { get; set; }
+    public string? EntityId { get; set; }
 }

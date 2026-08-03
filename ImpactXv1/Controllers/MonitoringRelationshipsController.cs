@@ -154,7 +154,7 @@ public class MonitoringRelationshipsController : ControllerBase
         var monitoredUserId = await _service.ResolveAuthorizedMonitoredUserIdAsync(
             GetUserId(),
             publicRelationshipId,
-            MonitoringResourcePermission.Telemetry,
+            MonitoringResourcePermission.Routes,
             cancellationToken);
         return Ok(await _viajeService.GetTripsPagedAsync(
             monitoredUserId,

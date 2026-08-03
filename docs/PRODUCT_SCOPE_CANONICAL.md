@@ -10,6 +10,12 @@
 > corresponde a decisiones confirmadas o a estados explícitamente pendientes.
 > No declara concluida la Fase 2.
 
+> **Actualización contractual 2026.08.05:** todos los planes operan como un
+> grupo unificado. La única invitación de grupo reemplaza, en los clientes
+> nuevos, las invitaciones separadas de membresía, monitoreo y contacto SOS.
+> Cada integrante controla sus permisos por persona; SOS es una prioridad
+> dentro del mismo grupo. Consulte `UNIFIED_GROUP_MODEL_V2.md`.
+
 ---
 
 ## 1. Naturaleza de la plataforma
@@ -76,8 +82,8 @@ La aplicación móvil:
 - Puede consultar el estado, historial y telemetría de los viajes.
 - **No** puede iniciar, pausar, reanudar ni finalizar viajes.
 - Administra los vehículos del usuario (ver sección 8).
-- Gestiona la **membresía de suscripción familiar** cuando corresponde:
-  plan, pago simulado, unirse a un plan mediante código y abandonar el plan
+- Gestiona el **plan y grupo unificado** cuando corresponde:
+  plan, pago simulado, unirse mediante una sola invitación, permisos por integrante y abandono voluntario
   (ver sección 15).
 
 El control del ciclo de vida del viaje permanece exclusivamente en el wearable.
@@ -630,11 +636,11 @@ La aplicación móvil administra:
 
 ---
 
-## 15. Suscripción familiar, planes y límites
+## 15. Plan, grupo unificado y límites
 
 ### Naturaleza del plan
 
-La suscripción de ImpactX funciona como un **plan familiar**.
+Todos los planes de ImpactX funcionan como un **grupo unificado**.
 
 Todos los planes permiten **al menos dos personas totales** para que el
 monitoreo tenga sentido: un **propietario** y al menos un **integrante
@@ -664,10 +670,15 @@ Los integrantes:
 - Heredan los beneficios del plan mientras su membresía esté activa.
 - No deben ver el flujo de pago como pantalla principal.
 - Pueden **abandonar el plan**.
-- Pueden contratar su propio plan después de salir.
+- Recuperan automáticamente un plan Gratuito personal al salir o ser eliminados.
 
 Cómo las personas se organizan externamente para dividir el costo no forma
 parte del sistema.
+
+Al aceptar la invitación, todos los integrantes quedan conectados entre sí.
+Cada propietario de datos define permisos por integrante. La ficha médica
+requiere consentimiento explícito. Un contacto SOS es una prioridad asignada
+a un integrante del grupo y no una relación separada.
 
 ### Pago simulado
 
@@ -1136,7 +1147,7 @@ El documento debe:
 
 ## Cierre V9 — contrato definitivo para clientes
 
-- El contrato API V1 queda congelado con versión `2026.08.04`.
+- El contrato API V1 queda congelado con versión `2026.08.05`.
 - `/api/v1/meta/contract` enumera el contrato efectivo y
   `/api/v1/meta/clients/{client}` publica capacidades de web, móvil y wearable.
 - OpenAPI V1 documenta el cliente permitido en operaciones restringidas.

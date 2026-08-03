@@ -53,6 +53,18 @@ public class FamilySubscription
     [JsonPropertyName("invitations")]
     public List<FamilyInvitation> Invitations { get; set; } = [];
 
+    [JsonPropertyName("accessPolicies")]
+    public List<FamilyMemberAccessPolicy> AccessPolicies { get; set; } = [];
+
+    [JsonPropertyName("suspendedForPublicSubscriptionId")]
+    public string? SuspendedForPublicSubscriptionId { get; set; }
+
+    [JsonPropertyName("suspendedAtUtc")]
+    public DateTime? SuspendedAtUtc { get; set; }
+
+    [JsonPropertyName("reactivatedAtUtc")]
+    public DateTime? ReactivatedAtUtc { get; set; }
+
     [JsonPropertyName("payments")]
     public List<SimulatedPaymentRecord> Payments { get; set; } = [];
 
@@ -136,7 +148,41 @@ public class FamilyInvitation
     public DateTime? ConsumedAtUtc { get; set; }
 
     [JsonPropertyName("createMonitoringRelationship")]
-    public bool CreateMonitoringRelationship { get; set; } = true;
+    public bool CreateMonitoringRelationship { get; set; }
+}
+
+
+public class FamilyMemberAccessPolicy
+{
+    [JsonPropertyName("id")]
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    [JsonPropertyName("publicRelationshipId")]
+    public string PublicRelationshipId { get; set; } = string.Empty;
+
+    // Usuario propietario de los datos y permisos.
+    [JsonPropertyName("subjectUserId")]
+    public Guid SubjectUserId { get; set; }
+
+    // Integrante autorizado para consultar los datos del sujeto.
+    [JsonPropertyName("viewerUserId")]
+    public Guid ViewerUserId { get; set; }
+
+    [JsonPropertyName("permissions")]
+    public MonitoringPermissions Permissions { get; set; } = new();
+
+    [JsonPropertyName("medicalConsentGrantedAtUtc")]
+    public DateTime? MedicalConsentGrantedAtUtc { get; set; }
+
+    // 1 = contacto SOS principal. Null = no es contacto SOS.
+    [JsonPropertyName("sosPriority")]
+    public int? SosPriority { get; set; }
+
+    [JsonPropertyName("createdAtUtc")]
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+
+    [JsonPropertyName("updatedAtUtc")]
+    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
 public class SimulatedPaymentRecord

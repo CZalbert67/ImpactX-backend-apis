@@ -4,8 +4,10 @@ using ImpactX.Core.Exceptions;
 using ImpactX.Core.Identity;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
+using ImpactX.Core.Notifications;
 using ImpactX.Core.Security;
 using ImpactX.Models.DTOs.FamilySubscriptions;
+using ImpactX.Models.DTOs.Monitoring;
 
 namespace ImpactX.Services;
 
@@ -18,18 +20,18 @@ public class FamilySubscriptionService : IFamilySubscriptionService
     private readonly IFamilySubscriptionRepository _familyRepository;
     private readonly IUsuarioRepository _usuarioRepository;
     private readonly IPlanRepository _planRepository;
-    private readonly IMonitoringRelationshipRepository? _monitoringRepository;
+    private readonly INotificationService? _notificationService;
 
     public FamilySubscriptionService(
         IFamilySubscriptionRepository familyRepository,
         IUsuarioRepository usuarioRepository,
         IPlanRepository planRepository,
-        IMonitoringRelationshipRepository? monitoringRepository = null)
+        INotificationService? notificationService = null)
     {
         _familyRepository = familyRepository;
         _usuarioRepository = usuarioRepository;
         _planRepository = planRepository;
-        _monitoringRepository = monitoringRepository;
+        _notificationService = notificationService;
     }
 
     public async Task<FamilySubscriptionSummaryDto?> GetCurrentAsync(
@@ -49,7 +51,7 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         }
 
         await ReconcileAcceptedMembershipsAsync(subscription, cancellationToken);
-        await ReconcileFamilyMonitoringDirectionAsync(subscription, cancellationToken);
+        await EnsureUnifiedAccessPoliciesAsync(subscription, cancellationToken);
         return await MapSummaryAsync(subscription, userId, cancellationToken);
     }
 
@@ -125,7 +127,22 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             return await MapSummaryAsync(subscription, userId, cancellationToken);
         }
 
+        var previousPlan = PlanNamePolicy.ToPublicName(subscription.PlanName);
         await ApplyPlanAsync(subscription, plan, cancellationToken);
+        var paymentId = subscription.Payments
+            .OrderByDescending(value => value.OccurredAtUtc)
+            .First().PublicPaymentId;
+        await NotifyUsersSafelyAsync(
+            GetActiveParticipantIds(subscription),
+            "Plan del grupo actualizado",
+            $"El grupo cambió de {previousPlan} a {PlanNamePolicy.ToPublicName(subscription.PlanName)}.",
+            "Subscription",
+            "GroupPlanChanged",
+            subscription.PublicSubscriptionId,
+            "FamilySubscription",
+            "/app/family",
+            $"group-plan-changed:{subscription.PublicSubscriptionId}:{paymentId}",
+            cancellationToken);
         return await MapSummaryAsync(subscription, userId, cancellationToken);
     }
 
@@ -148,6 +165,20 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         subscription.Payments.Add(CreatePayment(plan, now));
 
         await _familyRepository.UpdateAsync(subscription, cancellationToken);
+        var paymentId = subscription.Payments
+            .OrderByDescending(value => value.OccurredAtUtc)
+            .First().PublicPaymentId;
+        await NotifyUsersSafelyAsync(
+            GetActiveParticipantIds(subscription),
+            "Plan del grupo renovado",
+            $"El plan {PlanNamePolicy.ToPublicName(subscription.PlanName)} fue renovado correctamente.",
+            "Subscription",
+            "GroupPlanRenewed",
+            subscription.PublicSubscriptionId,
+            "FamilySubscription",
+            "/app/family",
+            $"group-plan-renewed:{subscription.PublicSubscriptionId}:{paymentId}",
+            cancellationToken);
         return await MapSummaryAsync(subscription, userId, cancellationToken);
     }
 
@@ -188,8 +219,20 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             invitation.CodeHash = string.Empty;
         }
 
+        subscription.AccessPolicies.Clear();
         await _familyRepository.UpdateAsync(subscription, cancellationToken);
-        await ResetUserPlansAsync(affectedUserIds);
+        await ResetUserPlansAsync(affectedUserIds, cancellationToken);
+        await NotifyUsersSafelyAsync(
+            affectedUserIds,
+            "Grupo cancelado",
+            "La suscripción del grupo terminó. Tu plan Gratuito personal está activo.",
+            "Subscription",
+            "GroupPlanCancelled",
+            subscription.PublicSubscriptionId,
+            "FamilySubscription",
+            "/app/family",
+            $"group-cancelled:{subscription.PublicSubscriptionId}:{now:O}",
+            cancellationToken);
     }
 
     public async Task<IReadOnlyList<FamilyMemberDto>> GetMembersAsync(
@@ -198,7 +241,7 @@ public class FamilySubscriptionService : IFamilySubscriptionService
     {
         var subscription = await RequireMembershipAsync(userId, cancellationToken);
         await ReconcileAcceptedMembershipsAsync(subscription, cancellationToken);
-        await ReconcileFamilyMonitoringDirectionAsync(subscription, cancellationToken);
+        await EnsureUnifiedAccessPoliciesAsync(subscription, cancellationToken);
         return subscription.Memberships
             .Where(value => value.Status == FamilyMembershipStatus.Active)
             .OrderBy(value => value.Role)
@@ -311,9 +354,12 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             var activeFamily = await _familyRepository.GetActiveByUserAsync(
                 target.User.Id,
                 cancellationToken);
-            if (activeFamily is not null)
+            if (activeFamily is not null
+                && activeFamily.Id != subscription.Id
+                && !IsSuspendablePersonalFree(activeFamily, target.User.Id))
             {
-                throw new ConflictException("El usuario ya pertenece a una suscripción familiar activa.");
+                throw new ConflictException(
+                    "El usuario ya pertenece a otro grupo activo o administra integrantes propios.");
             }
         }
 
@@ -333,12 +379,28 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             Status = FamilyInvitationStatus.Pending,
             CreatedAtUtc = now,
             ExpiresAtUtc = now.Add(InvitationLifetime),
-            CreateMonitoringRelationship = request.CreateMonitoringRelationship
+            CreateMonitoringRelationship = false
         };
 
         subscription.Invitations.Add(invitation);
         subscription.UpdatedAtUtc = now;
         await _familyRepository.UpdateAsync(subscription, cancellationToken);
+        if (target.User is not null)
+        {
+            var owner = await GetUserAsync(subscription.OwnerUserId);
+            await NotifySafelyAsync(new AppNotificationCommand(
+                target.User.Id,
+                "Invitación a grupo ImpactX",
+                $"@{owner.Username} te invitó a su grupo {PlanNamePolicy.ToPublicName(subscription.PlanName)}.",
+                "Invitation",
+                "GroupInvitationReceived",
+                null,
+                invitation.PublicInvitationId,
+                "FamilyInvitation",
+                "/app/family",
+                $"family-invitation:{invitation.PublicInvitationId}:recipient:{target.User.Id}"),
+                cancellationToken);
+        }
 
         return new CreateFamilyInvitationResponse
         {
@@ -407,6 +469,55 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         invitation.CodeHash = string.Empty;
         subscription.UpdatedAtUtc = DateTime.UtcNow;
         await _familyRepository.UpdateAsync(subscription, cancellationToken);
+        await NotifySafelyAsync(new AppNotificationCommand(
+            subscription.OwnerUserId,
+            "Invitación rechazada",
+            $"@{user.Username} rechazó la invitación al grupo.",
+            "Invitation",
+            "GroupInvitationRejected",
+            null,
+            invitation.PublicInvitationId,
+            "FamilyInvitation",
+            "/app/family",
+            $"family-invitation-rejected:{invitation.PublicInvitationId}:recipient:{subscription.OwnerUserId}"),
+            cancellationToken);
+    }
+
+    public async Task RevokeInvitationAsync(
+        Guid ownerUserId,
+        string publicInvitationId,
+        CancellationToken cancellationToken = default)
+    {
+        var subscription = await RequireOwnedActiveSubscriptionAsync(
+            ownerUserId,
+            cancellationToken);
+        var invitation = subscription.Invitations.FirstOrDefault(value =>
+            value.PublicInvitationId == publicInvitationId
+            && value.Status == FamilyInvitationStatus.Pending)
+            ?? throw new NotFoundException("Invitación pendiente no encontrada.");
+
+        invitation.Status = FamilyInvitationStatus.Revoked;
+        invitation.RespondedAtUtc = DateTime.UtcNow;
+        invitation.CodeHash = string.Empty;
+        subscription.UpdatedAtUtc = DateTime.UtcNow;
+        await _familyRepository.UpdateAsync(subscription, cancellationToken);
+
+        if (invitation.TargetUserId.HasValue)
+        {
+            var owner = await GetUserAsync(ownerUserId);
+            await NotifySafelyAsync(new AppNotificationCommand(
+                invitation.TargetUserId.Value,
+                "Invitación revocada",
+                $"@{owner.Username} retiró la invitación para unirte a su grupo.",
+                "Invitation",
+                "GroupInvitationRevoked",
+                null,
+                invitation.PublicInvitationId,
+                "FamilyInvitation",
+                "/app/family",
+                $"family-invitation-revoked:{invitation.PublicInvitationId}:recipient:{invitation.TargetUserId.Value}"),
+                cancellationToken);
+        }
     }
 
     public async Task RemoveMemberAsync(
@@ -429,11 +540,21 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         await TryApplyPendingPlanAsync(subscription, cancellationToken);
         await _familyRepository.UpdateAsync(subscription, cancellationToken);
 
-        var member = await _usuarioRepository.GetByIdAsync(membership.UserId);
-        if (member is not null)
-        {
-            await SetUserPlanAsync(member, "Free");
-        }
+        RemoveAccessPoliciesForUser(subscription, membership.UserId);
+        await _familyRepository.UpdateAsync(subscription, cancellationToken);
+        await EnsurePersonalFreePlanAsync(membership.UserId, cancellationToken);
+        await NotifySafelyAsync(new AppNotificationCommand(
+            membership.UserId,
+            "Saliste del grupo",
+            "El titular te eliminó del grupo. Tu plan Gratuito personal fue reactivado.",
+            "Subscription",
+            "GroupMemberRemoved",
+            null,
+            membership.PublicMembershipId,
+            "FamilyMembership",
+            "/app/family",
+            $"family-member-removed:{membership.PublicMembershipId}:recipient:{membership.UserId}"),
+            cancellationToken);
     }
 
     public async Task LeaveAsync(
@@ -455,8 +576,34 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         await TryApplyPendingPlanAsync(subscription, cancellationToken);
         await _familyRepository.UpdateAsync(subscription, cancellationToken);
 
+        RemoveAccessPoliciesForUser(subscription, userId);
+        await _familyRepository.UpdateAsync(subscription, cancellationToken);
+        await EnsurePersonalFreePlanAsync(userId, cancellationToken);
         var user = await GetUserAsync(userId);
-        await SetUserPlanAsync(user, "Free");
+        await NotifySafelyAsync(new AppNotificationCommand(
+            subscription.OwnerUserId,
+            "Un integrante abandonó el grupo",
+            $"@{user.Username} abandonó el grupo.",
+            "Subscription",
+            "GroupMemberLeft",
+            null,
+            membership.PublicMembershipId,
+            "FamilyMembership",
+            "/app/family",
+            $"family-member-left:{membership.PublicMembershipId}:recipient:{subscription.OwnerUserId}"),
+            cancellationToken);
+        await NotifySafelyAsync(new AppNotificationCommand(
+            userId,
+            "Regresaste al plan Gratuito",
+            "Abandonaste el grupo y tu plan Gratuito personal fue reactivado. Conservas tu cuenta y tus datos.",
+            "Subscription",
+            "PersonalFreeReactivated",
+            null,
+            membership.PublicMembershipId,
+            "FamilyMembership",
+            "/app/family",
+            $"personal-free-reactivated:{membership.PublicMembershipId}:recipient:{userId}"),
+            cancellationToken);
     }
 
     public async Task<string> GetEffectivePlanNameAsync(
@@ -474,6 +621,237 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         var user = await GetUserAsync(userId);
         return PlanNamePolicy.ToPublicName(
             string.IsNullOrWhiteSpace(user.PlanActivo) ? PlanNamePolicy.Free : user.PlanActivo);
+    }
+
+    public async Task<IReadOnlyList<MonitoringRelationshipDto>> GetUnifiedRelationshipsAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var subscription = await _familyRepository.GetActiveByUserAsync(userId, cancellationToken);
+        if (subscription is null)
+            return [];
+        await ApplyLifecycleAsync(subscription, DateTime.UtcNow, cancellationToken);
+        if (subscription.Status == FamilySubscriptionStatus.Expired)
+            return [];
+        await EnsureUnifiedAccessPoliciesAsync(subscription, cancellationToken);
+        var result = new List<MonitoringRelationshipDto>();
+        foreach (var policy in subscription.AccessPolicies.Where(value =>
+                     value.SubjectUserId == userId || value.ViewerUserId == userId))
+        {
+            result.Add(await MapUnifiedRelationshipAsync(policy));
+        }
+
+        return result.OrderBy(value => value.MonitoredName).ThenBy(value => value.MonitorName).ToList();
+    }
+
+    public async Task<MonitoringRelationshipDto?> TryGetUnifiedRelationshipAsync(
+        Guid participantUserId,
+        string publicRelationshipId,
+        CancellationToken cancellationToken = default)
+    {
+        var subscription = await _familyRepository.GetActiveByUserAsync(participantUserId, cancellationToken);
+        if (subscription is null)
+            return null;
+        await EnsureUnifiedAccessPoliciesAsync(subscription, cancellationToken);
+        var policy = subscription.AccessPolicies.FirstOrDefault(value =>
+            value.PublicRelationshipId == publicRelationshipId
+            && (value.SubjectUserId == participantUserId || value.ViewerUserId == participantUserId));
+        return policy is null ? null : await MapUnifiedRelationshipAsync(policy);
+    }
+
+    public async Task<MonitoringRelationshipDto?> TryUpdateUnifiedPermissionsAsync(
+        Guid subjectUserId,
+        string publicRelationshipId,
+        UpdateMonitoringPermissionsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var subscription = await _familyRepository.GetActiveByUserAsync(subjectUserId, cancellationToken);
+        if (subscription is null)
+            return null;
+        await EnsureUnifiedAccessPoliciesAsync(subscription, cancellationToken);
+        var policy = subscription.AccessPolicies.FirstOrDefault(value =>
+            value.PublicRelationshipId == publicRelationshipId
+            && value.SubjectUserId == subjectUserId);
+        if (policy is null)
+            return null;
+        ApplyPermissions(policy, request);
+        await _familyRepository.UpdateAsync(subscription, cancellationToken);
+        return await MapUnifiedRelationshipAsync(policy);
+    }
+
+    public async Task<Guid?> TryResolveUnifiedAuthorizedUserIdAsync(
+        Guid viewerUserId,
+        string publicRelationshipId,
+        MonitoringResourcePermission permission,
+        CancellationToken cancellationToken = default)
+    {
+        var subscription = await _familyRepository.GetActiveByUserAsync(viewerUserId, cancellationToken);
+        if (subscription is null)
+            return null;
+        await EnsureUnifiedAccessPoliciesAsync(subscription, cancellationToken);
+        var policy = subscription.AccessPolicies.FirstOrDefault(value =>
+            value.PublicRelationshipId == publicRelationshipId
+            && value.ViewerUserId == viewerUserId);
+        if (policy is null)
+            return null;
+        if (!HasPermission(policy, permission))
+            throw new ForbiddenException("El integrante no autorizó consultar este recurso.");
+        return policy.SubjectUserId;
+    }
+
+    public async Task<bool> CanUnifiedMembersMessageAsync(
+        Guid senderUserId,
+        Guid recipientUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var subscription = await _familyRepository.GetActiveByUserAsync(senderUserId, cancellationToken);
+        if (subscription is null)
+            return false;
+        await EnsureUnifiedAccessPoliciesAsync(subscription, cancellationToken);
+        return subscription.AccessPolicies.Any(value =>
+            value.SubjectUserId == recipientUserId
+            && value.ViewerUserId == senderUserId
+            && value.Permissions.SendMessages);
+    }
+
+    public async Task<MonitoringRelationshipDto?> TryGetUnifiedRelationshipBetweenAsync(
+        Guid firstUserId,
+        Guid secondUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var subscription = await _familyRepository.GetActiveByUserAsync(firstUserId, cancellationToken);
+        if (subscription is null)
+            return null;
+        await EnsureUnifiedAccessPoliciesAsync(subscription, cancellationToken);
+        var policy = subscription.AccessPolicies.FirstOrDefault(value =>
+            value.SubjectUserId == secondUserId && value.ViewerUserId == firstUserId);
+        return policy is null ? null : await MapUnifiedRelationshipAsync(policy);
+    }
+
+    public async Task<IReadOnlyList<FamilyMemberAccessDto>> GetMemberAccessAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var subscription = await RequireMembershipAsync(userId, cancellationToken);
+        await EnsureUnifiedAccessPoliciesAsync(subscription, cancellationToken);
+        var result = new List<FamilyMemberAccessDto>();
+        foreach (var policy in subscription.AccessPolicies.Where(value => value.SubjectUserId == userId))
+            result.Add(await MapAccessAsync(subscription, policy));
+        return result.OrderBy(value => value.SosPriority ?? int.MaxValue).ThenBy(value => value.ViewerName).ToList();
+    }
+
+    public async Task<FamilyMemberAccessDto> UpdateMemberAccessAsync(
+        Guid userId,
+        string targetPublicProfileId,
+        UpdateFamilyMemberAccessRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var subscription = await RequireMembershipAsync(userId, cancellationToken);
+        await EnsureUnifiedAccessPoliciesAsync(subscription, cancellationToken);
+        var target = await _usuarioRepository.GetByPublicProfileIdAsync(targetPublicProfileId.Trim())
+            ?? throw new NotFoundException("Integrante no encontrado.");
+        var policy = subscription.AccessPolicies.FirstOrDefault(value =>
+            value.SubjectUserId == userId && value.ViewerUserId == target.Id)
+            ?? throw new NotFoundException("El usuario no pertenece a tu grupo activo.");
+        var maxSos = GetSosContactLimit(subscription.PlanName);
+        if (request.SosPriority is < 1 || request.SosPriority > maxSos)
+            throw new BadRequestException($"La prioridad SOS debe estar entre 1 y {maxSos}.");
+        if (request.ViewMedicalProfile && !request.ConfirmMedicalConsent)
+            throw new BadRequestException("Se requiere consentimiento médico explícito.");
+        var displacedSosPolicies = new List<(FamilyMemberAccessPolicy Policy, int PreviousPriority)>();
+        if (request.SosPriority.HasValue)
+        {
+            foreach (var other in subscription.AccessPolicies.Where(value =>
+                         value.SubjectUserId == userId
+                         && value.Id != policy.Id
+                         && value.SosPriority == request.SosPriority))
+            {
+                displacedSosPolicies.Add((other, other.SosPriority!.Value));
+                other.SosPriority = null;
+                other.UpdatedAtUtc = DateTime.UtcNow;
+            }
+        }
+        var previousSosPriority = policy.SosPriority;
+        policy.Permissions ??= new MonitoringPermissions();
+        policy.Permissions.ViewRoutes = request.ViewRoutes;
+        policy.Permissions.ViewLocation = request.ViewLocation;
+        policy.Permissions.ViewEmergencyLocation = request.ViewEmergencyLocation;
+        policy.Permissions.ViewIncidents = request.ViewIncidents;
+        policy.Permissions.ReceiveCriticalAlerts = request.ReceiveCriticalAlerts;
+        policy.Permissions.ViewMedicalProfile = request.ViewMedicalProfile;
+        policy.Permissions.SendMessages = request.SendMessages;
+        policy.Permissions.ViewTelemetry = request.ViewTelemetry;
+        policy.Permissions.ReceiveNotifications = request.ReceiveNotifications;
+        policy.MedicalConsentGrantedAtUtc = request.ViewMedicalProfile ? DateTime.UtcNow : null;
+        policy.SosPriority = request.SosPriority;
+        policy.UpdatedAtUtc = DateTime.UtcNow;
+        await _familyRepository.UpdateAsync(subscription, cancellationToken);
+
+        var actor = await GetUserAsync(userId);
+        var notification = BuildAccessUpdateNotification(
+            actor,
+            target,
+            subscription,
+            policy,
+            previousSosPriority);
+        await NotifySafelyAsync(notification, cancellationToken);
+        foreach (var displaced in displacedSosPolicies)
+        {
+            var displacedTarget = await GetUserAsync(displaced.Policy.ViewerUserId);
+            await NotifySafelyAsync(
+                BuildAccessUpdateNotification(
+                    actor,
+                    displacedTarget,
+                    subscription,
+                    displaced.Policy,
+                    displaced.PreviousPriority),
+                cancellationToken);
+        }
+        return await MapAccessAsync(subscription, policy);
+    }
+
+    private static AppNotificationCommand BuildAccessUpdateNotification(
+        Usuario actor,
+        Usuario target,
+        FamilySubscription subscription,
+        FamilyMemberAccessPolicy policy,
+        int? previousSosPriority)
+    {
+        var (title, message, type, eventName) = (previousSosPriority, policy.SosPriority) switch
+        {
+            (null, not null) => (
+                "Designación como contacto SOS",
+                $"@{actor.Username} te eligió como contacto SOS con prioridad {policy.SosPriority}.",
+                "SOS",
+                "SosContactDesignated"),
+            (not null, null) => (
+                "Designación SOS revocada",
+                $"@{actor.Username} retiró tu designación como contacto SOS.",
+                "SOS",
+                "SosContactRevoked"),
+            (not null, not null) when previousSosPriority != policy.SosPriority => (
+                "Prioridad SOS actualizada",
+                $"@{actor.Username} cambió tu prioridad SOS de {previousSosPriority} a {policy.SosPriority}.",
+                "SOS",
+                "SosPriorityChanged"),
+            _ => (
+                "Permisos del grupo actualizados",
+                $"@{actor.Username} actualizó los permisos que comparte contigo.",
+                "Subscription",
+                "GroupPermissionsUpdated")
+        };
+
+        return new AppNotificationCommand(
+            target.Id,
+            title,
+            message,
+            type,
+            eventName,
+            policy.PublicRelationshipId,
+            subscription.PublicSubscriptionId,
+            "FamilyGroup",
+            "/app/contacts",
+            $"group-access:{eventName}:{policy.PublicRelationshipId}:{policy.UpdatedAtUtc:O}");
     }
 
     public Task<int> ProcessLifecycleAsync(
@@ -509,7 +887,16 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         var existingFamily = await _familyRepository.GetActiveByUserAsync(userId, cancellationToken);
         if (existingFamily is not null && existingFamily.Id != subscription.Id)
         {
-            throw new ConflictException("Ya perteneces a otra suscripción familiar activa.");
+            if (!IsSuspendablePersonalFree(existingFamily, userId))
+            {
+                throw new ConflictException(
+                    "Ya perteneces a otro grupo activo o administras integrantes propios.");
+            }
+
+            await SuspendPersonalFreeAsync(
+                existingFamily,
+                subscription.PublicSubscriptionId,
+                cancellationToken);
         }
 
         var memberLimit = GetMemberLimit(subscription.PlanName);
@@ -517,12 +904,6 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         {
             throw new ConflictException("El plan ya alcanzó su límite de integrantes aceptados.");
         }
-
-        await EnsureMonitoringCapacityIfRequestedAsync(
-            subscription,
-            invitation,
-            userId,
-            cancellationToken);
 
         var existingMembership = subscription.Memberships.FirstOrDefault(value =>
             value.UserId == userId && value.Role == FamilyMembershipRole.Member);
@@ -560,103 +941,340 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         invitation.CodeHash = string.Empty;
         subscription.UpdatedAtUtc = now;
 
-        await _familyRepository.UpdateAsync(subscription, cancellationToken);
+        await EnsureUnifiedAccessPoliciesAsync(subscription, cancellationToken);
         await SetUserPlanAsync(user, subscription.PlanName);
-        await CreateAcceptedMonitoringRelationshipIfRequestedAsync(
-            subscription,
-            invitation,
-            user,
-            cancellationToken);
-    }
-
-    private async Task EnsureMonitoringCapacityIfRequestedAsync(
-        FamilySubscription subscription,
-        FamilyInvitation invitation,
-        Guid invitedMonitorUserId,
-        CancellationToken cancellationToken)
-    {
-        if (!invitation.CreateMonitoringRelationship || _monitoringRepository is null)
-        {
-            return;
-        }
-
-        if (await _monitoringRepository.ExistsBlockedAsync(
-                invitedMonitorUserId,
-                subscription.OwnerUserId,
-                cancellationToken))
-        {
-            throw new ForbiddenException(
-                "No se puede crear la relación de monitoreo asociada a esta membresía.");
-        }
-
-        if (await _monitoringRepository.ExistsActiveOrPendingAsync(
-                invitedMonitorUserId,
-                subscription.OwnerUserId,
-                cancellationToken))
-        {
-            return;
-        }
-
-        var acceptedRelationships = await _monitoringRepository.CountAcceptedForMonitoredAsync(
+        var owner = await GetUserAsync(subscription.OwnerUserId);
+        await NotifySafelyAsync(new AppNotificationCommand(
             subscription.OwnerUserId,
+            "Nuevo integrante en el grupo",
+            $"@{user.Username} aceptó tu invitación.",
+            "Invitation",
+            "GroupInvitationAccepted",
+            null,
+            invitation.PublicInvitationId,
+            "FamilyInvitation",
+            "/app/family",
+            $"family-invitation-accepted:{invitation.PublicInvitationId}:recipient:{subscription.OwnerUserId}"),
             cancellationToken);
-        if (acceptedRelationships >= GetMonitoringLimit(subscription.PlanName))
+        await NotifySafelyAsync(new AppNotificationCommand(
+            user.Id,
+            "Ya perteneces al grupo",
+            $"Ahora compartes el plan {PlanNamePolicy.ToPublicName(subscription.PlanName)} de @{owner.Username}.",
+            "Subscription",
+            "GroupMembershipActivated",
+            null,
+            invitation.PublicInvitationId,
+            "FamilyMembership",
+            "/app/family",
+            $"family-membership-activated:{subscription.PublicSubscriptionId}:recipient:{user.Id}"),
+            cancellationToken);
+    }
+
+    private async Task EnsureUnifiedAccessPoliciesAsync(
+        FamilySubscription subscription,
+        CancellationToken cancellationToken)
+    {
+        var activeIds = subscription.Memberships
+            .Where(value => value.Status == FamilyMembershipStatus.Active)
+            .Select(value => value.UserId)
+            .Append(subscription.OwnerUserId)
+            .Distinct()
+            .ToArray();
+        var activeSet = activeIds.ToHashSet();
+        var changed = subscription.AccessPolicies.RemoveAll(value =>
+            value.SubjectUserId == value.ViewerUserId
+            || !activeSet.Contains(value.SubjectUserId)
+            || !activeSet.Contains(value.ViewerUserId)) > 0;
+        foreach (var subject in activeIds)
+            foreach (var viewer in activeIds.Where(value => value != subject))
+            {
+                if (subscription.AccessPolicies.Any(value =>
+                        value.SubjectUserId == subject && value.ViewerUserId == viewer))
+                    continue;
+                subscription.AccessPolicies.Add(new FamilyMemberAccessPolicy
+                {
+                    Id = Guid.NewGuid(),
+                    PublicRelationshipId = MonitoringPublicIdGenerator.GenerateRelationshipId(),
+                    SubjectUserId = subject,
+                    ViewerUserId = viewer,
+                    Permissions = CreateDefaultUnifiedPermissions(),
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
+                changed = true;
+            }
+        if (changed)
         {
-            throw new ConflictException(
-                "La invitación también crea un monitor y la red ya alcanzó el límite del plan.");
+            subscription.UpdatedAtUtc = DateTime.UtcNow;
+            await _familyRepository.UpdateAsync(subscription, cancellationToken);
         }
     }
 
-    private async Task CreateAcceptedMonitoringRelationshipIfRequestedAsync(
+    private static MonitoringPermissions CreateDefaultUnifiedPermissions() => new()
+    {
+        ViewRoutes = false,
+        ViewLocation = false,
+        ViewEmergencyLocation = true,
+        ViewIncidents = true,
+        ReceiveCriticalAlerts = true,
+        ViewMedicalProfile = false,
+        SendMessages = true,
+        ViewTelemetry = false,
+        ReceiveNotifications = true
+    };
+
+    private async Task<MonitoringRelationshipDto> MapUnifiedRelationshipAsync(
+        FamilyMemberAccessPolicy policy)
+    {
+        var subject = await GetUserAsync(policy.SubjectUserId);
+        var viewer = await GetUserAsync(policy.ViewerUserId);
+        return new MonitoringRelationshipDto
+        {
+            PublicRelationshipId = policy.PublicRelationshipId,
+            Status = MonitoringRelationshipStatus.Accepted,
+            Direction = MonitoringRequestDirection.MonitoredRequestsMonitor,
+            MonitorPublicProfileId = viewer.PublicProfileId,
+            MonitorUsername = viewer.Username,
+            MonitorName = viewer.Nombre,
+            MonitoredPublicProfileId = subject.PublicProfileId,
+            MonitoredUsername = subject.Username,
+            MonitoredName = subject.Nombre,
+            Permissions = MapPermissions(policy.Permissions),
+            RequestedAtUtc = policy.CreatedAtUtc,
+            ExpiresAtUtc = DateTime.MaxValue,
+            AcceptedAtUtc = policy.CreatedAtUtc
+        };
+    }
+
+    private async Task<FamilyMemberAccessDto> MapAccessAsync(
         FamilySubscription subscription,
-        FamilyInvitation invitation,
-        Usuario invitedMonitor,
+        FamilyMemberAccessPolicy policy)
+    {
+        var subject = await GetUserAsync(policy.SubjectUserId);
+        var viewer = await GetUserAsync(policy.ViewerUserId);
+        return new FamilyMemberAccessDto
+        {
+            PublicRelationshipId = policy.PublicRelationshipId,
+            PublicSubscriptionId = subscription.PublicSubscriptionId,
+            SubjectPublicProfileId = subject.PublicProfileId,
+            SubjectUsername = subject.Username,
+            SubjectName = subject.Nombre,
+            ViewerPublicProfileId = viewer.PublicProfileId,
+            ViewerUsername = viewer.Username,
+            ViewerName = viewer.Nombre,
+            Permissions = MapPermissions(policy.Permissions),
+            MedicalConsentGranted = policy.MedicalConsentGrantedAtUtc.HasValue,
+            SosPriority = policy.SosPriority,
+            UpdatedAtUtc = policy.UpdatedAtUtc
+        };
+    }
+
+    private static MonitoringPermissionsDto MapPermissions(MonitoringPermissions value) => new()
+    {
+        ViewRoutes = value.ViewRoutes,
+        ViewLocation = value.ViewLocation,
+        ViewEmergencyLocation = value.ViewEmergencyLocation,
+        ViewIncidents = value.ViewIncidents,
+        ReceiveCriticalAlerts = value.ReceiveCriticalAlerts,
+        ViewMedicalProfile = value.ViewMedicalProfile,
+        SendMessages = value.SendMessages,
+        ViewTelemetry = value.ViewTelemetry,
+        ReceiveNotifications = value.ReceiveNotifications
+    };
+
+    private static void ApplyPermissions(
+        FamilyMemberAccessPolicy policy,
+        UpdateMonitoringPermissionsRequest request)
+    {
+        if (request.ViewMedicalProfile && !request.ConfirmMedicalConsent)
+            throw new BadRequestException("Se requiere consentimiento médico explícito.");
+        policy.Permissions ??= new MonitoringPermissions();
+        policy.Permissions.ViewRoutes = request.ViewRoutes;
+        policy.Permissions.ViewLocation = request.ViewLocation;
+        policy.Permissions.ViewEmergencyLocation = request.ViewEmergencyLocation;
+        policy.Permissions.ViewIncidents = request.ViewIncidents;
+        policy.Permissions.ReceiveCriticalAlerts = request.ReceiveCriticalAlerts;
+        policy.Permissions.ViewMedicalProfile = request.ViewMedicalProfile;
+        policy.Permissions.SendMessages = request.SendMessages;
+        policy.Permissions.ViewTelemetry = request.ViewTelemetry;
+        policy.Permissions.ReceiveNotifications = request.ReceiveNotifications;
+        policy.MedicalConsentGrantedAtUtc = request.ViewMedicalProfile ? DateTime.UtcNow : null;
+        policy.UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    private static bool HasPermission(
+        FamilyMemberAccessPolicy policy,
+        MonitoringResourcePermission permission) => permission switch
+        {
+            MonitoringResourcePermission.Incidents => policy.Permissions.ViewIncidents,
+            MonitoringResourcePermission.CriticalAlerts => policy.Permissions.ReceiveCriticalAlerts,
+            MonitoringResourcePermission.Routes => policy.Permissions.ViewRoutes,
+            MonitoringResourcePermission.Telemetry => policy.Permissions.ViewTelemetry,
+            MonitoringResourcePermission.Location => policy.Permissions.ViewLocation,
+            _ => false
+        };
+
+    private static bool IsSuspendablePersonalFree(FamilySubscription subscription, Guid userId)
+    {
+        return subscription.OwnerUserId == userId
+            && PlanNamePolicy.ToPublicName(subscription.PlanName) == PlanNamePolicy.Free
+            && CountAcceptedInvitedMembers(subscription) == 0
+            && subscription.Invitations.All(value =>
+                value.Status != FamilyInvitationStatus.Pending || value.ExpiresAtUtc <= DateTime.UtcNow);
+    }
+
+    private async Task SuspendPersonalFreeAsync(
+        FamilySubscription subscription,
+        string destinationPublicSubscriptionId,
         CancellationToken cancellationToken)
     {
-        if (!invitation.CreateMonitoringRelationship || _monitoringRepository is null)
-        {
-            return;
-        }
+        subscription.Status = FamilySubscriptionStatus.Suspended;
+        subscription.SuspendedForPublicSubscriptionId = destinationPublicSubscriptionId;
+        subscription.SuspendedAtUtc = DateTime.UtcNow;
+        subscription.UpdatedAtUtc = DateTime.UtcNow;
+        await _familyRepository.UpdateAsync(subscription, cancellationToken);
+    }
 
-        if (await _monitoringRepository.ExistsActiveOrPendingAsync(
-                invitedMonitor.Id,
-                subscription.OwnerUserId,
-                cancellationToken))
-        {
-            return;
-        }
-
+    private async Task EnsurePersonalFreePlanAsync(
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var user = await GetUserAsync(userId);
+        var owned = await _familyRepository.GetByOwnerAsync(userId, cancellationToken);
         var now = DateTime.UtcNow;
-        await _monitoringRepository.AddAsync(new MonitoringRelationship
+        if (owned is not null && owned.Status == FamilySubscriptionStatus.Suspended)
         {
-            Id = Guid.NewGuid(),
-            PublicRelationshipId = MonitoringPublicIdGenerator.GenerateRelationshipId(),
-            MonitorUserId = invitedMonitor.Id,
-            MonitoredUserId = subscription.OwnerUserId,
-            InitiatedByUserId = subscription.OwnerUserId,
-            Direction = MonitoringRequestDirection.MonitoredRequestsMonitor,
-            Status = MonitoringRelationshipStatus.Accepted,
-            TargetEmailNormalized = NormalizeUserEmail(invitedMonitor),
-            TargetPublicProfileId = invitedMonitor.PublicProfileId,
-            TargetUsername = invitedMonitor.Username,
-            InvitationCodeHash = string.Empty,
-            Permissions = new MonitoringPermissions
+            owned.Status = FamilySubscriptionStatus.Active;
+            owned.PlanName = PlanNamePolicy.Free;
+            owned.SuspendedForPublicSubscriptionId = null;
+            owned.SuspendedAtUtc = null;
+            owned.ReactivatedAtUtc = now;
+            owned.PeriodStartUtc = now;
+            owned.PeriodEndUtc = now.AddMonths(1);
+            owned.NextBillingAtUtc = owned.PeriodEndUtc;
+            owned.UpdatedAtUtc = now;
+            var ownerMembership = owned.Memberships.FirstOrDefault(value =>
+                value.UserId == userId && value.Role == FamilyMembershipRole.Owner);
+            if (ownerMembership is null)
             {
-                ViewRoutes = true,
-                ViewLocation = true,
-                ViewEmergencyLocation = true,
-                ViewIncidents = true,
-                ReceiveCriticalAlerts = true,
-                ViewMedicalProfile = false,
-                SendMessages = true,
-                ViewTelemetry = true,
-                ReceiveNotifications = true
-            },
-            RequestedAtUtc = invitation.CreatedAtUtc,
-            ExpiresAtUtc = invitation.ExpiresAtUtc,
-            AcceptedAtUtc = now,
-            UpdatedAtUtc = now
-        }, cancellationToken);
+                owned.Memberships.Add(CreateOwnerMembership(user, now));
+            }
+            else
+            {
+                ownerMembership.Status = FamilyMembershipStatus.Active;
+                ownerMembership.EndedAtUtc = null;
+            }
+            RemoveAccessPoliciesForUser(owned, userId, keepOwnGroup: true);
+            await _familyRepository.UpdateAsync(owned, cancellationToken);
+        }
+        else
+        {
+            var active = await _familyRepository.GetActiveByUserAsync(userId, cancellationToken);
+            if (active is null || active.OwnerUserId != userId)
+            {
+                var freePlan = await ResolvePlanAsync(PlanNamePolicy.Free);
+                var fresh = new FamilySubscription
+                {
+                    Id = Guid.NewGuid(),
+                    PublicSubscriptionId = FamilyPublicIdGenerator.GenerateSubscriptionId(),
+                    OwnerUserId = userId,
+                    PlanName = freePlan.Nombre,
+                    Status = FamilySubscriptionStatus.Active,
+                    PeriodStartUtc = now,
+                    PeriodEndUtc = now.AddMonths(1),
+                    NextBillingAtUtc = now.AddMonths(1),
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now,
+                    Memberships = [CreateOwnerMembership(user, now)],
+                    Payments = [CreatePayment(freePlan, now)]
+                };
+                await _familyRepository.AddAsync(fresh, cancellationToken);
+            }
+        }
+        await SetUserPlanAsync(user, PlanNamePolicy.Free);
+    }
+
+    private static FamilyMembership CreateOwnerMembership(Usuario user, DateTime now) => new()
+    {
+        Id = Guid.NewGuid(),
+        PublicMembershipId = FamilyPublicIdGenerator.GenerateMembershipId(),
+        UserId = user.Id,
+        Role = FamilyMembershipRole.Owner,
+        Status = FamilyMembershipStatus.Active,
+        AcceptedAtUtc = now,
+        PublicProfileIdSnapshot = user.PublicProfileId,
+        UsernameSnapshot = user.Username,
+        DisplayNameSnapshot = user.Nombre
+    };
+
+    private static void RemoveAccessPoliciesForUser(
+        FamilySubscription subscription,
+        Guid userId,
+        bool keepOwnGroup = false)
+    {
+        subscription.AccessPolicies.RemoveAll(value =>
+            value.SubjectUserId == userId || value.ViewerUserId == userId);
+        if (!keepOwnGroup)
+            subscription.UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    private async Task NotifySafelyAsync(
+        AppNotificationCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (_notificationService is null)
+            return;
+        try
+        {
+            await _notificationService.CreateAndDispatchAsync(command, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // Las notificaciones no deben revertir la operación principal.
+        }
+    }
+
+    private async Task NotifyUsersSafelyAsync(
+        IEnumerable<Guid> recipientUserIds,
+        string title,
+        string message,
+        string type,
+        string eventName,
+        string entityId,
+        string referenceType,
+        string deepLink,
+        string idempotencySeed,
+        CancellationToken cancellationToken)
+    {
+        foreach (var recipientUserId in recipientUserIds.Distinct())
+        {
+            await NotifySafelyAsync(new AppNotificationCommand(
+                recipientUserId,
+                title,
+                message,
+                type,
+                eventName,
+                null,
+                entityId,
+                referenceType,
+                deepLink,
+                $"{idempotencySeed}:recipient:{recipientUserId}"),
+                cancellationToken);
+        }
+    }
+
+    private static IReadOnlyList<Guid> GetActiveParticipantIds(FamilySubscription subscription)
+    {
+        return subscription.Memberships
+            .Where(value => value.Status == FamilyMembershipStatus.Active)
+            .Select(value => value.UserId)
+            .Append(subscription.OwnerUserId)
+            .Distinct()
+            .ToArray();
     }
 
     private async Task<FamilySubscription> RequireOwnedActiveSubscriptionAsync(
@@ -770,16 +1388,12 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         }
     }
 
-    private async Task ResetUserPlansAsync(IEnumerable<Guid> userIds)
+    private async Task ResetUserPlansAsync(
+        IEnumerable<Guid> userIds,
+        CancellationToken cancellationToken)
     {
         foreach (var userId in userIds.Distinct())
-        {
-            var user = await _usuarioRepository.GetByIdAsync(userId);
-            if (user is not null)
-            {
-                await SetUserPlanAsync(user, "Free");
-            }
-        }
+            await EnsurePersonalFreePlanAsync(userId, cancellationToken);
     }
 
     private async Task SetUserPlanAsync(Usuario user, string planName)
@@ -831,6 +1445,10 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             NextBillingAtUtc = subscription.NextBillingAtUtc,
             GraceEndsAtUtc = subscription.GraceEndsAtUtc,
             AutoRenew = subscription.AutoRenew,
+            CanManagePlan = role == FamilyMembershipRole.Owner,
+            CanInviteMembers = role == FamilyMembershipRole.Owner,
+            CanLeaveGroup = role == FamilyMembershipRole.Member,
+            SosContactLimit = GetSosContactLimit(subscription.PlanName),
             LatestPayment = subscription.Payments
                 .OrderByDescending(value => value.OccurredAtUtc)
                 .Select(MapPayment)
@@ -930,7 +1548,7 @@ public class FamilySubscriptionService : IFamilySubscriptionService
                 continue;
             }
 
-            if (membership.Status != FamilyMembershipStatus.Active)
+            if (membership.Status == FamilyMembershipStatus.Pending)
             {
                 membership.Status = FamilyMembershipStatus.Active;
                 membership.EndedAtUtc = null;
@@ -970,97 +1588,6 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         return string.IsNullOrWhiteSpace(invitation.TargetEmailNormalized)
             ? null
             : await _usuarioRepository.GetByCorreoAsync(invitation.TargetEmailNormalized);
-    }
-
-    private async Task ReconcileFamilyMonitoringDirectionAsync(
-        FamilySubscription subscription,
-        CancellationToken cancellationToken)
-    {
-        if (_monitoringRepository is null)
-        {
-            return;
-        }
-
-        var relationships = await _monitoringRepository.GetForUserAsync(
-            subscription.OwnerUserId,
-            cancellationToken);
-        foreach (var invitation in subscription.Invitations.Where(value =>
-                     value.CreateMonitoringRelationship
-                     && (value.Status is FamilyInvitationStatus.Accepted
-                         or FamilyInvitationStatus.Consumed)
-                     && value.TargetUserId.HasValue))
-        {
-            var memberUserId = invitation.TargetUserId!.Value;
-            var correctExists = relationships.Any(value =>
-                value.MonitorUserId == memberUserId
-                && value.MonitoredUserId == subscription.OwnerUserId
-                && value.Status == MonitoringRelationshipStatus.Accepted);
-            if (correctExists)
-            {
-                continue;
-            }
-
-            var legacy = relationships.FirstOrDefault(value =>
-                value.MonitorUserId == subscription.OwnerUserId
-                && value.MonitoredUserId == memberUserId
-                && value.Status == MonitoringRelationshipStatus.Accepted
-                && Math.Abs((value.RequestedAtUtc - invitation.CreatedAtUtc).TotalSeconds) < 5);
-            if (legacy is null)
-            {
-                continue;
-            }
-
-            var member = await _usuarioRepository.GetByIdAsync(memberUserId);
-            if (member is null)
-            {
-                continue;
-            }
-
-            legacy.Status = MonitoringRelationshipStatus.Revoked;
-            legacy.RevokedAtUtc = DateTime.UtcNow;
-            legacy.UpdatedAtUtc = DateTime.UtcNow;
-            await _monitoringRepository.UpdateAsync(legacy, cancellationToken);
-
-            var now = DateTime.UtcNow;
-            await _monitoringRepository.AddAsync(new MonitoringRelationship
-            {
-                Id = Guid.NewGuid(),
-                PublicRelationshipId = MonitoringPublicIdGenerator.GenerateRelationshipId(),
-                MonitorUserId = memberUserId,
-                MonitoredUserId = subscription.OwnerUserId,
-                InitiatedByUserId = subscription.OwnerUserId,
-                Direction = MonitoringRequestDirection.MonitoredRequestsMonitor,
-                Status = MonitoringRelationshipStatus.Accepted,
-                TargetEmailNormalized = NormalizeUserEmail(member),
-                TargetPublicProfileId = member.PublicProfileId,
-                TargetUsername = member.Username,
-                InvitationCodeHash = string.Empty,
-                Permissions = CloneMonitoringPermissions(legacy.Permissions),
-                RequestedAtUtc = invitation.CreatedAtUtc,
-                ExpiresAtUtc = invitation.ExpiresAtUtc,
-                AcceptedAtUtc = invitation.ConsumedAtUtc
-                    ?? invitation.RespondedAtUtc
-                    ?? now,
-                UpdatedAtUtc = now
-            }, cancellationToken);
-        }
-    }
-
-    private static MonitoringPermissions CloneMonitoringPermissions(
-        MonitoringPermissions source)
-    {
-        return new MonitoringPermissions
-        {
-            ViewRoutes = source.ViewRoutes,
-            ViewLocation = source.ViewLocation,
-            ViewEmergencyLocation = source.ViewEmergencyLocation,
-            ViewIncidents = source.ViewIncidents,
-            ReceiveCriticalAlerts = source.ReceiveCriticalAlerts,
-            ViewMedicalProfile = source.ViewMedicalProfile,
-            SendMessages = source.SendMessages,
-            ViewTelemetry = source.ViewTelemetry,
-            ReceiveNotifications = source.ReceiveNotifications
-        };
     }
 
     private async Task ApplyLifecycleAsync(
@@ -1109,8 +1636,20 @@ public class FamilySubscriptionService : IFamilySubscriptionService
                 invitation.CodeHash = string.Empty;
             }
 
+            subscription.AccessPolicies.Clear();
             await _familyRepository.UpdateAsync(subscription, cancellationToken);
-            await ResetUserPlansAsync(affectedUserIds);
+            await ResetUserPlansAsync(affectedUserIds, cancellationToken);
+            await NotifyUsersSafelyAsync(
+                affectedUserIds,
+                "Grupo vencido",
+                "La suscripción venció. Tu plan Gratuito personal está activo.",
+                "Subscription",
+                "GroupPlanExpired",
+                subscription.PublicSubscriptionId,
+                "FamilySubscription",
+                "/app/family",
+                $"group-expired:{subscription.PublicSubscriptionId}:{utcNow:O}",
+                cancellationToken);
         }
     }
 
@@ -1402,6 +1941,11 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             "Premium" => 6,
             _ => 1
         };
+    }
+
+    public static int GetSosContactLimit(string planName)
+    {
+        return GetMemberLimit(planName);
     }
 
     public static int GetVehicleLimit(string planName)

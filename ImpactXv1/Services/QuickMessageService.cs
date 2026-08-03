@@ -3,6 +3,7 @@ using ImpactX.Core.Exceptions;
 using ImpactX.Core.Identity;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
+using ImpactX.Core.Notifications;
 using ImpactX.Core.QuickMessages;
 using ImpactX.Models.DTOs.QuickMessages;
 
@@ -16,15 +17,18 @@ public class QuickMessageService : IQuickMessageService
     private readonly IQuickMessageRepository _repository;
     private readonly IMonitoringRelationshipService _monitoringService;
     private readonly IUsuarioRepository _usuarioRepository;
+    private readonly INotificationService? _notificationService;
 
     public QuickMessageService(
         IQuickMessageRepository repository,
         IMonitoringRelationshipService monitoringService,
-        IUsuarioRepository usuarioRepository)
+        IUsuarioRepository usuarioRepository,
+        INotificationService? notificationService = null)
     {
         _repository = repository;
         _monitoringService = monitoringService;
         _usuarioRepository = usuarioRepository;
+        _notificationService = notificationService;
     }
 
     public async Task<IReadOnlyList<QuickMessageTemplateDto>> GetTemplatesAsync(
@@ -181,6 +185,7 @@ public class QuickMessageService : IQuickMessageService
             IsRead = false
         };
         await _repository.AddMessageAsync(message, cancellationToken);
+        await NotifyMessageAsync(message, sender, recipient, cancellationToken);
         return MapMessage(message, sender, recipient);
     }
 
@@ -262,6 +267,41 @@ public class QuickMessageService : IQuickMessageService
             other.Id,
             DateTime.UtcNow,
             cancellationToken);
+    }
+
+    private async Task NotifyMessageAsync(
+        QuickMessage message,
+        Usuario sender,
+        Usuario recipient,
+        CancellationToken cancellationToken)
+    {
+        if (_notificationService is null)
+            return;
+
+        try
+        {
+            await _notificationService.CreateAndDispatchAsync(
+                new AppNotificationCommand(
+                    recipient.Id,
+                    $"Mensaje de @{sender.Username}",
+                    message.TextSnapshot,
+                    "Message",
+                    "QuickMessageReceived",
+                    message.PublicRelationshipId,
+                    message.PublicMessageId,
+                    "QuickMessage",
+                    $"/app/messages?recipient={sender.PublicProfileId}",
+                    $"quick-message:{message.PublicMessageId}:recipient:{recipient.Id}"),
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // La mensajería no debe fallar si el canal de notificaciones está temporalmente fuera.
+        }
     }
 
     private async Task<string> ResolveTemplateTextAsync(

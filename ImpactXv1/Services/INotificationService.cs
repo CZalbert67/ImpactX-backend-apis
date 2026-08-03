@@ -1,5 +1,5 @@
-using ImpactX.Core.Domain;
 using ImpactX.Core.Notifications;
+using ImpactX.Core.Domain;
 using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
@@ -15,6 +15,9 @@ public interface INotificationService
     Task DeleteAsync(Guid usuarioId, Guid notificacionId);
     Task DeleteAllAsync(Guid usuarioId);
     Task SendPushNotificationAsync(Guid usuarioId, string titulo, string mensaje, Dictionary<string, string>? datos = null);
+    Task<NotificacionDto> CreateAndDispatchAsync(
+        AppNotificationCommand command,
+        CancellationToken cancellationToken = default);
     Task<IReadOnlyList<NotificationDispatchResult>> NotifyAlertMonitorsAsync(Alerta alerta, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<NotificationDispatchResult>> RetryAlertNotificationsAsync(Alerta alerta, CancellationToken cancellationToken = default);
 }

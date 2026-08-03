@@ -1,10 +1,10 @@
+using ImpactX.Core.Notifications;
 using System.Collections.Concurrent;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Domain.Enums;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
-using ImpactX.Core.Notifications;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 using Microsoft.Extensions.Logging;
@@ -971,6 +971,180 @@ public class NotificationServiceTests
                     notification.PublicRelationshipId == latest.PublicRelationshipId)),
             Times.Once);
     }
+    [Fact]
+    public async Task NotifyAlertMonitors_LegacyGroupWithoutMaterializedPolicies_UsesSafeGroupDefaults()
+    {
+        var monitoredUserId = Guid.NewGuid();
+        var memberUserId = Guid.NewGuid();
+        var familyRepository = new Mock<IFamilySubscriptionRepository>();
+        familyRepository
+            .Setup(repository => repository.GetActiveByUserAsync(
+                monitoredUserId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FamilySubscription
+            {
+                Id = Guid.NewGuid(),
+                PublicSubscriptionId = "SUB-MIGRATION-TEST",
+                OwnerUserId = monitoredUserId,
+                PlanName = "Free",
+                Status = FamilySubscriptionStatus.Active,
+                CreatedAtUtc = DateTime.UtcNow.AddDays(-1),
+                UpdatedAtUtc = DateTime.UtcNow,
+                Memberships =
+                [
+                    new FamilyMembership
+                    {
+                        Id = Guid.NewGuid(),
+                        PublicMembershipId = "MEM-MIGRATION-TEST",
+                        UserId = memberUserId,
+                        Role = FamilyMembershipRole.Member,
+                        Status = FamilyMembershipStatus.Active,
+                        AcceptedAtUtc = DateTime.UtcNow.AddHours(-1)
+                    }
+                ]
+            });
+        _monitoringRepo
+            .Setup(repository => repository.GetAcceptedForMonitoredUserAsync(
+                monitoredUserId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        _usuarioRepo
+            .Setup(repository => repository.GetByIdAsync(memberUserId))
+            .ReturnsAsync(new Usuario
+            {
+                Id = memberUserId,
+                IsActive = true,
+                FcmToken = "group-member-token"
+            });
+        _dispositivoRepo
+            .Setup(repository => repository.GetActiveByUsuarioIdAsync(memberUserId))
+            .ReturnsAsync([]);
+        _notificacionRepo
+            .Setup(repository => repository.GetByIdempotencyKeyAsync(
+                It.IsAny<string>(),
+                memberUserId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Notificacion?)null);
+        _notificacionRepo
+            .Setup(repository => repository.CountUnreadByUserAsync(memberUserId))
+            .ReturnsAsync(1);
+        _pushGateway
+            .Setup(gateway => gateway.SendAsync(
+                "group-member-token",
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, string>?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PushGatewayResult(true, "Enviado"));
+
+        var service = new NotificationService(
+            _notificacionRepo.Object,
+            _usuarioRepo.Object,
+            _dispositivoRepo.Object,
+            _monitoringRepo.Object,
+            _pushGateway.Object,
+            _logger,
+            familyRepository.Object);
+
+        var result = await service.NotifyAlertMonitorsAsync(new Alerta
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = monitoredUserId,
+            Tipo = "SOS",
+            Severidad = "severe",
+            Estado = "Enviada",
+            CreadoEn = DateTime.UtcNow
+        });
+
+        var dispatch = Assert.Single(result);
+        Assert.Equal(memberUserId, dispatch.RecipientUserId);
+        Assert.Equal("Enviado", dispatch.Status);
+        _notificacionRepo.Verify(repository => repository.AddAsync(
+            It.Is<Notificacion>(notification =>
+                notification.UsuarioId == memberUserId
+                && notification.Evento == "WearableSosTriggered"
+                && notification.PublicRelationshipId != null
+                && notification.PublicRelationshipId.StartsWith("GRP-", StringComparison.Ordinal))),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateAndDispatchAsync_PersistsAndPushesRealtimeNavigationData()
+    {
+        var recipientUserId = Guid.NewGuid();
+        var relationshipId = $"MON-TEST-{Guid.NewGuid():N}";
+        var entityId = $"MSG-{Guid.NewGuid():N}";
+        IReadOnlyDictionary<string, string>? capturedData = null;
+        Notificacion? capturedNotification = null;
+
+        _notificacionRepo
+            .Setup(repository => repository.GetByIdempotencyKeyAsync(
+                "message-event",
+                recipientUserId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Notificacion?)null);
+        _notificacionRepo
+            .Setup(repository => repository.AddAsync(It.IsAny<Notificacion>()))
+            .Callback<Notificacion>(value => capturedNotification = value)
+            .Returns(Task.CompletedTask);
+        _notificacionRepo
+            .Setup(repository => repository.CountUnreadByUserAsync(recipientUserId))
+            .ReturnsAsync(4);
+        _notificacionRepo
+            .Setup(repository => repository.UpdateAsync(It.IsAny<Notificacion>()))
+            .Returns(Task.CompletedTask);
+        _usuarioRepo
+            .Setup(repository => repository.GetByIdAsync(recipientUserId))
+            .ReturnsAsync(new Usuario
+            {
+                Id = recipientUserId,
+                IsActive = true,
+                FcmToken = "recipient-token"
+            });
+        _dispositivoRepo
+            .Setup(repository => repository.GetActiveByUsuarioIdAsync(recipientUserId))
+            .ReturnsAsync([]);
+        _pushGateway
+            .Setup(gateway => gateway.SendAsync(
+                "recipient-token",
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, string>?>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, string, string, IReadOnlyDictionary<string, string>?, CancellationToken>(
+                (_, _, _, data, _) => capturedData = data)
+            .ReturnsAsync(new PushGatewayResult(true, "Enviado"));
+
+        var result = await _notificationService.CreateAndDispatchAsync(
+            new AppNotificationCommand(
+                recipientUserId,
+                "Mensaje nuevo",
+                "Tienes un mensaje rápido.",
+                "Message",
+                "QuickMessageReceived",
+                relationshipId,
+                entityId,
+                "QuickMessage",
+                "/app/messages?recipient=PUB-TEST",
+                "message-event"));
+
+        Assert.NotNull(capturedNotification);
+        Assert.Equal("QuickMessageReceived", capturedNotification!.Evento);
+        Assert.Equal(relationshipId, capturedNotification.PublicRelationshipId);
+        Assert.Equal("Enviado", capturedNotification.EstadoEnvio);
+        Assert.Equal(capturedNotification.Id, result.Id);
+        Assert.NotNull(capturedData);
+        Assert.Equal("4", capturedData!["unreadCount"]);
+        Assert.Equal("Message", capturedData["type"]);
+        Assert.Equal("QuickMessageReceived", capturedData["event"]);
+        Assert.Equal(relationshipId, capturedData["publicRelationshipId"]);
+        Assert.Equal(entityId, capturedData["entityId"]);
+        Assert.Equal("/app/messages?recipient=PUB-TEST", capturedData["deepLink"]);
+        Assert.Equal(
+            ImpactX.Core.ApiContract.ApiContractDefinition.ContractVersion,
+            capturedData["contractVersion"]);
+    }
+
     private static MonitoringRelationship AcceptedRelationship(
         Guid monitoredUserId,
         Guid monitorUserId,

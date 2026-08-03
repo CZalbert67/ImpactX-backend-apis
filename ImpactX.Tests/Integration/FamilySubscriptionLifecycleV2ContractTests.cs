@@ -72,15 +72,32 @@ public sealed class FamilySubscriptionLifecycleV2ContractTests : IClassFixture<C
         });
 
         await ProcessLifecycleAsync();
-        Assert.Equal(HttpStatusCode.NoContent,
-            (await client.GetAsync("/api/v1/family-subscriptions/current")).StatusCode);
+
+        var restoredResponse = await client.GetAsync(
+            "/api/v1/family-subscriptions/current");
+        Assert.Equal(HttpStatusCode.OK, restoredResponse.StatusCode);
+
+        var restored = await restoredResponse.Content
+            .ReadFromJsonAsync<FamilySubscriptionSummaryDto>();
+        Assert.NotNull(restored);
+        Assert.Equal("Free", restored!.PlanName);
+        Assert.Equal(FamilySubscriptionStatus.Active, restored.Status);
+        Assert.Equal("Owner", restored.CurrentUserRole.ToString());
+        Assert.True(restored.CanManagePlan);
 
         await _factory.ExecuteInDbContextAsync(async db =>
         {
             var user = await db.Usuarios.SingleAsync(value => value.Correo == email);
             Assert.Equal("Free", user.PlanActivo);
-            var family = await db.FamilySubscriptions.SingleAsync(value => value.OwnerUserId == user.Id);
-            Assert.Equal(FamilySubscriptionStatus.Expired, family.Status);
+
+            var expiredFamily = await db.FamilySubscriptions.SingleAsync(value =>
+                value.PublicSubscriptionId == initial.PublicSubscriptionId);
+            Assert.Equal(FamilySubscriptionStatus.Expired, expiredFamily.Status);
+
+            var personalFree = await db.FamilySubscriptions.SingleAsync(value =>
+                value.OwnerUserId == user.Id
+                && value.Status == FamilySubscriptionStatus.Active);
+            Assert.Equal("Free", personalFree.PlanName);
         });
     }
 
