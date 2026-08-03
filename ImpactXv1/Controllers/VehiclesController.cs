@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using ImpactX.Core.Domain.Enums;
 using ImpactX.Core.Interfaces.Services;
 using ImpactX.Core.Security;
 using ImpactX.Models.DTOs.Vehicles;
@@ -28,6 +29,17 @@ public class VehiclesController : ControllerBase
             GetUsuarioId(),
             cancellationToken);
         return Ok(vehicles);
+    }
+
+    [HttpGet("types")]
+    [ProducesResponseType(typeof(VehicleTypeCatalogDto), StatusCodes.Status200OK)]
+    public IActionResult GetTypes()
+    {
+        return Ok(new VehicleTypeCatalogDto
+        {
+            TipoVehiculo = Enum.GetNames<TipoVehiculo>(),
+            UsoPrincipal = Enum.GetNames<UsoPrincipalVehiculo>()
+        });
     }
 
     [HttpGet("{publicVehicleId}")]

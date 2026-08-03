@@ -1,5 +1,6 @@
 using Moq;
 using ImpactX.Core.Domain;
+using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
 using ImpactX.Core.Security;
@@ -84,6 +85,25 @@ public class AuthServiceTests
 
         Assert.False(result.Success);
         Assert.Equal("El correo ya está registrado.", result.Mensaje);
+        _usuarioRepo.Verify(r => r.AddAsync(It.IsAny<Usuario>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("Juan puta Lopez")]
+    [InlineData("juan maricon")]
+    [InlineData("PUTA")]
+    public async Task RegisterAsync_OffensiveName_ThrowsBadRequest(string nombre)
+    {
+        var exception = await Assert.ThrowsAsync<BadRequestException>(() =>
+            _authService.RegisterAsync(new RegisterRequest
+            {
+                Nombre = nombre,
+                Correo = "offensive@test.com",
+                Password = "password123"
+            }));
+
+        Assert.Equal("El nombre contiene palabras inapropiadas.", exception.Message);
+        _usuarioRepo.Verify(r => r.ExistsByCorreoAsync(It.IsAny<string>()), Times.Never);
         _usuarioRepo.Verify(r => r.AddAsync(It.IsAny<Usuario>()), Times.Never);
     }
 

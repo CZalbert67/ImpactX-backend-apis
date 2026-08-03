@@ -28,6 +28,33 @@ public class VehiclesControllerTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
+    [Trait("Category", "Security")]
+    public async Task GetVehicleTypes_WithoutAuth_ReturnsUnauthorized()
+    {
+        var response = await _client.GetAsync("/api/v1/vehicles/types");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetVehicleTypes_ReturnsFullCatalog()
+    {
+        var registration = await RegisterAsync();
+        SetBearer(registration.Token);
+
+        var response = await _client.GetAsync("/api/v1/vehicles/types");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var catalog = await response.Content.ReadFromJsonAsync<VehicleTypeCatalogDto>();
+        Assert.NotNull(catalog);
+        Assert.Equal(
+            new[] { "Automovil", "Suv", "Camioneta", "Van" },
+            catalog!.TipoVehiculo);
+        Assert.Equal(
+            new[] { "Ciudad", "Carretera", "Mixto" },
+            catalog.UsoPrincipal);
+    }
+
+    [Fact]
     public async Task CrudFlow_FreePlan_CreatesReadsUpdatesAndDeletesVehicle()
     {
         var registration = await RegisterAsync();

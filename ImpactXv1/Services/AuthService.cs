@@ -50,6 +50,7 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
     {
+        NamePolicy.Validate(request.Nombre);
         ValidateRegistrationRequest(request);
 
         var correoNormalizado = EmailNormalizer.Normalize(request.Correo);

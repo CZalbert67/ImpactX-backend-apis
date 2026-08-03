@@ -43,7 +43,10 @@ public class UserService : IUserService
         await EnsureIdentityCompatibilityAsync(usuario);
 
         if (request.Nombre is not null)
-            usuario.Nombre = request.Nombre;
+        {
+            NamePolicy.Validate(request.Nombre);
+            usuario.Nombre = NamePolicy.Normalize(request.Nombre);
+        }
         if (request.Telefono is not null)
             usuario.Telefono = request.Telefono;
         if (request.Ciudad is not null)
