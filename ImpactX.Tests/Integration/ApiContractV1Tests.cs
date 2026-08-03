@@ -139,10 +139,12 @@ public class ApiContractV1Tests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task OpenApiDocument_DoesNotContainVehicles()
+    public async Task OpenApiDocument_ContainsVehicleRoutes()
     {
         var paths = await GetOpenApiPathsAsync();
-        Assert.DoesNotContain(paths, p => p.Contains("/api/v1/vehicles"));
+        Assert.Contains(paths, path => path == "/api/v1/vehicles");
+        Assert.Contains(paths, path => path == "/api/v1/vehicles/{publicVehicleId}");
+        Assert.Contains(paths, path => path == "/api/v1/vehicles/{publicVehicleId}/primary");
     }
 
     [Fact]
@@ -668,6 +670,20 @@ public class ApiContractV1CorsTests : IClassFixture<ApiContractV1CorsTests.CorsT
     }
 
     [Fact]
+    public async Task ActualResponse_ExposesPaginationHeaders()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/contacts");
+        request.Headers.Add("Origin", "http://localhost:5173");
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var expose = response.Headers.GetValues("Access-Control-Expose-Headers").SingleOrDefault();
+        Assert.NotNull(expose);
+        Assert.Contains("X-Continuation-Token", expose, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("X-Correlation-Id", expose, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Production_NoOrigins_CorsClosed()
     {
         using var prodFactory = new ProductionCorsClosedFactory();
@@ -799,6 +815,9 @@ public class ApiContractV1SecurityTests : IClassFixture<CustomWebApplicationFact
             password = "Password123!"
         });
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
-        return (result!.Token!, result!.Usuario!.Id);
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        var jwt = handler.ReadJwtToken(result!.Token!);
+        var userId = Guid.Parse(jwt.Claims.First(c => c.Type == "nameid" || c.Type == System.Security.Claims.ClaimTypes.NameIdentifier).Value);
+        return (result.Token!, userId);
     }
 }

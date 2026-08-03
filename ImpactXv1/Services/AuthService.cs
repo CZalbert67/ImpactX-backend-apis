@@ -1,5 +1,6 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
+using ImpactX.Core.Identity;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
 using ImpactX.Core.Security;
@@ -49,6 +50,9 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
     {
+        ValidateRegistrationRequest(request);
+
+        var correoNormalizado = EmailNormalizer.Normalize(request.Correo);
         if (await _usuarioRepository.ExistsByCorreoAsync(request.Correo))
         {
             return new AuthResponse
@@ -58,22 +62,24 @@ public class AuthService : IAuthService
             };
         }
 
-        var username = GenerateUsername(request.Nombre);
-        while (await _usuarioRepository.ExistsByUsernameAsync(username))
-        {
-            username = GenerateUsername(request.Nombre);
-        }
+        var username = await ResolveRegistrationUsernameAsync(request);
+        var publicProfileId = await GenerateUniquePublicProfileIdAsync();
+        var now = DateTime.UtcNow;
 
         var usuario = new Usuario
         {
-            Nombre = request.Nombre,
+            Nombre = NormalizeDisplayName(request.Nombre),
             Username = username,
+            PublicProfileId = publicProfileId,
+            CorreoNormalizado = correoNormalizado,
             AppId = GenerateAppId(request.Nombre),
             InviteCode = GenerateInviteCode(request.Nombre),
-            Correo = request.Correo,
-            Telefono = request.Telefono ?? string.Empty,
+            Correo = request.Correo.Trim(),
+            Telefono = request.Telefono?.Trim() ?? string.Empty,
             PasswordHash = _encryptionService.HashPassword(request.Password),
-            PlanActivo = request.PlanActivo
+            PlanActivo = PlanNamePolicy.Free,
+            CreatedAt = now,
+            Onboarding = CreateInitialOnboarding(request, now)
         };
 
         await _usuarioRepository.AddAsync(usuario);
@@ -83,15 +89,17 @@ public class AuthService : IAuthService
             var freePlan = await _planRepository.GetByNameAsync("Free");
             if (freePlan is not null)
             {
-                var trialEnd = DateTime.UtcNow.AddDays(14);
                 var suscripcion = new Suscripcion
                 {
                     UsuarioId = usuario.Id,
                     PlanId = freePlan.Id,
-                    Estado = "Trial",
+                    Estado = "Activa",
                     Inicio = DateTime.UtcNow,
-                    TrialFin = trialEnd,
-                    Fin = trialEnd,
+                    Fin = null,
+                    TrialFin = null,
+                    AutoRenew = false,
+                    BillingCycle = "Free",
+                    UpdatedAtUtc = DateTime.UtcNow
                 };
                 await _suscripcionRepository.AddAsync(suscripcion);
                 usuario.PlanActivo = "Free";
@@ -101,27 +109,38 @@ public class AuthService : IAuthService
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict
             || ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
         {
-            _logger.LogWarning("Asignación del plan Free omitida para usuario {UsuarioId} (Cosmos {StatusCode}).",
-                usuario.Id, ex.StatusCode);
+            _logger.LogWarning("Asignación del plan Free omitida (Cosmos {StatusCode}).",
+                ex.StatusCode);
         }
         catch (DbUpdateException)
         {
-            _logger.LogWarning("Asignación del plan Free omitida para usuario {UsuarioId} (EF).", usuario.Id);
+            _logger.LogWarning("Asignación del plan Free omitida (EF).");
         }
         catch (OperationCanceledException)
         {
             throw;
         }
 
-        var accessToken = _tokenService.GenerateAccessToken(usuario);
-        var refreshToken = await CreateRefreshTokenAsync(usuario);
+        var client = ClientTypePolicy.Normalize(request.Client);
+        var accessToken = GenerateAccessToken(usuario, client);
+        var refreshToken = await CreateRefreshTokenAsync(usuario, client);
 
         return CreateAuthResponse(usuario, accessToken, refreshToken, "Registro exitoso.");
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
-        var usuario = await _usuarioRepository.GetByCorreoAsync(request.Correo);
+        if (!string.IsNullOrWhiteSpace(request.Identifier) &&
+            !string.IsNullOrWhiteSpace(request.Correo) &&
+            !string.Equals(request.Identifier.Trim(), request.Correo.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new BadRequestException("No se pueden proporcionar 'identifier' y 'correo' simultáneamente con valores diferentes.");
+        }
+
+        var identifier = ResolveIdentifier(request);
+        var usuario = LooksLikeEmail(identifier)
+            ? await _usuarioRepository.GetByCorreoAsync(identifier)
+            : await _usuarioRepository.GetByUsernameAsync(identifier);
 
         if (usuario is null || !_encryptionService.VerifyPassword(request.Password, usuario.PasswordHash))
         {
@@ -141,13 +160,75 @@ public class AuthService : IAuthService
             };
         }
 
+        await EnsureIdentityCompatibilityAsync(usuario);
         usuario.LastLoginAt = DateTime.UtcNow;
         await _usuarioRepository.UpdateAsync(usuario);
 
-        var accessToken = _tokenService.GenerateAccessToken(usuario);
-        var refreshToken = await CreateRefreshTokenAsync(usuario);
+        var client = ClientTypePolicy.Normalize(request.Client);
+        var accessToken = GenerateAccessToken(usuario, client);
+        var refreshToken = await CreateRefreshTokenAsync(usuario, client);
 
         return CreateAuthResponse(usuario, accessToken, refreshToken, "Inicio de sesión exitoso.");
+    }
+
+    private static string ResolveIdentifier(LoginRequest request)
+    {
+        return string.IsNullOrWhiteSpace(request.Identifier)
+            ? (request.Correo?.Trim() ?? string.Empty)
+            : request.Identifier.Trim();
+    }
+
+    private static bool LooksLikeEmail(string identifier)
+    {
+        return identifier.IndexOf('@') > 0;
+    }
+
+    private async Task<bool> EnsureIdentityCompatibilityAsync(Usuario usuario)
+    {
+        var changed = false;
+
+        if (string.IsNullOrWhiteSpace(usuario.PublicProfileId))
+        {
+            usuario.PublicProfileId = await GenerateUniquePublicProfileIdAsync();
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(usuario.CorreoNormalizado))
+        {
+            usuario.CorreoNormalizado = EmailNormalizer.Normalize(usuario.Correo);
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(usuario.Username))
+        {
+            usuario.Username = await GenerateUniqueUsernameAsync(usuario.Nombre);
+            changed = true;
+            _logger.LogWarning("Cuenta legacy sin username; se generó uno automáticamente.");
+        }
+        else if (usuario.Username.StartsWith("@", StringComparison.Ordinal))
+        {
+            var normalized = UsernamePolicy.Normalize(usuario.Username.TrimStart('@'));
+            if (normalized is not null && normalized != usuario.Username
+                && !await _usuarioRepository.ExistsByUsernameAsync(normalized))
+            {
+                usuario.Username = normalized;
+                changed = true;
+                _logger.LogWarning("Username legacy con '@' migrado a formato estándar.");
+            }
+        }
+
+        if (usuario.Onboarding is null)
+        {
+            usuario.Onboarding = new OnboardingProgress();
+            changed = true;
+        }
+        else if (usuario.Onboarding.RegistrationContractVersion < RegistrationContract.LegacyVersion)
+        {
+            usuario.Onboarding.RegistrationContractVersion = RegistrationContract.LegacyVersion;
+            changed = true;
+        }
+
+        return changed;
     }
 
     public async Task<RecoverPasswordResponse> RecoverPasswordAsync(RecoverPasswordRequest request)
@@ -318,14 +399,17 @@ public class AuthService : IAuthService
 
         return new ExportAccountDto
         {
-            Id = usuario.Id,
+            PublicProfileId = string.IsNullOrWhiteSpace(usuario.PublicProfileId)
+                ? usuario.Username
+                : usuario.PublicProfileId,
             Nombre = usuario.Nombre,
             Correo = usuario.Correo,
             Telefono = usuario.Telefono,
             PlanActivo = usuario.PlanActivo,
             CreatedAt = usuario.CreatedAt,
             LastLoginAt = usuario.LastLoginAt,
-            EmailConfirmed = usuario.EmailConfirmed
+            EmailConfirmed = usuario.EmailConfirmed,
+            Onboarding = OnboardingDtoMapper.Map(usuario.Onboarding)
         };
     }
 
@@ -366,19 +450,130 @@ public class AuthService : IAuthService
         existingToken.RevokedAt = DateTime.UtcNow;
         await _refreshTokenRepository.UpdateAsync(existingToken);
 
-        var accessToken = _tokenService.GenerateAccessToken(usuario);
-        var newRefreshToken = await CreateRefreshTokenAsync(usuario);
+        if (await EnsureIdentityCompatibilityAsync(usuario))
+        {
+            await _usuarioRepository.UpdateAsync(usuario);
+        }
+
+        var client = ClientTypePolicy.Normalize(existingToken.Client);
+        var accessToken = GenerateAccessToken(usuario, client);
+        var newRefreshToken = await CreateRefreshTokenAsync(usuario, client);
 
         return CreateAuthResponse(usuario, accessToken, newRefreshToken, "Sesión renovada exitosamente.");
     }
 
-    private async Task<string> CreateRefreshTokenAsync(Usuario usuario)
+    private async Task<string> ResolveRegistrationUsernameAsync(RegisterRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Username))
+        {
+            return await GenerateUniqueUsernameAsync(request.Nombre);
+        }
+
+        var username = UsernamePolicy.Normalize(request.Username);
+        if (username is null)
+        {
+            throw new BadRequestException(
+                "El username debe tener entre 3 y 30 caracteres y usar solo letras, números, punto o guion bajo.");
+        }
+
+        if (UsernamePolicy.IsReserved(username))
+        {
+            throw new ConflictException("Ese username no está disponible.");
+        }
+
+        if (await _usuarioRepository.ExistsByUsernameIncludingHistoryAsync(username))
+        {
+            throw new ConflictException("Ese username ya está en uso.");
+        }
+
+        return username;
+    }
+
+    private static void ValidateRegistrationRequest(RegisterRequest request)
+    {
+        if (request.RegistrationVersion == RegistrationContract.LegacyVersion)
+        {
+            return;
+        }
+
+        if (request.RegistrationVersion != RegistrationContract.CurrentVersion)
+        {
+            throw new BadRequestException("Versión de contrato de registro no compatible.");
+        }
+
+        var client = ClientTypePolicy.Normalize(request.Client);
+        if (!RegistrationContract.SupportedAccountClients.Contains(client, StringComparer.Ordinal))
+        {
+            throw new BadRequestException("La creación de cuentas solo está disponible para web y mobile.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Username))
+        {
+            throw new BadRequestException("El username es obligatorio para el registro completo.");
+        }
+
+        if (!RegistrationContract.IsValidPhone(request.Telefono))
+        {
+            throw new BadRequestException("El teléfono es obligatorio y debe contener entre 7 y 15 dígitos válidos.");
+        }
+
+        if (!RegistrationContract.IsStrongPassword(request.Password))
+        {
+            throw new BadRequestException(
+                "La contraseña debe incluir mayúscula, minúscula, número y carácter especial.");
+        }
+
+        if (request.TermsAccepted is not true || request.PrivacyAccepted is not true)
+        {
+            throw new BadRequestException(
+                "Debes aceptar los términos de uso y el aviso de privacidad para crear la cuenta.");
+        }
+    }
+
+    private static OnboardingProgress CreateInitialOnboarding(RegisterRequest request, DateTime now)
+    {
+        var completeContract = request.RegistrationVersion == RegistrationContract.CurrentVersion;
+        var termsAccepted = request.TermsAccepted is true;
+        var privacyAccepted = request.PrivacyAccepted is true;
+
+        return new OnboardingProgress
+        {
+            RegistrationContractVersion = completeContract
+                ? RegistrationContract.CurrentVersion
+                : RegistrationContract.LegacyVersion,
+            CurrentStep = completeContract ? 3 : OnboardingProgress.MinCurrentStep,
+            TermsAccepted = termsAccepted,
+            TermsVersion = termsAccepted ? RegistrationContract.TermsVersion : null,
+            TermsAcceptedAtUtc = termsAccepted ? now : null,
+            PrivacyAccepted = privacyAccepted,
+            PrivacyNoticeVersion = privacyAccepted ? RegistrationContract.PrivacyNoticeVersion : null,
+            PrivacyAcceptedAtUtc = privacyAccepted ? now : null,
+            LocationIncidentConsent = request.LocationIncidentConsent is true,
+            DrivingPatternConsent = request.DrivingPatternConsent is true,
+            UpdatedAtUtc = now
+        };
+    }
+
+    private static string NormalizeDisplayName(string nombre)
+    {
+        return string.Join(' ', nombre.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private string GenerateAccessToken(Usuario usuario, string client)
+    {
+        return _tokenService is IClientAwareTokenService clientAwareTokenService
+            ? clientAwareTokenService.GenerateAccessToken(usuario, client)
+            : _tokenService.GenerateAccessToken(usuario);
+    }
+
+    private async Task<string> CreateRefreshTokenAsync(Usuario usuario, string client)
     {
         var token = _tokenService.GenerateRefreshToken();
         var refreshToken = new RefreshToken
         {
             UsuarioId = usuario.Id,
             Token = token,
+            Client = ClientTypePolicy.Normalize(client),
             ExpiresAt = DateTime.UtcNow.AddDays(7)
         };
 
@@ -396,25 +591,44 @@ public class AuthService : IAuthService
             Mensaje = mensaje,
             Usuario = new UsuarioDto
             {
-                Id = usuario.Id,
+                Id = usuario.PublicProfileId,
+                PublicProfileId = usuario.PublicProfileId,
                 Username = usuario.Username,
-                AppId = usuario.AppId,
                 Nombre = usuario.Nombre,
                 Correo = usuario.Correo,
                 Telefono = usuario.Telefono,
-                PlanActivo = usuario.PlanActivo
+                PlanActivo = usuario.PlanActivo,
+                Onboarding = OnboardingDtoMapper.Map(usuario.Onboarding)
             }
         };
     }
 
-    private static string GenerateUsername(string nombre)
+    private async Task<string> GenerateUniqueUsernameAsync(string nombre)
     {
-        var baseName = "@" + nombre.ToLowerInvariant()
-            .Replace(" ", "_")
-            .Replace(".", "_")
-            .Replace("-", "_");
-        var suffix = Random.Shared.Next(100, 999);
-        return $"{baseName}_{suffix}";
+        for (var i = 0; i < 25; i++)
+        {
+            var candidate = UsernamePolicy.Generate(nombre);
+            if (!await _usuarioRepository.ExistsByUsernameIncludingHistoryAsync(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new InvalidOperationException("No se pudo generar un username único.");
+    }
+
+    private async Task<string> GenerateUniquePublicProfileIdAsync()
+    {
+        for (var i = 0; i < 25; i++)
+        {
+            var candidate = PublicProfileIdGenerator.Generate();
+            if (!await _usuarioRepository.ExistsByPublicProfileIdAsync(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new InvalidOperationException("No se pudo generar un PublicProfileId único.");
     }
 
     private static string GenerateAppId(string nombre)

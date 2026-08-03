@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
+using ImpactX.Core.Domain.Enums;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
 using ImpactX.Core.Notifications;
@@ -8,7 +9,6 @@ using ImpactX.Models.DTOs;
 using ImpactX.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
-using MonitorDomain = ImpactX.Core.Domain.Monitor;
 
 namespace ImpactX.Tests.Unit;
 
@@ -34,7 +34,7 @@ public class NotificationServiceTests
     private readonly Mock<INotificacionRepository> _notificacionRepo;
     private readonly Mock<IUsuarioRepository> _usuarioRepo;
     private readonly Mock<IDispositivoRepository> _dispositivoRepo;
-    private readonly Mock<IMonitorRepository> _monitorRepo;
+    private readonly Mock<IMonitoringRelationshipRepository> _monitoringRepo;
     private readonly Mock<IPushNotificationGateway> _pushGateway;
     private readonly ListLogger<NotificationService> _logger;
     private readonly NotificationService _notificationService;
@@ -44,14 +44,14 @@ public class NotificationServiceTests
         _notificacionRepo = new Mock<INotificacionRepository>();
         _usuarioRepo = new Mock<IUsuarioRepository>();
         _dispositivoRepo = new Mock<IDispositivoRepository>();
-        _monitorRepo = new Mock<IMonitorRepository>();
+        _monitoringRepo = new Mock<IMonitoringRelationshipRepository>();
         _pushGateway = new Mock<IPushNotificationGateway>();
         _logger = new ListLogger<NotificationService>();
         _notificationService = new NotificationService(
             _notificacionRepo.Object,
             _usuarioRepo.Object,
             _dispositivoRepo.Object,
-            _monitorRepo.Object,
+            _monitoringRepo.Object,
             _pushGateway.Object,
             _logger);
     }
@@ -121,7 +121,7 @@ public class NotificationServiceTests
             UsuarioId = usuarioId,
             Leida = false,
         };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(notificacion.Id)).ReturnsAsync(notificacion);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), notificacion.Id)).ReturnsAsync(notificacion);
 
         await _notificationService.ToggleReadAsync(usuarioId, notificacion.Id, new ToggleReadRequest
         {
@@ -144,7 +144,7 @@ public class NotificationServiceTests
             Leida = true,
             LeidaEn = DateTime.UtcNow,
         };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(notificacion.Id)).ReturnsAsync(notificacion);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), notificacion.Id)).ReturnsAsync(notificacion);
 
         await _notificationService.ToggleReadAsync(usuarioId, notificacion.Id, new ToggleReadRequest
         {
@@ -164,7 +164,7 @@ public class NotificationServiceTests
             Id = Guid.NewGuid(),
             UsuarioId = Guid.NewGuid(),
         };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(notificacion.Id)).ReturnsAsync(notificacion);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), notificacion.Id)).ReturnsAsync(notificacion);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _notificationService.ToggleReadAsync(usuarioId, notificacion.Id, new ToggleReadRequest { Leida = true }));
@@ -173,7 +173,7 @@ public class NotificationServiceTests
     [Fact]
     public async Task ToggleReadAsync_NotFound_Throws()
     {
-        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Notificacion?)null);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ReturnsAsync((Notificacion?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
             _notificationService.ToggleReadAsync(Guid.NewGuid(), Guid.NewGuid(), new ToggleReadRequest { Leida = true }));
@@ -199,7 +199,7 @@ public class NotificationServiceTests
             Id = Guid.NewGuid(),
             UsuarioId = usuarioId,
         };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(notificacion.Id)).ReturnsAsync(notificacion);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), notificacion.Id)).ReturnsAsync(notificacion);
 
         await _notificationService.DeleteAsync(usuarioId, notificacion.Id);
 
@@ -215,7 +215,7 @@ public class NotificationServiceTests
             Id = Guid.NewGuid(),
             UsuarioId = Guid.NewGuid(),
         };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(notificacion.Id)).ReturnsAsync(notificacion);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), notificacion.Id)).ReturnsAsync(notificacion);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _notificationService.DeleteAsync(usuarioId, notificacion.Id));
@@ -224,7 +224,7 @@ public class NotificationServiceTests
     [Fact]
     public async Task DeleteAsync_NotFound_Throws()
     {
-        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Notificacion?)null);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ReturnsAsync((Notificacion?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
             _notificationService.DeleteAsync(Guid.NewGuid(), Guid.NewGuid()));
@@ -277,7 +277,7 @@ public class NotificationServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var noti = new Notificacion { Id = Guid.NewGuid(), UsuarioId = usuarioId, Leida = false };
-        _notificacionRepo.Setup(r => r.GetByIdAsync(noti.Id)).ReturnsAsync(noti);
+        _notificacionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), noti.Id)).ReturnsAsync(noti);
 
         await _notificationService.ToggleReadAsync(usuarioId, noti.Id, new ToggleReadRequest { Leida = true });
 
@@ -291,12 +291,12 @@ public class NotificationServiceTests
     {
         var userId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([]);
 
         var result = await _notificationService.NotifyAlertMonitorsAsync(alerta);
 
         Assert.Empty(result);
-        _monitorRepo.Verify(r => r.GetActiveByUserAsync(userId), Times.Once);
+        _monitoringRepo.Verify(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>()), Times.Once);
         _pushGateway.Verify(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -307,10 +307,10 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true, FcmToken = "valid-token" };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
         _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
@@ -329,9 +329,9 @@ public class NotificationServiceTests
     {
         var userId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = null, Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, Guid.NewGuid());
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
 
         var result = await _notificationService.NotifyAlertMonitorsAsync(alerta);
@@ -349,10 +349,10 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = false };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
 
@@ -370,10 +370,10 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true, FcmToken = null };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
 
@@ -390,10 +390,10 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true, FcmToken = "token" };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
         _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
@@ -411,10 +411,10 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "SOS", Severidad = "severe", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true, FcmToken = "valid-token" };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
         _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
@@ -435,10 +435,10 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true, FcmToken = "token" };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
         _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
@@ -457,11 +457,11 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "SOS", Severidad = "severe", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true, FcmToken = "token" };
         string? capturedTitle = null;
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
         _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
@@ -480,11 +480,11 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true, FcmToken = "token" };
         var capturedEstado = string.Empty;
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
         _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
@@ -503,10 +503,10 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "SOS", Severidad = "severe", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true, FcmToken = "token" };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
         _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
@@ -524,10 +524,10 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var existing = new Notificacion { Id = Guid.NewGuid(), UsuarioId = monitorUserId, EstadoEnvio = "Enviado", ClaveIdempotencia = $"alert:{alerta.Id}:recipient:{monitorUserId}:channel:push" };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(existing.ClaveIdempotencia, It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(existing);
 
         var result = await _notificationService.NotifyAlertMonitorsAsync(alerta);
@@ -544,11 +544,11 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true, FcmToken = "token" };
         var existing = new Notificacion { Id = Guid.NewGuid(), UsuarioId = monitorUserId, EstadoEnvio = "Fallido", Intentos = 1, ClaveIdempotencia = $"alert:{alerta.Id}:recipient:{monitorUserId}:channel:push" };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(existing.ClaveIdempotencia, It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(existing);
         _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
@@ -569,12 +569,12 @@ public class NotificationServiceTests
         var monitorUser1 = Guid.NewGuid();
         var monitorUser2 = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor1 = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUser1.ToString(), Estado = "Activo" };
-        var monitor2 = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUser2.ToString(), Estado = "Activo" };
+        var monitor1 = AcceptedRelationship(userId, monitorUser1);
+        var monitor2 = AcceptedRelationship(userId, monitorUser2);
         var usuario1 = new Usuario { Id = monitorUser1, IsActive = true, FcmToken = "token1" };
         var usuario2 = new Usuario { Id = monitorUser2, IsActive = true, FcmToken = null };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor1, monitor2]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor1, monitor2]);
         _usuarioRepo.Setup(u => u.GetByIdAsync(monitorUser1)).ReturnsAsync(usuario1);
         _usuarioRepo.Setup(u => u.GetByIdAsync(monitorUser2)).ReturnsAsync(usuario2);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
@@ -597,11 +597,11 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "SOS", Severidad = "severe", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true, FcmToken = "token" };
         IReadOnlyDictionary<string, string>? capturedData = null;
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
         _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
@@ -631,10 +631,10 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true, FcmToken = fakeToken };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
         _pushGateway.Setup(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
@@ -654,9 +654,9 @@ public class NotificationServiceTests
     {
         var userId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = null, Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, Guid.NewGuid());
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
 
         var result = await _notificationService.NotifyAlertMonitorsAsync(alerta);
 
@@ -672,7 +672,7 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "SOS", Severidad = "severe", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true };
         var dispositivos = new List<Dispositivo>
         {
@@ -680,7 +680,7 @@ public class NotificationServiceTests
             new() { Id = Guid.NewGuid(), UsuarioId = monitorUserId, DeviceId = "phone-2", TokenFcm = "token-device-2", Activo = true },
         };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _dispositivoRepo.Setup(r => r.GetActiveByUsuarioIdAsync(monitorUserId)).ReturnsAsync(dispositivos);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
@@ -703,7 +703,7 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true };
         var dispositivos = new List<Dispositivo>
         {
@@ -711,7 +711,7 @@ public class NotificationServiceTests
             new() { Id = Guid.NewGuid(), UsuarioId = monitorUserId, DeviceId = "phone-2", TokenFcm = "good-token-2", Activo = true },
         };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _dispositivoRepo.Setup(r => r.GetActiveByUsuarioIdAsync(monitorUserId)).ReturnsAsync(dispositivos);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
@@ -754,14 +754,14 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true };
         var dispositivos = new List<Dispositivo>
         {
             new() { Id = Guid.NewGuid(), UsuarioId = monitorUserId, DeviceId = "watch", TokenFcm = fakeToken, Activo = true },
         };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _dispositivoRepo.Setup(r => r.GetActiveByUsuarioIdAsync(monitorUserId)).ReturnsAsync(dispositivos);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
@@ -783,7 +783,7 @@ public class NotificationServiceTests
         var userId = Guid.NewGuid();
         var monitorUserId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = userId, Tipo = "Impacto", Severidad = "crash", Estado = "Enviada", CreadoEn = DateTime.UtcNow };
-        var monitor = new MonitorDomain { Id = Guid.NewGuid(), UsuarioId = userId, ProfileId = monitorUserId.ToString(), Estado = "Activo" };
+        var monitor = AcceptedRelationship(userId, monitorUserId);
         var usuario = new Usuario { Id = monitorUserId, IsActive = true };
         var dispositivos = new List<Dispositivo>
         {
@@ -791,7 +791,7 @@ public class NotificationServiceTests
             new() { Id = Guid.NewGuid(), UsuarioId = monitorUserId, DeviceId = "phone-2", TokenFcm = "bad-token-2", Activo = true },
         };
 
-        _monitorRepo.Setup(r => r.GetActiveByUserAsync(userId)).ReturnsAsync([monitor]);
+        _monitoringRepo.Setup(r => r.GetAcceptedForMonitoredUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync([monitor]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(monitorUserId)).ReturnsAsync(usuario);
         _dispositivoRepo.Setup(r => r.GetActiveByUsuarioIdAsync(monitorUserId)).ReturnsAsync(dispositivos);
         _notificacionRepo.Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync((Notificacion?)null);
@@ -821,4 +821,176 @@ public class NotificationServiceTests
 
         _pushGateway.Verify(g => g.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task NotifyAlertMonitors_RelationshipWithoutAlertPermission_IsSkipped()
+    {
+        var monitoredUserId = Guid.NewGuid();
+        var monitorUserId = Guid.NewGuid();
+        var alert = new Alerta
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = monitoredUserId,
+            Tipo = "Impacto",
+            Severidad = "crash",
+            Estado = "Enviada",
+            CreadoEn = DateTime.UtcNow
+        };
+        var relationship = AcceptedRelationship(
+            monitoredUserId,
+            monitorUserId,
+            receiveCriticalAlerts: false);
+
+        _monitoringRepo
+            .Setup(repository => repository.GetAcceptedForMonitoredUserAsync(
+                monitoredUserId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([relationship]);
+
+        var result = await _notificationService.NotifyAlertMonitorsAsync(alert);
+
+        Assert.Empty(result);
+        _usuarioRepo.Verify(
+            repository => repository.GetByIdAsync(It.IsAny<Guid>()),
+            Times.Never);
+        _pushGateway.Verify(
+            gateway => gateway.SendAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, string>?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task NotifyAlertMonitors_LatestRelationshipRevokesNotificationPermission_IsSkipped()
+    {
+        var monitoredUserId = Guid.NewGuid();
+        var monitorUserId = Guid.NewGuid();
+        var alert = new Alerta
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = monitoredUserId,
+            Tipo = "Impacto",
+            Severidad = "crash",
+            Estado = "Enviada",
+            CreadoEn = DateTime.UtcNow
+        };
+        var olderAllowed = AcceptedRelationship(monitoredUserId, monitorUserId);
+        olderAllowed.UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5);
+        var latestDenied = AcceptedRelationship(
+            monitoredUserId,
+            monitorUserId,
+            receiveNotifications: false);
+        latestDenied.UpdatedAtUtc = DateTime.UtcNow;
+
+        _monitoringRepo
+            .Setup(repository => repository.GetAcceptedForMonitoredUserAsync(
+                monitoredUserId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([olderAllowed, latestDenied]);
+
+        var result = await _notificationService.NotifyAlertMonitorsAsync(alert);
+
+        Assert.Empty(result);
+        _pushGateway.Verify(
+            gateway => gateway.SendAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, string>?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task NotifyAlertMonitors_DuplicateRelationshipsForSameMonitor_SendOnce()
+    {
+        var monitoredUserId = Guid.NewGuid();
+        var monitorUserId = Guid.NewGuid();
+        var alert = new Alerta
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = monitoredUserId,
+            Tipo = "SOS",
+            Severidad = "critical",
+            Estado = "Enviada",
+            CreadoEn = DateTime.UtcNow
+        };
+        var older = AcceptedRelationship(monitoredUserId, monitorUserId);
+        older.UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5);
+        var latest = AcceptedRelationship(monitoredUserId, monitorUserId);
+        latest.UpdatedAtUtc = DateTime.UtcNow;
+        var user = new Usuario
+        {
+            Id = monitorUserId,
+            IsActive = true,
+            FcmToken = "monitor-token"
+        };
+
+        _monitoringRepo
+            .Setup(repository => repository.GetAcceptedForMonitoredUserAsync(
+                monitoredUserId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([older, latest]);
+        _usuarioRepo.Setup(repository => repository.GetByIdAsync(monitorUserId))
+            .ReturnsAsync(user);
+        _notificacionRepo
+            .Setup(repository => repository.GetByIdempotencyKeyAsync(
+                It.IsAny<string>(),
+                monitorUserId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Notificacion?)null);
+        _pushGateway
+            .Setup(gateway => gateway.SendAsync(
+                "monitor-token",
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, string>?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PushGatewayResult(true, "Enviado"));
+
+        var result = await _notificationService.NotifyAlertMonitorsAsync(alert);
+
+        Assert.Single(result);
+        _pushGateway.Verify(
+            gateway => gateway.SendAsync(
+                "monitor-token",
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, string>?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        _notificacionRepo.Verify(
+            repository => repository.AddAsync(
+                It.Is<Notificacion>(notification =>
+                    notification.PublicRelationshipId == latest.PublicRelationshipId)),
+            Times.Once);
+    }
+    private static MonitoringRelationship AcceptedRelationship(
+        Guid monitoredUserId,
+        Guid monitorUserId,
+        bool receiveCriticalAlerts = true,
+        bool receiveNotifications = true)
+    {
+        return new MonitoringRelationship
+        {
+            Id = Guid.NewGuid(),
+            PublicRelationshipId = $"MON-TEST-{Guid.NewGuid():N}",
+            MonitorUserId = monitorUserId,
+            MonitoredUserId = monitoredUserId,
+            Status = MonitoringRelationshipStatus.Accepted,
+            AcceptedAtUtc = DateTime.UtcNow,
+            Permissions = new MonitoringPermissions
+            {
+                ReceiveCriticalAlerts = receiveCriticalAlerts,
+                ReceiveNotifications = receiveNotifications
+            }
+        };
+    }
+
 }

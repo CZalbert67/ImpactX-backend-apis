@@ -9,6 +9,7 @@ public class NotificacionDto
     public string? ReferenciaId { get; set; }
     public string? ReferenciaTipo { get; set; }
     public string? Ruta { get; set; }
+    public string? PublicRelationshipId { get; set; }
     public bool Leida { get; set; }
     public DateTime? LeidaEn { get; set; }
     public DateTime CreadoEn { get; set; }

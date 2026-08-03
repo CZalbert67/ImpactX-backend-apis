@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 
 namespace ImpactX.Infrastructure.Data.Repositories.EF;
 
@@ -21,9 +22,24 @@ public class PagoRepository : IPagoRepository
             .ToListAsync();
     }
 
+    public async Task<PagedResult<Pago>> GetByUserPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        return await EfPageReader.ReadSinglePageAsync(
+            _context.Set<Pago>()
+                .Where(p => p.UsuarioId == usuarioId)
+                .OrderByDescending(p => p.FechaPago),
+            pageSize, continuationToken, cancellationToken);
+    }
+
     public async Task<Pago?> GetByIdAsync(Guid id)
     {
         return await _context.Set<Pago>().FindAsync(id);
+    }
+
+    public async Task<Pago?> GetByIdAsync(Guid usuarioId, Guid id)
+    {
+        return await _context.Set<Pago>()
+            .FirstOrDefaultAsync(p => p.UsuarioId == usuarioId && p.Id == id);
     }
 
     public async Task AddAsync(Pago pago)

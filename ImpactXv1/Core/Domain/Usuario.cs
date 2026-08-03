@@ -13,6 +13,22 @@ public class Usuario
     [JsonPropertyName("username")]
     public string Username { get; set; } = string.Empty;
 
+    [JsonProperty("publicProfileId")]
+    [JsonPropertyName("publicProfileId")]
+    public string PublicProfileId { get; set; } = string.Empty;
+
+    [JsonProperty("correoNormalizado")]
+    [JsonPropertyName("correoNormalizado")]
+    public string CorreoNormalizado { get; set; } = string.Empty;
+
+    [JsonProperty("usernamesAnteriores")]
+    [JsonPropertyName("usernamesAnteriores")]
+    public List<string> UsernamesAnteriores { get; set; } = [];
+
+    [JsonProperty("onboarding")]
+    [JsonPropertyName("onboarding")]
+    public OnboardingProgress? Onboarding { get; set; }
+
     [JsonProperty("appId")]
     [JsonPropertyName("appId")]
     public string AppId { get; set; } = string.Empty;
@@ -88,4 +104,36 @@ public class Usuario
     [JsonProperty("settings")]
     [JsonPropertyName("settings")]
     public SettingsUsuario? Settings { get; set; }
+
+    [JsonProperty("mobileSyncRevision")]
+    [JsonPropertyName("mobileSyncRevision")]
+    public long MobileSyncRevision { get; set; }
+
+    [JsonProperty("mobileSyncLastAcknowledgedCursor")]
+    [JsonPropertyName("mobileSyncLastAcknowledgedCursor")]
+    public string? MobileSyncLastAcknowledgedCursor { get; set; }
+
+    [JsonProperty("mobileSyncLastAckAtUtc")]
+    [JsonPropertyName("mobileSyncLastAckAtUtc")]
+    public DateTime? MobileSyncLastAckAtUtc { get; set; }
+
+    [JsonProperty("mobileSyncClientInstanceId")]
+    [JsonPropertyName("mobileSyncClientInstanceId")]
+    public string? MobileSyncClientInstanceId { get; set; }
+
+    [JsonProperty("mobileSyncReceipts")]
+    [JsonPropertyName("mobileSyncReceipts")]
+    public List<MobileSyncOperationReceipt> MobileSyncReceipts { get; set; } = [];
+
+    [JsonProperty("deletedAtUtc")]
+    [JsonPropertyName("deletedAtUtc")]
+    public DateTime? DeletedAtUtc { get; set; }
+
+    [JsonProperty("dataAnonymizedAtUtc")]
+    [JsonPropertyName("dataAnonymizedAtUtc")]
+    public DateTime? DataAnonymizedAtUtc { get; set; }
+
+    [JsonProperty("deletionReason")]
+    [JsonPropertyName("deletionReason")]
+    public string? DeletionReason { get; set; }
 }

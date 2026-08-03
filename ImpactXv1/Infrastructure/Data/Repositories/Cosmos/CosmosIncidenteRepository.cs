@@ -17,14 +17,50 @@ public class CosmosIncidenteRepository : IIncidenteRepository
     public async Task<Incidente?> GetByIdAsync(Guid id)
     {
         // Cross-partition justificada: el contrato solo recibe el id e
-        // Incidentes particiona por /usuarioId. Corrige el ReadItemAsync
-        // anterior con partition key incorrecta que siempre devolvía 404.
+        // Incidentes particiona por /usuarioId. Los servicios que conocen el
+        // usuario deben usar GetByIdAsync(usuarioId, id) (point-read).
         var query = new QueryDefinition(
             "SELECT TOP 1 * FROM c WHERE c.id = @id")
             .WithParameter("@id", id.ToString());
 
         using var iterator = _container.GetItemQueryIterator<Incidente>(query,
             requestOptions: new QueryRequestOptions { MaxItemCount = 1 });
+        if (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync();
+            return response.FirstOrDefault();
+        }
+        return null;
+    }
+
+    public async Task<Incidente?> GetByIdAsync(Guid usuarioId, Guid id)
+    {
+        try
+        {
+            var response = await _container.ReadItemAsync<Incidente>(
+                id.ToString(),
+                CosmosPartitionKeys.For(usuarioId));
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public async Task<Incidente?> GetByAlertIdAsync(Guid usuarioId, Guid alertaId)
+    {
+        var query = new QueryDefinition(
+            "SELECT TOP 1 * FROM c WHERE c.usuarioId = @usuarioId AND c.alertaId = @alertaId")
+            .WithParameter("@usuarioId", usuarioId.ToString())
+            .WithParameter("@alertaId", alertaId.ToString());
+
+        using var iterator = _container.GetItemQueryIterator<Incidente>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 1
+            });
         if (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();

@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
@@ -35,12 +36,22 @@ public class CosmosNotificacionRepository : INotificacionRepository
         return results;
     }
 
+    public async Task<PagedResult<Notificacion>> GetByUserPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId ORDER BY c.creadoEn DESC")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        return await CosmosPageReader.ReadSinglePageAsync<Notificacion>(
+            _container, query, CosmosPartitionKeys.For(usuarioId),
+            pageSize, continuationToken, cancellationToken);
+    }
+
     public async Task<Notificacion?> GetByIdAsync(Guid id)
     {
         // Cross-partition justificada: el contrato solo recibe el id y
-        // Notificaciones particiona por /usuarioId. Corrige el
-        // ReadItemAsync anterior con partition key incorrecta que siempre
-        // devolvía 404.
+        // Notificaciones particiona por /usuarioId. Los servicios que conocen
+        // el usuario deben usar GetByIdAsync(usuarioId, id) (point-read).
         var query = new QueryDefinition(
             "SELECT TOP 1 * FROM c WHERE c.id = @id")
             .WithParameter("@id", id.ToString());
@@ -53,6 +64,21 @@ public class CosmosNotificacionRepository : INotificacionRepository
             return response.FirstOrDefault();
         }
         return null;
+    }
+
+    public async Task<Notificacion?> GetByIdAsync(Guid usuarioId, Guid id)
+    {
+        try
+        {
+            var response = await _container.ReadItemAsync<Notificacion>(
+                id.ToString(),
+                CosmosPartitionKeys.For(usuarioId));
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
     }
 
     public async Task<int> CountUnreadByUserAsync(Guid usuarioId)
@@ -125,17 +151,32 @@ public class CosmosNotificacionRepository : INotificacionRepository
             CosmosPartitionKeys.For(notificacion.UsuarioId));
     }
 
-    public async Task MarkAllAsReadAsync(Guid usuarioId)
+    public async Task MarkAllAsReadAsync(Guid usuarioId, CancellationToken cancellationToken = default)
     {
-        var notificaciones = await GetByUserAsync(usuarioId);
-        var pendientes = notificaciones.Where(n => !n.Leida).ToList();
+        // Proceso completo: pagina sobre las no leídas, actualiza cada página
+        // y continúa con el token; no acumula todas en memoria.
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId AND c.leida = false ORDER BY c.creadoEn DESC")
+            .WithParameter("@usuarioId", usuarioId.ToString());
 
-        foreach (var n in pendientes)
+        string? continuationToken = null;
+        var pk = CosmosPartitionKeys.For(usuarioId);
+
+        do
         {
-            n.Leida = true;
-            n.LeidaEn = DateTime.UtcNow;
-            await UpdateAsync(n);
-        }
+            var page = await CosmosPageReader.ReadSinglePageAsync<Notificacion>(
+                _container, query, pk, PaginationDefaults.MaxPageSize, continuationToken, cancellationToken);
+
+            var now = DateTime.UtcNow;
+            foreach (var n in page.Items)
+            {
+                n.Leida = true;
+                n.LeidaEn = now;
+                await UpdateAsync(n);
+            }
+
+            continuationToken = page.ContinuationToken;
+        } while (continuationToken is not null);
     }
 
     public async Task DeleteAsync(Notificacion notificacion)
@@ -145,12 +186,28 @@ public class CosmosNotificacionRepository : INotificacionRepository
             CosmosPartitionKeys.For(notificacion.UsuarioId));
     }
 
-    public async Task DeleteAllByUserAsync(Guid usuarioId)
+    public async Task DeleteAllByUserAsync(Guid usuarioId, CancellationToken cancellationToken = default)
     {
-        var notificaciones = await GetByUserAsync(usuarioId);
-        foreach (var n in notificaciones)
+        // Proceso completo: pagina, elimina por página y continúa; no acumula
+        // todas las notificaciones en memoria.
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId ORDER BY c.creadoEn DESC")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        string? continuationToken = null;
+        var pk = CosmosPartitionKeys.For(usuarioId);
+
+        do
         {
-            await DeleteAsync(n);
-        }
+            var page = await CosmosPageReader.ReadSinglePageAsync<Notificacion>(
+                _container, query, pk, PaginationDefaults.MaxPageSize, continuationToken, cancellationToken);
+
+            foreach (var n in page.Items)
+            {
+                await DeleteAsync(n);
+            }
+
+            continuationToken = page.ContinuationToken;
+        } while (continuationToken is not null);
     }
 }

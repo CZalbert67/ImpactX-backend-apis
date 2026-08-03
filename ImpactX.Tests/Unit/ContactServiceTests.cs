@@ -39,7 +39,7 @@ public class ContactServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var contacto = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = usuarioId, Nombre = "Test", Telefono = "555-0001" };
-        _contactoRepo.Setup(r => r.GetByIdAsync(contacto.Id)).ReturnsAsync(contacto);
+        _contactoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), contacto.Id)).ReturnsAsync(contacto);
 
         var result = await _contactService.GetContactByIdAsync(usuarioId, contacto.Id);
 
@@ -52,7 +52,7 @@ public class ContactServiceTests
         var usuarioId = Guid.NewGuid();
         var otroUsuarioId = Guid.NewGuid();
         var contacto = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = otroUsuarioId };
-        _contactoRepo.Setup(r => r.GetByIdAsync(contacto.Id)).ReturnsAsync(contacto);
+        _contactoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), contacto.Id)).ReturnsAsync(contacto);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _contactService.GetContactByIdAsync(usuarioId, contacto.Id));
@@ -61,7 +61,7 @@ public class ContactServiceTests
     [Fact]
     public async Task GetContactByIdAsync_NotFound_Throws()
     {
-        _contactoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((ContactoEmergencia?)null);
+        _contactoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ReturnsAsync((ContactoEmergencia?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
             _contactService.GetContactByIdAsync(Guid.NewGuid(), Guid.NewGuid()));
@@ -148,7 +148,7 @@ public class ContactServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var contacto = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = usuarioId, Nombre = "Old", Telefono = "555-0001" };
-        _contactoRepo.Setup(r => r.GetByIdAsync(contacto.Id)).ReturnsAsync(contacto);
+        _contactoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), contacto.Id)).ReturnsAsync(contacto);
 
         var result = await _contactService.UpdateContactAsync(usuarioId, contacto.Id, new UpdateContactoRequest
         {
@@ -167,7 +167,7 @@ public class ContactServiceTests
         var usuarioId = Guid.NewGuid();
         var otroUsuarioId = Guid.NewGuid();
         var contacto = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = otroUsuarioId };
-        _contactoRepo.Setup(r => r.GetByIdAsync(contacto.Id)).ReturnsAsync(contacto);
+        _contactoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), contacto.Id)).ReturnsAsync(contacto);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _contactService.UpdateContactAsync(usuarioId, contacto.Id, new UpdateContactoRequest()));
@@ -178,7 +178,7 @@ public class ContactServiceTests
     {
         var usuarioId = Guid.NewGuid();
         var contacto = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = usuarioId };
-        _contactoRepo.Setup(r => r.GetByIdAsync(contacto.Id)).ReturnsAsync(contacto);
+        _contactoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), contacto.Id)).ReturnsAsync(contacto);
 
         await _contactService.DeleteContactAsync(usuarioId, contacto.Id);
 
@@ -191,7 +191,7 @@ public class ContactServiceTests
         var usuarioId = Guid.NewGuid();
         var otroUsuarioId = Guid.NewGuid();
         var contacto = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = otroUsuarioId };
-        _contactoRepo.Setup(r => r.GetByIdAsync(contacto.Id)).ReturnsAsync(contacto);
+        _contactoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), contacto.Id)).ReturnsAsync(contacto);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             _contactService.DeleteContactAsync(usuarioId, contacto.Id));
@@ -203,7 +203,7 @@ public class ContactServiceTests
         var usuarioId = Guid.NewGuid();
         var principal = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = usuarioId, EsPrincipal = true };
         var nuevo = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = usuarioId, EsPrincipal = false };
-        _contactoRepo.Setup(r => r.GetByIdAsync(nuevo.Id)).ReturnsAsync(nuevo);
+        _contactoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), nuevo.Id)).ReturnsAsync(nuevo);
         _contactoRepo.Setup(r => r.GetPrincipalAsync(usuarioId)).ReturnsAsync(principal);
 
         var result = await _contactService.MakePrimaryAsync(usuarioId, new MakePrimaryRequest { ContactoId = nuevo.Id });

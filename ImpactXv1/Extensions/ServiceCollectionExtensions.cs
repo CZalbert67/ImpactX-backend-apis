@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using ImpactX.Configuration;
+using ImpactX.Core.ImpactDetection;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
 using ImpactX.Infrastructure.Data;
@@ -46,6 +47,10 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IIncidenteRepository, CosmosIncidenteRepository>();
             services.AddScoped<INotificacionRepository, CosmosNotificacionRepository>();
             services.AddScoped<IAppInviteRepository, CosmosAppInviteRepository>();
+            services.AddScoped<IVehicleRepository, CosmosVehicleRepository>();
+            services.AddScoped<IFamilySubscriptionRepository, CosmosFamilySubscriptionRepository>();
+            services.AddScoped<IMonitoringRelationshipRepository, CosmosMonitoringRelationshipRepository>();
+            services.AddScoped<IQuickMessageRepository, CosmosQuickMessageRepository>();
         }
         else
         {
@@ -65,6 +70,10 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IIncidenteRepository, IncidenteRepository>();
             services.AddScoped<INotificacionRepository, NotificacionRepository>();
             services.AddScoped<IAppInviteRepository, AppInviteRepository>();
+            services.AddScoped<IVehicleRepository, VehicleRepository>();
+            services.AddScoped<IFamilySubscriptionRepository, FamilySubscriptionRepository>();
+            services.AddScoped<IMonitoringRelationshipRepository, MonitoringRelationshipRepository>();
+            services.AddScoped<IQuickMessageRepository, QuickMessageRepository>();
         }
 
         services.AddScoped<IPushNotificationGateway, FirebasePushNotificationGateway>();
@@ -75,9 +84,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IDeviceService, DeviceService>();
         services.AddScoped<IPlanService, PlanService>();
+        services.Configure<SubscriptionLifecycleOptions>(config.GetSection(SubscriptionLifecycleOptions.SectionName));
+        services.AddHostedService<SubscriptionLifecycleWorker>();
         services.AddScoped<IWearableService, WearableService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IContactService, ContactService>();
+        services.AddScoped<IEmergencyContactService, EmergencyContactService>();
         services.AddScoped<IMonitorService, MonitorService>();
         services.AddScoped<IRutaService, RutaService>();
         services.AddScoped<IViajeService, ViajeService>();
@@ -87,6 +99,17 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAnalyticsService, AnalyticsService>();
         services.AddScoped<ISettingsService, SettingsService>();
         services.AddScoped<IAppInviteService, AppInviteService>();
+        services.AddScoped<IVehicleQuotaResolver, VehicleQuotaResolver>();
+        services.AddScoped<IVehicleService, VehicleService>();
+        services.AddScoped<IFamilySubscriptionService, FamilySubscriptionService>();
+        services.AddScoped<IMonitoringRelationshipService, MonitoringRelationshipService>();
+        services.Configure<ImpactDetectionOptions>(config.GetSection(ImpactDetectionOptions.SectionName));
+        services.AddSingleton<IImpactDetectionEngine, ImpactDetectionEngine>();
+        services.AddScoped<IImpactAlertOrchestrator, ImpactAlertOrchestrator>();
+        services.AddHostedService<ImpactAlertDispatchWorker>();
+        services.AddScoped<IMobileSyncService, MobileSyncService>();
+        services.AddScoped<IQuickMessageService, QuickMessageService>();
+        services.AddScoped<IAccountService, AccountService>();
 
         return services;
     }

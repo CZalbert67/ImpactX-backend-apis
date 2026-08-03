@@ -224,3 +224,58 @@ Código
 | 15 | Roslyn | `dotnet format --verify-no-changes` | Limpio en archivos C# modificados/nuevos. |
 | 16 | git diff --check | `git diff --check` | Sin errores de whitespace. |
 | 17 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR (Azure/Cosmos real no contactados en esta rama; no afirmar validación). |
+
+### R0.6 — Pagination and Query Efficiency / PR 2B (completado 2026-08-01)
+
+| # | Control | Prueba/Workflow | Qué valida |
+|---|---|---|---|
+| 1 | Validación de paginación | `PaginationValidatorTests` (17) | pageSize default 20, rango 1–100, fuera de rango → `BadRequestException` (400); token nulo permitido; token vacío/whitespace, con CR/LF o > 2048 chars → 400; token de longitud máxima permitido. |
+| 2 | Token EF opaco | `OffsetContinuationTokenTests` (8) | Round-trip encode/decode (0, 20, 1000); tokens malformados (base64 inválido, `offset:-1`, `offset:` vacío, token de otro formato, vacío) → 400 genérico, sin detalles internos. |
+| 3 | Paginación de servicios | `ViajeServiceTests` (4 nuevas) + `IncidentServiceTests` (4 nuevas: bounds Pagina/Tamano) | `GetTripsPagedAsync` mapea página y respeta token; pageSize fuera de rango → 400; `GetTelemetryPagedAsync` con viaje propio devuelve página; **viaje de otro usuario → `ForbiddenException` (IDOR)**; incidentes con `Pagina=0`/`Tamano=0`/`Tamano=101` → 400; `Tamano=100` permitido. |
+| 4 | Contrato legacy paginado | `PaginationContractTests` (7) | `GET /api/contacts?pageSize=2` devuelve body `List<T>` (2 ítems) + header `X-Continuation-Token`; segunda página con token devuelve el resto **sin** header en la última página; **JSON raíz array sin campos de paginación**; `pageSize=0`/`pageSize=101` → 400; token inválido/malformado → 400; monitors paginados OK. |
+| 5 | Endpoints nuevos paginados | `PaginationContractTests` (2) | `GET /api/trips` devuelve body `PagedResult<T>` (items, continuationToken, hasMoreResults, pageSize); **telemetría de viaje ajeno → 404** (point-read null, sin revelar existencia). |
+| 5b | EfPageReader | `EfPageReaderTests` (11) | 0/parcial/llena; página exacta y parcial final **sin token**; `pageSize+1` decide `HasMoreResults`; segunda página avanza offset correcto; 4 tokens malformados → 400. |
+| 5c | CosmosPageReader | `CosmosPageReaderTests` (8) | Un único `ReadNextAsync`; `MaxItemCount=pageSize`; `PartitionKey` aplicado; token SDK no descodificado/inalterado; token nulo cuando no hay más; 400 Cosmos → `BadRequestException` genérica (sin token ni activity-id); errores 5xx propagan. |
+| 6 | CORS expone headers de paginación | `ApiContractV1Tests.ActualResponse_ExposesPaginationHeaders` (1) | Respuesta real con origen permitido expone `X-Continuation-Token` y `X-Correlation-Id` en `Access-Control-Expose-Headers`. Token fuera de `WithHeaders` (viaja como query param). |
+| 6b | Seguridad de paginación | `PaginationContractTests` (6, Category=Security) | CR/LF y token > 2048 chars → 400 sin eco del token; 400 como ProblemDetails sin token en body; header `X-Continuation-Token` sin CR/LF; token de otro usuario no filtra datos ajenos (respuesta vacía); IDOR telemetría → 404 sin revelar propietario. |
+| 7 | Security regression | `Category=Security` (164 tests) | 164 pruebas de seguridad, 0 fallos (158 + 6 nuevas de paginación). |
+| 8 | Suite completa | `dotnet test ImpactX.slnx --configuration Release` | **731 pruebas**, 0 fallos (antes 705/158; +26). 77 contratos V1. Idéntico en Debug. |
+| 9 | Python | `python3 -m unittest discover -s scripts/security/tests` | 30 tests, 0 fallos. |
+| 10 | Secret scanner | `check_hardcoded_secrets.py` | 0 violaciones (282 archivos). |
+| 11 | NuGet audit | `dotnet list package --vulnerable --include-transitive` | 0 vulnerables. |
+| 12 | Roslyn | `dotnet format --verify-no-changes` (full, con include de modificados) | Limpio en C# modificados/nuevos. |
+| 13 | git diff --check | `git diff --check` | Sin errores de whitespace. |
+| 14 | OpenAPI en vivo | `/openapi/v1.json` (79 paths) | `pageSize` documentado con `minimum: 1, maximum: 100` y descripción; `continuationToken` documentado como token opaco del header; nuevos endpoints trips/telemetry/alerts/wearable-all presentes. |
+| 15 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR (Azure/Cosmos real no contactados en esta rama; no afirmar validación). |
+
+### R0.7 — Wearable V1 Route Alias
+
+| # | Verificación | Resultado |
+|---|---|---|
+| 16 | Alias V1 agregado | `GET /api/v1/wearable/all` responde por el mismo método que `GET /api/wearable/all` (atributos apilados en `WearableController`); misma autorización, mismos parámetros opcionales (`pageSize`, `continuationToken`) e idéntico body `PagedResult<T>` |
+| 17 | Ruta legacy conservada | `GET /api/wearable/all` intacta: mismo método, sin lógica duplicada, sin ruta plural `api/v1/wearables/all` (ausencia verificada por prueba) |
+| 18 | Pruebas dirigidas | `WearableControllerTests` +6 (2 Category=Security para 401 en ambas rutas, 1 equivalencia status/JSON, 2 OpenAPI con `pageSize`/`continuationToken`, 1 ausencia de plural). Contratos V1 y paginación revalidados en la suite completa (pendiente de la validación final de esta rama). OpenAPI: `/api/v1/wearable/all` presente en `/openapi/v1.json` |
+
+### R0.8 — Telemetry Ingestion and Idempotency / PR 2C (completado 2026-08-01)
+
+| # | Control | Prueba/Workflow | Qué valida |
+|---|---|---|---|
+| 19 | Validación de lote | `TelemetryBatchValidatorTests` (21, ingesta) | Lote vacío y de 101 → 400; 100 permitido; `eventId` duplicado/vacío/no-GUID → 400; `timestamp` sin UTC (sufijo) o no ISO → 400; futuro > 5 min → 400; lat/lng/velocidad/altitud/heading fuera de rango → 400; NaN/Infinity → 400; lote válido aceptado. |
+| 20 | Idempotencia por EventId | `ViajeServiceTelemetryIngestionTests` (15, ingesta) | Viaje inexistente → 404; **viaje ajeno → 404 sin revelar (Category=Security)**; estado no permitido → 409; reintento idéntico → duplicado **sin invocar el batch**; `eventId` con contenido diferente → 409; lote mezclado → insertados/duplicados correctos; logs solo con conteos sin payload (Category=Security). |
+| 21 | Batch Cosmos atómico | `CosmosViajeRepositoryTelemetryTests` (15: 11 ingesta + 4 auditoría atómica) | Point-read con `PartitionKey(viajeId)` (Category=Security); **auditoría atómica**: batch fallido con operación individual 200 → cero insertados (el 200 no implica persistencia; atómico) (Category=Security); **Conflict + `FailedDependency` resueltos por point-reads** (Category=Security); carrera duplicado idéntico + nuevo → reintento solo con el nuevo (1+1); conflicto de contenido → 409 sin reintentar ni revelar EventId (Category=Security); todos idénticos → 0 inserciones sin segundo batch; 2º reintento con carrera y 3º confirmado; **agotamiento de reintentos → `CosmosException` segura** (Category=Security); `CancellationToken` en point-reads y `ExecuteAsync`; **sin upsert/replace**. |
+| 22 | Invariante 200 | `ViajeServiceTelemetryIngestionTests` (3, auditoría atómica) | `Recibidos == Insertados + Duplicados` para todos nuevos, todos duplicados (sin llamar al batch) y mezcla pre-check + carrera; conteos no negativos ni superiores a `Recibidos`. |
+| 23 | Payload máximo | `TelemetryBatchValidatorTests` (1, auditoría atómica) | Lote de 100 eventos con todos los campos validado y serializado (opciones de la API) ≈ 19 KB ≤ `MaxBodyBytes` (32 KB); límite conservado, no se elimina `RequestSizeLimit`. |
+| 24 | Batch EF atómico | `ViajeRepositoryTelemetryTests` (7, ingesta) | Lote insertado con un único `SaveChangesAsync`; duplicado idéntico no re-insertado; lote mezclado sin duplicar; contenido diferente → `ConflictException` (Category=Security). |
+| 25 | Contrato HTTP | `TripsTelemetryIngestionTests` (21, integración) | 401 sin JWT en rutas legacy y V1 (Category=Security); 400 para `eventId` duplicado en el lote y `timestamp` sin sufijo UTC; 404 viaje inexistente y **viaje ajeno sin fuga de datos** (Category=Security); 409 estado no permitido y contenido diferente; re-envío de lote → duplicados sin doble inserción; `GET` paginado sigue funcionando tras la ingesta; **payload > 32 KB**: `[RequestSizeLimit(32768)]` verificado en metadata (413 real solo en Kestrel — TestServer no aplica el límite; documentado) (Category=Security). |
+| 26 | OpenAPI | `TripsTelemetryIngestionTests` + transformer | `POST /api/v1/trips/{id}/telemetry` documentado: requestBody `TelemetryBatchRequest`, respuestas 200/400/401/403/404/409/429/500, schemas `TelemetryBatchRequest`/`TelemetryEventRequest`/`TelemetryIngestionResultDto` con todas sus propiedades, descripción con límites e idempotencia. |
+| 27 | Filtro final de auditoría | 106/106 (`TelemetryEventEqualityTests` + `CosmosViajeRepositoryTelemetryTests` + `ViajeRepositoryTelemetryTests` + `ViajeServiceTelemetryIngestionTests` + `TripsTelemetryIngestionTests` + `TelemetryBatchValidatorTests`) | Todas las pruebas de ingesta, auditoría atómica e igualdad exacta (92 previas + 8 de igualdad + 6 preexistentes con "Telemetry" en el nombre de método) pasan juntas: 106/106. |
+| 28 | Security regression | `Category=Security` (183 tests) | **183 pruebas de seguridad, 0 fallos** (166 baseline + 17 nuevas de PR 2C). |
+| 29 | Suite completa | `dotnet test ImpactX.slnx --configuration Release` | **837 pruebas**, 0 fallos (737 baseline + 100 de PR 2C: 84 de ingesta + 8 de la auditoría atómica + 8 de igualdad exacta). 77 contratos V1. |
+| 30 | Python | `python3 -m unittest discover -s scripts/security/tests` | 30 tests, 0 fallos. |
+| 31 | Secret scanner | `check_hardcoded_secrets.py` | 0 violaciones (294 archivos). |
+| 32 | NuGet audit | `dotnet list package --vulnerable --include-transitive` | 0 vulnerables. |
+| 33 | actionlint | `actionlint .github/workflows/*.yml` | Limpio (7 workflows). |
+| 34 | Roslyn | `dotnet format --verify-no-changes` (19 C# modificados/nuevos) | Limpio (fin de línea CRLF aplicado). |
+| 35 | git diff --check | `git diff --check` | Sin errores de whitespace. |
+| 36 | CodeQL (igualdad exacta) | CodeQL (PR #30) | 6 avisos de comparación de punto flotante en `TelemetryEventEquality.cs` resueltos con helpers `ExactEquals` (igualdad exacta semántica, sin epsilon); cubiertos por `TelemetryEventEqualityTests` (8). |
+| 37 | Resultados GitHub pendientes | Pipelines CI | Por ejecutar en el PR (Azure/Cosmos real no contactados en esta rama; no afirmar validación). |

@@ -1,6 +1,7 @@
 using ImpactX.Core.Exceptions;
 using Moq;
 using ImpactX.Core.Domain;
+using ImpactX.Core.Domain.Enums;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
@@ -41,7 +42,7 @@ public class PlanServiceTests
 
         Assert.Equal(3, result.Count);
         Assert.Equal("Free", result[0].Nombre);
-        Assert.Equal("Basic", result[1].Nombre);
+        Assert.Equal("Standard", result[1].Nombre);
         Assert.Equal("Premium", result[2].Nombre);
     }
 
@@ -88,7 +89,7 @@ public class PlanServiceTests
         var result = await _planService.GetSubscriptionHistoryAsync(usuarioId);
 
         Assert.Equal(2, result.Count);
-        Assert.Equal("Basic", result[0].PlanNombre);
+        Assert.Equal("Standard", result[0].PlanNombre);
     }
 
     [Fact]
@@ -193,7 +194,7 @@ public class PlanServiceTests
         var usuarioId = Guid.NewGuid();
         var pago = new Pago { Id = Guid.NewGuid(), UsuarioId = usuarioId, Monto = 99 };
 
-        _pagoRepo.Setup(r => r.GetByIdAsync(pago.Id)).ReturnsAsync(pago);
+        _pagoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), pago.Id)).ReturnsAsync(pago);
 
         var result = await _planService.GetPaymentReceiptAsync(pago.Id, usuarioId);
 
@@ -208,7 +209,7 @@ public class PlanServiceTests
         var otroUsuarioId = Guid.NewGuid();
         var pago = new Pago { Id = Guid.NewGuid(), UsuarioId = otroUsuarioId };
 
-        _pagoRepo.Setup(r => r.GetByIdAsync(pago.Id)).ReturnsAsync(pago);
+        _pagoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), pago.Id)).ReturnsAsync(pago);
 
         var result = await _planService.GetPaymentReceiptAsync(pago.Id, usuarioId);
 
@@ -218,7 +219,7 @@ public class PlanServiceTests
     [Fact]
     public async Task GetPaymentReceiptAsync_WithNonExistentPayment_ReturnsNull()
     {
-        _pagoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Pago?)null);
+        _pagoRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ReturnsAsync((Pago?)null);
 
         var result = await _planService.GetPaymentReceiptAsync(Guid.NewGuid(), Guid.NewGuid());
 
@@ -226,28 +227,70 @@ public class PlanServiceTests
     }
 
     [Fact]
-    public async Task ExpireSubscriptionsAsync_ExpiresOverdueSubscriptions()
+    public async Task ProcessLifecycleAsync_ExpiredPaidPlan_EntersGracePeriod()
     {
         var usuarioId = Guid.NewGuid();
-        var expired = new Suscripcion { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activa" };
-        var usuario = new Usuario { Id = usuarioId, PlanActivo = "Premium" };
+        var planId = Guid.NewGuid();
+        var due = new Suscripcion
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = usuarioId,
+            PlanId = planId,
+            Estado = "Activa",
+            Fin = DateTime.UtcNow.AddMinutes(-1)
+        };
+        _planRepo.Setup(r => r.GetByIdAsync(planId))
+            .ReturnsAsync(new Plan { Id = planId, Nombre = "Premium" });
+        _suscripcionRepo.Setup(r => r.ProcessLifecycleAsync(
+                It.IsAny<DateTime>(),
+                It.IsAny<Func<Suscripcion, CancellationToken, Task>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((DateTime _, Func<Suscripcion, CancellationToken, Task> process, CancellationToken ct) =>
+                process(due, ct).ContinueWith(_ => 1, ct));
 
-        _suscripcionRepo.Setup(r => r.GetExpiredAsync()).ReturnsAsync([expired]);
-        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
-
-        var count = await _planService.ExpireSubscriptionsAsync();
+        var count = await _planService.ProcessLifecycleAsync(DateTime.UtcNow);
 
         Assert.Equal(1, count);
-        Assert.Equal("Expirada", expired.Estado);
-        Assert.Equal("Free", usuario.PlanActivo);
-        _suscripcionRepo.Verify(r => r.UpdateAsync(expired), Times.Once);
-        _usuarioRepo.Verify(r => r.UpdateAsync(usuario), Times.Once);
+        Assert.Equal("Grace", due.Estado);
+        Assert.NotNull(due.GraceEndsAtUtc);
+        _suscripcionRepo.Verify(r => r.UpdateAsync(due), Times.Once);
     }
 
     [Fact]
-    public async Task ExpireSubscriptionsAsync_WithNoExpired_ReturnsZero()
+    public async Task ProcessLifecycleAsync_GraceExpired_ReturnsUserToFree()
     {
-        _suscripcionRepo.Setup(r => r.GetExpiredAsync()).ReturnsAsync([]);
+        var usuarioId = Guid.NewGuid();
+        var due = new Suscripcion
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = usuarioId,
+            Estado = "Grace",
+            GraceEndsAtUtc = DateTime.UtcNow.AddMinutes(-1)
+        };
+        var usuario = new Usuario { Id = usuarioId, PlanActivo = "Premium" };
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+        _suscripcionRepo.Setup(r => r.ProcessLifecycleAsync(
+                It.IsAny<DateTime>(),
+                It.IsAny<Func<Suscripcion, CancellationToken, Task>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((DateTime _, Func<Suscripcion, CancellationToken, Task> process, CancellationToken ct) =>
+                process(due, ct).ContinueWith(_ => 1, ct));
+
+        var count = await _planService.ProcessLifecycleAsync(DateTime.UtcNow);
+
+        Assert.Equal(1, count);
+        Assert.Equal("Expirada", due.Estado);
+        Assert.Equal("Free", usuario.PlanActivo);
+    }
+
+    [Fact]
+    public async Task ExpireSubscriptionsAsync_WithNoCandidates_ReturnsZero()
+    {
+        _suscripcionRepo.Setup(r => r.ProcessLifecycleAsync(
+                It.IsAny<DateTime>(),
+                It.IsAny<Func<Suscripcion, CancellationToken, Task>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
 
         var count = await _planService.ExpireSubscriptionsAsync();
 
@@ -258,25 +301,38 @@ public class PlanServiceTests
     public async Task ExpireSubscriptionsAsync_SuspendsContactsAboveFreeLimit()
     {
         var usuarioId = Guid.NewGuid();
-        var expired = new Suscripcion { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Activa" };
+        var planId = Guid.NewGuid();
+        var due = new Suscripcion
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = usuarioId,
+            PlanId = planId,
+            Estado = "Grace",
+            GraceEndsAtUtc = DateTime.UtcNow.AddMinutes(-1)
+        };
         var usuario = new Usuario { Id = usuarioId, PlanActivo = "Premium" };
         var keep = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = usuarioId, Nombre = "A", Telefono = "1", EsPrincipal = true, CreadoEn = DateTime.UtcNow.AddDays(-5) };
         var suspend = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = usuarioId, Nombre = "B", Telefono = "2", CreadoEn = DateTime.UtcNow.AddDays(-1) };
         var extra = new ContactoEmergencia { Id = Guid.NewGuid(), UsuarioId = usuarioId, Nombre = "C", Telefono = "3", CreadoEn = DateTime.UtcNow };
         var freePlan = new Plan { Id = Guid.NewGuid(), Nombre = "Free", MaxContactos = 2 };
 
-        _suscripcionRepo.Setup(r => r.GetExpiredAsync()).ReturnsAsync([expired]);
         _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
         _planRepo.Setup(r => r.GetByNameAsync("Free")).ReturnsAsync(freePlan);
         _contactoRepo.Setup(r => r.GetByUserAsync(usuarioId)).ReturnsAsync([keep, suspend, extra]);
+        _suscripcionRepo.Setup(r => r.ProcessLifecycleAsync(
+                It.IsAny<DateTime>(),
+                It.IsAny<Func<Suscripcion, CancellationToken, Task>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((DateTime _, Func<Suscripcion, CancellationToken, Task> process, CancellationToken ct) =>
+                process(due, ct).ContinueWith(_ => 1, ct));
 
         var count = await _planService.ExpireSubscriptionsAsync();
 
         Assert.Equal(1, count);
-        Assert.Equal("Activo", keep.Status);
-        Assert.Equal("Activo", suspend.Status);
-        Assert.Equal("Suspendido por plan", extra.Status);
-        Assert.Equal("Activo", extra.PreviousStatus);
+        Assert.Equal(EmergencyContactStatus.LegacyUnverified, keep.Status);
+        Assert.Equal(EmergencyContactStatus.LegacyUnverified, suspend.Status);
+        Assert.Equal(EmergencyContactStatus.Expired, extra.Status);
+        Assert.Equal("LegacyUnverified", extra.PreviousStatus);
         _contactoRepo.Verify(r => r.UpdateAsync(extra), Times.Once);
         _contactoRepo.Verify(r => r.UpdateAsync(suspend), Times.Never);
         _contactoRepo.Verify(r => r.UpdateAsync(keep), Times.Never);

@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImpactX.Core.Pagination;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -8,8 +10,8 @@ namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/contacts")]
-[Route("api/v1/contacts")]
 [Authorize]
+[RequireClientCapability(ClientTypePolicy.Web, ClientTypePolicy.Mobile)]
 public class ContactsController : ControllerBase
 {
     private readonly IContactService _contactService;
@@ -20,11 +22,12 @@ public class ContactsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetContacts()
+    public async Task<IActionResult> GetContacts(int? pageSize, string? continuationToken)
     {
         var usuarioId = GetUsuarioId();
-        var contacts = await _contactService.GetContactsAsync(usuarioId);
-        return Ok(contacts);
+        var page = await _contactService.GetContactsPagedAsync(usuarioId, pageSize, continuationToken);
+        PagedResultHttp.ApplyContinuationToken(Response, page);
+        return Ok(page.Items);
     }
 
     [HttpGet("{id:guid}")]

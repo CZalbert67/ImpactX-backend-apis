@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
@@ -78,11 +79,44 @@ public class CosmosRutaRepository : IRutaRepository
         return results;
     }
 
+    public async Task<PagedResult<Ruta>> GetByUserPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId ORDER BY c.creadoEn DESC")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        return await CosmosPageReader.ReadSinglePageAsync<Ruta>(
+            _container, query, CosmosPartitionKeys.For(usuarioId),
+            pageSize, continuationToken, cancellationToken);
+    }
+
+    public async Task<PagedResult<Ruta>> GetFrequentByUserPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId AND c.esFrecuente = true ORDER BY c.usadaEn DESC")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        return await CosmosPageReader.ReadSinglePageAsync<Ruta>(
+            _container, query, CosmosPartitionKeys.For(usuarioId),
+            pageSize, continuationToken, cancellationToken);
+    }
+
+    public async Task<PagedResult<Ruta>> GetHistoryByUserPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.usuarioId = @usuarioId AND c.esFrecuente = false ORDER BY c.creadoEn DESC")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        return await CosmosPageReader.ReadSinglePageAsync<Ruta>(
+            _container, query, CosmosPartitionKeys.For(usuarioId),
+            pageSize, continuationToken, cancellationToken);
+    }
+
     public async Task<Ruta?> GetByIdAsync(Guid id)
     {
         // Cross-partition justificada: el contrato solo recibe el id y Rutas
-        // particiona por /usuarioId. Corrige el ReadItemAsync anterior con
-        // partition key incorrecta que siempre devolvía 404.
+        // particiona por /usuarioId. Los servicios que conocen el usuario
+        // deben usar GetByIdAsync(usuarioId, id) (point-read).
         var query = new QueryDefinition(
             "SELECT TOP 1 * FROM c WHERE c.id = @id")
             .WithParameter("@id", id.ToString());
@@ -95,6 +129,21 @@ public class CosmosRutaRepository : IRutaRepository
             return response.FirstOrDefault();
         }
         return null;
+    }
+
+    public async Task<Ruta?> GetByIdAsync(Guid usuarioId, Guid id)
+    {
+        try
+        {
+            var response = await _container.ReadItemAsync<Ruta>(
+                id.ToString(),
+                CosmosPartitionKeys.For(usuarioId));
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
     }
 
     public async Task<Ruta?> GetSelectedTodayAsync(Guid usuarioId)

@@ -18,6 +18,9 @@ public class CosmosSchemaInitializationTests
         public bool SimulateConflictOnCreate { get; set; }
         public Func<CancellationToken, Task>? OnCreateDatabase { get; set; }
         public Dictionary<string, string> ExistingContainers { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, int?> ExistingTtls { get; } = new(StringComparer.Ordinal);
+        public int ValidateDatabaseAccessCalls { get; private set; }
+        public Exception? ValidateDatabaseAccessException { get; set; }
         public List<CosmosContainerDefinition> CreatedContainers { get; } = [];
         public Func<string, CancellationToken, Task<ContainerProperties?>>? OnReadContainer { get; set; }
 
@@ -32,6 +35,7 @@ public class CosmosSchemaInitializationTests
             foreach (var definition in CosmosContainerCatalog.All)
             {
                 ExistingContainers[definition.Name] = definition.PartitionKeyPath;
+                ExistingTtls[definition.Name] = definition.DefaultTimeToLive;
             }
         }
 
@@ -65,10 +69,22 @@ public class CosmosSchemaInitializationTests
 
             if (ExistingContainers.TryGetValue(containerName, out var partitionKeyPath))
             {
-                return Task.FromResult<ContainerProperties?>(new ContainerProperties(containerName, partitionKeyPath));
+                var properties = new ContainerProperties(containerName, partitionKeyPath)
+                {
+                    DefaultTimeToLive = ExistingTtls.GetValueOrDefault(containerName)
+                };
+                return Task.FromResult<ContainerProperties?>(properties);
             }
 
             return Task.FromResult<ContainerProperties?>(null);
+        }
+
+        protected override Task ValidateDatabaseAccessAsync(CancellationToken cancellationToken)
+        {
+            ValidateDatabaseAccessCalls++;
+            return ValidateDatabaseAccessException is null
+                ? Task.CompletedTask
+                : Task.FromException(ValidateDatabaseAccessException);
         }
 
         protected override Task CreateContainerIfNotExistsAsync(
@@ -79,14 +95,86 @@ public class CosmosSchemaInitializationTests
                 // Carrera con otra instancia: el contenedor ya existe con el
                 // mismo esquema; la re-lectura posterior lo valida.
                 ExistingContainers[definition.Name] = definition.PartitionKeyPath;
+                ExistingTtls[definition.Name] = definition.DefaultTimeToLive;
                 return Task.FromException(new CosmosException(
                     "conflict", HttpStatusCode.Conflict, 0, "activity", 0));
             }
 
             CreatedContainers.Add(definition);
             ExistingContainers[definition.Name] = definition.PartitionKeyPath;
+            ExistingTtls[definition.Name] = definition.DefaultTimeToLive;
             return Task.CompletedTask;
         }
+    }
+
+    [Fact]
+    public async Task ValidateSchema_Success_IsReadOnly()
+    {
+        var db = new FakeCosmosDbContext(CreateOptions());
+        db.SeedExistingContainersFromCatalog();
+
+        await db.ValidateSchemaAsync();
+
+        Assert.Equal(1, db.ValidateDatabaseAccessCalls);
+        Assert.Equal(0, db.DatabaseWithThroughputCalls);
+        Assert.Equal(0, db.DatabaseWithoutThroughputCalls);
+        Assert.Empty(db.CreatedContainers);
+    }
+
+    [Fact]
+    public async Task ValidateSchema_MissingContainer_ThrowsWithoutCreating()
+    {
+        var db = new FakeCosmosDbContext(CreateOptions());
+        db.SeedExistingContainersFromCatalog();
+        db.ExistingContainers.Remove("Vehicles");
+        db.ExistingTtls.Remove("Vehicles");
+
+        var exception = await Assert.ThrowsAsync<CosmosSchemaValidationException>(
+            () => db.ValidateSchemaAsync());
+
+        Assert.Equal("Vehicles", exception.ContainerName);
+        Assert.Equal(CosmosSchemaMismatchKind.MissingContainer, exception.MismatchKind);
+        Assert.Empty(db.CreatedContainers);
+    }
+
+    [Fact]
+    public async Task ValidateSchema_PartitionKeyMismatch_Throws()
+    {
+        var db = new FakeCosmosDbContext(CreateOptions());
+        db.SeedExistingContainersFromCatalog();
+        db.ExistingContainers["QuickMessages"] = "/wrong";
+
+        var exception = await Assert.ThrowsAsync<CosmosSchemaValidationException>(
+            () => db.ValidateSchemaAsync());
+
+        Assert.Equal(CosmosSchemaMismatchKind.PartitionKey, exception.MismatchKind);
+    }
+
+    [Fact]
+    public async Task ValidateSchema_TtlMismatch_Throws()
+    {
+        var db = new FakeCosmosDbContext(CreateOptions());
+        db.SeedExistingContainersFromCatalog();
+        db.ExistingTtls["Alertas"] = 60;
+
+        var exception = await Assert.ThrowsAsync<CosmosSchemaValidationException>(
+            () => db.ValidateSchemaAsync());
+
+        Assert.Equal("Alertas", exception.ContainerName);
+        Assert.Equal(CosmosSchemaMismatchKind.TimeToLive, exception.MismatchKind);
+    }
+
+    [Fact]
+    public async Task ValidateSchema_AccessDenied_PropagatesWithoutCreating()
+    {
+        var db = new FakeCosmosDbContext(CreateOptions())
+        {
+            ValidateDatabaseAccessException = new CosmosException(
+                "forbidden", HttpStatusCode.Forbidden, 0, "activity", 0)
+        };
+
+        await Assert.ThrowsAsync<CosmosException>(() => db.ValidateSchemaAsync());
+        Assert.Empty(db.CreatedContainers);
     }
 
     private static async Task WaitForTerminalStateAsync(DatabaseInitializationState state)

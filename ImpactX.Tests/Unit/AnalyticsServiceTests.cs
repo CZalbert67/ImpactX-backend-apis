@@ -32,7 +32,7 @@ public class AnalyticsServiceTests
     {
         var usuarioId = Guid.NewGuid();
         _incidenteRepo.Setup(r => r.CountByUserAsync(usuarioId)).ReturnsAsync(15);
-        _contactoRepo.Setup(r => r.CountByUserAsync(usuarioId)).ReturnsAsync(3);
+        _contactoRepo.Setup(r => r.CountAcceptedByOwnerAsync(usuarioId, It.IsAny<CancellationToken>())).ReturnsAsync(3);
         _viajeRepo.Setup(r => r.GetByUserAsync(usuarioId)).ReturnsAsync([
             new Viaje { Id = Guid.NewGuid(), UsuarioId = usuarioId },
             new Viaje { Id = Guid.NewGuid(), UsuarioId = usuarioId },
@@ -59,7 +59,7 @@ public class AnalyticsServiceTests
     {
         var usuarioId = Guid.NewGuid();
         _incidenteRepo.Setup(r => r.CountByUserAsync(usuarioId)).ReturnsAsync(0);
-        _contactoRepo.Setup(r => r.CountByUserAsync(usuarioId)).ReturnsAsync(0);
+        _contactoRepo.Setup(r => r.CountAcceptedByOwnerAsync(usuarioId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
         _viajeRepo.Setup(r => r.GetByUserAsync(usuarioId)).ReturnsAsync([]);
         _suscripcionRepo.Setup(r => r.GetActiveByUserAsync(usuarioId)).ReturnsAsync((Suscripcion?)null);
         _incidenteRepo.Setup(r => r.GetByUserAsync(usuarioId)).ReturnsAsync([]);
@@ -77,13 +77,30 @@ public class AnalyticsServiceTests
     {
         var usuarioId = Guid.NewGuid();
         _incidenteRepo.Setup(r => r.CountByUserAsync(usuarioId)).ReturnsAsync(0);
-        _contactoRepo.Setup(r => r.CountByUserAsync(usuarioId)).ReturnsAsync(0);
+        _contactoRepo.Setup(r => r.CountAcceptedByOwnerAsync(usuarioId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
         _viajeRepo.Setup(r => r.GetByUserAsync(usuarioId)).ReturnsAsync([]);
         _incidenteRepo.Setup(r => r.GetByUserAsync(usuarioId)).ReturnsAsync([]);
 
         var result = await _analyticsService.GetDashboardAsync(usuarioId);
 
         Assert.Null(result.CanalMasUsado);
+    }
+
+    [Fact]
+    public async Task GetDashboardAsync_LegacyExternalContacts_AreNotCountedAsActive()
+    {
+        var usuarioId = Guid.NewGuid();
+        _incidenteRepo.Setup(r => r.CountByUserAsync(usuarioId)).ReturnsAsync(0);
+        _contactoRepo.Setup(r => r.CountByUserAsync(usuarioId)).ReturnsAsync(7);
+        _contactoRepo.Setup(r => r.CountAcceptedByOwnerAsync(usuarioId, It.IsAny<CancellationToken>())).ReturnsAsync(2);
+        _viajeRepo.Setup(r => r.GetByUserAsync(usuarioId)).ReturnsAsync([]);
+        _suscripcionRepo.Setup(r => r.GetActiveByUserAsync(usuarioId)).ReturnsAsync((Suscripcion?)null);
+        _incidenteRepo.Setup(r => r.GetByUserAsync(usuarioId)).ReturnsAsync([]);
+
+        var result = await _analyticsService.GetDashboardAsync(usuarioId);
+
+        Assert.Equal(2, result.ContactosActivos);
+        _contactoRepo.Verify(r => r.CountByUserAsync(usuarioId), Times.Never);
     }
 
     [Fact]

@@ -29,7 +29,7 @@ public class PlansControllerTests : IClassFixture<CustomWebApplicationFactory>
         var response = await _client.GetAsync("/api/plans");
         var plans = await response.Content.ReadFromJsonAsync<List<PlanDto>>();
         Assert.Contains(plans!, p => p.Nombre == "Free");
-        Assert.Contains(plans!, p => p.Nombre == "Basic");
+        Assert.Contains(plans!, p => p.Nombre == "Standard");
         Assert.Contains(plans!, p => p.Nombre == "Premium");
     }
 }

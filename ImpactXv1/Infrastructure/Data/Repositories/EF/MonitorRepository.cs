@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Monitor = ImpactX.Core.Domain.Monitor;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 
 namespace ImpactX.Infrastructure.Data.Repositories.EF;
 
@@ -21,9 +22,24 @@ public class MonitorRepository : IMonitorRepository
             .ToListAsync();
     }
 
+    public async Task<PagedResult<Monitor>> GetByUserPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        return await EfPageReader.ReadSinglePageAsync(
+            _context.Monitores
+                .Where(m => m.UsuarioId == usuarioId)
+                .OrderByDescending(m => m.CreadoEn),
+            pageSize, continuationToken, cancellationToken);
+    }
+
     public async Task<Monitor?> GetByIdAsync(Guid id)
     {
         return await _context.Monitores.FindAsync(id);
+    }
+
+    public async Task<Monitor?> GetByIdAsync(Guid usuarioId, Guid id)
+    {
+        return await _context.Monitores
+            .FirstOrDefaultAsync(m => m.UsuarioId == usuarioId && m.Id == id);
     }
 
     public async Task<List<Monitor>> GetActiveByUserAsync(Guid usuarioId)

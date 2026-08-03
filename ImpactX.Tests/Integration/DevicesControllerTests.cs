@@ -26,7 +26,7 @@ public class DevicesControllerTests : IClassFixture<CustomWebApplicationFactory>
             password = "Password123!"
         });
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
-        return result!.Token;
+        return result!.Token!;
     }
 
     private void SetBearer(string token)
@@ -366,11 +366,11 @@ public class DevicesControllerTests : IClassFixture<CustomWebApplicationFactory>
         return (email, result!.Token!);
     }
 
-    private async Task<Guid> GetUserIdAsync(string token)
+    private Task<Guid> GetUserIdAsync(string token)
     {
-        SetBearer(token);
-        var profile = await _client.GetAsync("/api/v1/profile");
-        var body = await profile.Content.ReadFromJsonAsync<UserProfileDto>();
-        return body!.Id;
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        var jwt = handler.ReadJwtToken(token);
+        var userId = Guid.Parse(jwt.Claims.First(c => c.Type == "nameid" || c.Type == System.Security.Claims.ClaimTypes.NameIdentifier).Value);
+        return Task.FromResult(userId);
     }
 }

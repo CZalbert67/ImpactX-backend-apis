@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using ImpactX.Core.Identity;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -17,6 +18,47 @@ public class AuthController : ControllerBase
     public AuthController(IAuthService authService)
     {
         _authService = authService;
+    }
+
+    [HttpGet("registration-contract")]
+    [ProducesResponseType(typeof(RegistrationContractDto), StatusCodes.Status200OK)]
+    public IActionResult GetRegistrationContract()
+    {
+        return Ok(new RegistrationContractDto
+        {
+            ContractVersion = RegistrationContract.CurrentVersion,
+            TermsVersion = RegistrationContract.TermsVersion,
+            PrivacyNoticeVersion = RegistrationContract.PrivacyNoticeVersion,
+            SupportedClients = RegistrationContract.SupportedAccountClients,
+            RequiredFields =
+            [
+                "nombre",
+                "username",
+                "correo",
+                "telefono",
+                "password",
+                "termsAccepted",
+                "privacyAccepted",
+                "client"
+            ],
+            Username = new UsernameRequirementsDto
+            {
+                MinLength = UsernamePolicy.MinLength,
+                MaxLength = UsernamePolicy.MaxLength,
+                Pattern = "^[a-zA-Z0-9](?:[a-zA-Z0-9._]*[a-zA-Z0-9])?$",
+                Description = "Letras, números, punto y guion bajo; sin puntos consecutivos."
+            },
+            Password = new PasswordRequirementsDto
+            {
+                MinLength = RegistrationContract.PasswordMinLength,
+                MaxLength = RegistrationContract.PasswordMaxLength,
+                RequireUppercase = true,
+                RequireLowercase = true,
+                RequireDigit = true,
+                RequireSpecialCharacter = true
+            },
+            ConfirmPasswordIsClientOnly = true
+        });
     }
 
     [HttpPost("register")]

@@ -1,6 +1,7 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using Microsoft.Extensions.Logging;
 
@@ -26,6 +27,19 @@ public class DeviceService : IDeviceService
     {
         var dispositivos = await _dispositivoRepository.GetByUsuarioIdAsync(usuarioId);
         return dispositivos.Select(MapToDto).ToList();
+    }
+
+    public async Task<PagedResult<DeviceDto>> GetDevicesPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _dispositivoRepository.GetByUsuarioIdPagedAsync(usuarioId, size, continuationToken);
+        return new PagedResult<DeviceDto>
+        {
+            Items = page.Items.Select(MapToDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
     }
 
     public async Task UpsertFcmTokenAsync(Guid usuarioId, UpsertDeviceRequest request)

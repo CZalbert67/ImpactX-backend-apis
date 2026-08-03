@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -10,6 +11,7 @@ namespace ImpactX.Controllers;
 [Route("api/permissions")]
 [Route("api/v1/permissions")]
 [Authorize]
+[RequireClientCapability(ClientTypePolicy.Web, ClientTypePolicy.Mobile)]
 public class PermissionsController : ControllerBase
 {
     private readonly IPermissionService _permissionService;
@@ -28,6 +30,7 @@ public class PermissionsController : ControllerBase
     }
 
     [HttpPut("mobile")]
+    [RequireClientCapability(ClientTypePolicy.Mobile)]
     public async Task<IActionResult> UpdateMobilePermissions([FromBody] UpdatePermissionsRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -36,6 +39,7 @@ public class PermissionsController : ControllerBase
     }
 
     [HttpPut("web")]
+    [RequireClientCapability(ClientTypePolicy.Web)]
     public async Task<IActionResult> UpdateWebPermissions([FromBody] UpdatePermissionsRequest request)
     {
         var usuarioId = GetUsuarioId();

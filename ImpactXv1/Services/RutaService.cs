@@ -1,6 +1,7 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -24,6 +25,32 @@ public class RutaService : IRutaService
     {
         var rutas = await _rutaRepository.GetHistoryByUserAsync(usuarioId);
         return rutas.Select(MapToDto).ToList();
+    }
+
+    public async Task<PagedResult<RutaDto>> GetFrequentPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _rutaRepository.GetFrequentByUserPagedAsync(usuarioId, size, continuationToken);
+        return new PagedResult<RutaDto>
+        {
+            Items = page.Items.Select(MapToDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
+    }
+
+    public async Task<PagedResult<RutaDto>> GetHistoryPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _rutaRepository.GetHistoryByUserPagedAsync(usuarioId, size, continuationToken);
+        return new PagedResult<RutaDto>
+        {
+            Items = page.Items.Select(MapToDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
     }
 
     public async Task<RutaDto> CreateAsync(Guid usuarioId, CreateRutaRequest request)
@@ -52,7 +79,7 @@ public class RutaService : IRutaService
 
     public async Task<RutaDto> UpdateAsync(Guid usuarioId, Guid id, UpdateRutaRequest request)
     {
-        var ruta = await _rutaRepository.GetByIdAsync(id)
+        var ruta = await _rutaRepository.GetByIdAsync(usuarioId, id)
             ?? throw new NotFoundException("Ruta no encontrada.");
 
         if (ruta.UsuarioId != usuarioId)
@@ -77,7 +104,7 @@ public class RutaService : IRutaService
 
     public async Task DeleteAsync(Guid usuarioId, Guid id)
     {
-        var ruta = await _rutaRepository.GetByIdAsync(id)
+        var ruta = await _rutaRepository.GetByIdAsync(usuarioId, id)
             ?? throw new NotFoundException("Ruta no encontrada.");
 
         if (ruta.UsuarioId != usuarioId)
@@ -88,7 +115,7 @@ public class RutaService : IRutaService
 
     public async Task<RutaDto> SelectTodayAsync(Guid usuarioId, SelectTodayRequest request)
     {
-        var ruta = await _rutaRepository.GetByIdAsync(request.RutaId)
+        var ruta = await _rutaRepository.GetByIdAsync(usuarioId, request.RutaId)
             ?? throw new NotFoundException("Ruta no encontrada.");
 
         if (ruta.UsuarioId != usuarioId)

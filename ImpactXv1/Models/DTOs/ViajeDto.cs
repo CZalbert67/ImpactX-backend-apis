@@ -1,9 +1,15 @@
+using System.Text.Json.Serialization;
+
 namespace ImpactX.Models.DTOs;
 
 public class ViajeDto
 {
     public Guid Id { get; set; }
     public string DispositivoId { get; set; } = string.Empty;
+    public string? VehiclePublicId { get; set; }
+    public string ControlClient { get; set; } = string.Empty;
+    public bool MobileFallbackUsed { get; set; }
+    public string? FallbackReason { get; set; }
     public string Estado { get; set; } = string.Empty;
     public DateTime Inicio { get; set; }
     public DateTime? Fin { get; set; }
@@ -29,6 +35,11 @@ public class StartTripRequest
     public string? RutaDestino { get; set; }
     public bool CompartirConMonitores { get; set; }
     public string? Canal { get; set; }
+    public string? VehiclePublicId { get; set; }
+    public string? FallbackReason { get; set; }
+
+    [JsonIgnore]
+    public string Client { get; set; } = "mobile";
 }
 
 public class TelemetryUpdateRequest

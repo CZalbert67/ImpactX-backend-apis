@@ -5,6 +5,10 @@ public class Viaje
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid UsuarioId { get; set; }
     public string DispositivoId { get; set; } = string.Empty;
+    public string? VehiclePublicId { get; set; }
+    public string ControlClient { get; set; } = "mobile";
+    public bool MobileFallbackUsed { get; set; }
+    public string? FallbackReason { get; set; }
     public string Estado { get; set; } = "Activo";
     public DateTime Inicio { get; set; } = DateTime.UtcNow;
     public DateTime? Fin { get; set; }

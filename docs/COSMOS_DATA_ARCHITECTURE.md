@@ -1,7 +1,7 @@
 # Cosmos Data Architecture
 
 > Documento de arquitectura de persistencia Cosmos DB para ImpactX.
-> Estado: PR 2A — Cosmos Data Architecture and Persistence Hardening (implementado en `feat/backend-cosmos-data-architecture`).
+> Estado: PR 2A — Cosmos Data Architecture and Persistence Hardening (implementado en `feat/backend-cosmos-data-architecture`); actualizado por PR 2B (paginación, `docs/COSMOS_PAGINATION.md`) y PR 2C (ingesta por lotes con `TransactionalBatch`, `docs/TELEMETRY_INGESTION.md`).
 > Azure y Cosmos DB **reales no fueron contactados ni modificados** en esta rama; todo lo descrito aquí es el diseño y la validación local.
 
 ## 1. Cuenta y base
@@ -50,7 +50,7 @@ Catálogo único: `ImpactXv1/Infrastructure/Data/CosmosContainerCatalog.cs` (18 
 | `ContactosEmergencia` | ContactoEmergencia | `/usuarioId` | −1 | por usuario / principal / count / existe teléfono (particionadas); por id (cross-partition, `TOP 1`) |
 | `Rutas` | Ruta | `/usuarioId` | −1 | por usuario / frecuentes / historial (límite 50) / seleccionada hoy (particionadas); por id (cross-partition, `TOP 1`) |
 | `Viajes` | Viaje | `/usuarioId` | 7776000 (90d) | por usuario / activo (particionadas, límite 50); por id (cross-partition, `TOP 1`) |
-| `TelemetriaViaje` | ViajeTelemetry | `/viajeId` | 7776000 (90d) | por viaje (particionada por `/viajeId`, `ORDER BY timestamp ASC`). **La telemetría permanece relacionada con TripId.** |
+| `TelemetriaViaje` | ViajeTelemetry | `/viajeId` | 7776000 (90d) | por viaje (particionada por `/viajeId`, `ORDER BY timestamp ASC`); **point-read por evento**: `ReadItemAsync(eventId, PartitionKey(viajeId))` (idempotencia de ingesta); **escritura atómica por lote**: `TransactionalBatch` sobre la partición `/viajeId`. **La telemetría permanece relacionada con TripId.** |
 | `Alertas` | Alerta | `/usuarioId` | 31536000 (1y) | por usuario / pendientes / activas / count (particionadas); por id (cross-partition, `TOP 1`) |
 | `Notificaciones` | Notificacion | `/usuarioId` | 2592000 (30d) | por usuario / count no leídas (particionadas); por clave de idempotencia (particionada cuando hay destinatario; cross-partition si no); por id (cross-partition, `TOP 1`) |
 | `Wearables` | Wearable | `/usuarioId` | −1 | por usuario / vinculado (particionadas); pairingToken / dispositivoId (cross-partition, `TOP 1`); por id (cross-partition, `TOP 1`) |
@@ -88,9 +88,31 @@ Principios aplicados en los repositorios (`ImpactXv1/Infrastructure/Data/Reposit
 | `Dispositivos.GetByTokenFcmAsync` | Unicidad global de token (deuda documentada). |
 | `Monitores.GetByTokenAsync`, `Wearables.GetByPairingTokenAsync`/`GetByDispositivoIdAsync` | Lookup por token/deviceId sin usuarioId. |
 | `Planes.GetByNameAsync`/`GetAllAsync`, `PlanSeeder` COUNT por nombre | Catálogo pequeño (≤ 6 documentos). |
-| `Suscripciones/Pagos.GetByIdAsync` | El contrato de repositorio solo recibe id; partición `/usuarioId` no disponible. `TOP 1` + detención temprana. |
-| `Suscripciones.GetExpiredAsync`/`GetTrialsEndingAsync` | Mantenimiento global sin partición conocida (procesa todas las páginas). |
-| `Viajes/Rutas/Alertas/Incidentes/Notificaciones/Monitores/ContactosEmergencia/Wearables.GetByIdAsync` | El contrato solo recibe id; partición `/usuarioId` no disponible. |
+| `Suscripciones.GetByIdAsync` | El contrato de repositorio solo recibe id; partición `/usuarioId` no disponible. `TOP 1` + detención temprana. |
+| `Suscripciones.GetExpiredAsync`/`GetTrialsEndingAsync` | Mantenimiento global sin partición conocida (procesa todas las páginas). **Reemplazados en PR 2B por `ExpireAllAsync`/`ProcessTrialsEndingAsync` (página a página); conservados por compatibilidad de contrato.** |
+| `Viajes/Rutas/Alertas/Incidentes/Notificaciones/Monitores/ContactosEmergencia/Wearables/Pagos.GetByIdAsync` | El contrato solo recibe id; partición `/usuarioId` no disponible. `TOP 1` + detención temprana (los servicios usan los nuevos point-reads `GetByIdAsync(usuarioId, id)` de PR 2B cuando el partition key está disponible). |
+
+### Escritura atómica por lote (PR 2C)
+
+- `TelemetriaViaje` (partition key `/viajeId`) se escribe por lotes con un único
+  `TransactionalBatch` sobre la partición del viaje: todos los eventos del
+  lote se insertan atómicamente (o ninguno). No hay transacciones
+  cross-partition: el lote nunca cruza particiones.
+- Idempotencia por `eventId` (clave de idempotencia del cliente = `Id` del
+  documento): point-read `ReadItemAsync(eventId, PartitionKey(viajeId))`
+  antes del batch y, si el `TransactionalBatch` devuelve 409 Conflict (carrera),
+  re-lectura point-read del evento para decidir duplicado (idéntico) o
+  `ConflictException` (contenido diferente). Sin upsert/replace: un evento
+  existente nunca se sobrescribe.
+- Un batch fallido **nunca** cuenta inserciones (los estados individuales 200/
+  409/FailedDependency no prueban persistencia) y `FailedDependency` se
+  resuelve como candidato mediante point-read. Reintentos limitados: 1 inicial
+  + 2 adicionales (máximo 3 intentos), `CancellationToken` respetado;
+  agotamiento → `CosmosException` segura. Detalles en
+  `docs/TELEMETRY_INGESTION.md` (sección 3).
+- **Sin cambios de throughput ni de partition keys**: la ingesta por lote no
+  altera el catálogo de contenedores, el throughput compartido de la base ni
+  las definiciones de partición (la telemetría permanece en `/viajeId`).
 
 > **Corrección indispensable (PR 2A)**: `GetByIdAsync` de estos contenedores usaba `ReadItemAsync(id, PartitionKey(id))`, que con partición `/usuarioId` devuelve **404 siempre** (partition key incorrecta). Se reemplazó por consulta parametrizada `SELECT TOP 1 * FROM c WHERE c.id = @id` con `MaxItemCount=1`: corrige el fallo funcional sin cambiar el contrato del repositorio. Si se quiere un point-read real, el contrato debe evolucionar a `GetByIdAsync(usuarioId, id)` (pendiente).
 
@@ -133,7 +155,7 @@ Si la validación de arranque detecta `CosmosSchemaValidationException` (contene
 - Si algún contenedor excede el rendimiento compartido: **escalar el throughput de la base dentro del límite de 1000 RU/s del Free Tier primero**, y evaluar throughput dedicado solo con análisis de RU por consulta (continuación del punto 7: no reinventar).
 - Composite indexes solo cuando aparezca una consulta cross-partition real con `ORDER BY` (hoy no existe).
 - `GetByIdAsync(usuarioId, id)` en los contratos de repositorio para convertir las cross-partition justificadas de point-lookup en point-reads reales.
-- Página pública de paginación con continuation tokens cuando los listados por usuario crezcan (ver deuda documentada en la sección 12; hoy los límites totales explícitos son 50 en rutas/viajes y 20 en búsqueda de usuarios).
+- Página pública de paginación con continuation tokens — **implementada en PR 2B** (`docs/COSMOS_PAGINATION.md`); hoy los límites totales explícitos son 50 en rutas/viajes y 20 en búsqueda de usuarios.
 - Monitorear 429 con Application Insights (workspace ya desplegado en `infra/`): alertar por tasa de 429 sostenida, no por ocurrencias puntuales.
 
 ## 12. Límites reales de resultados (clasificación revisada en PR 2A)
@@ -153,20 +175,19 @@ Si la validación de arranque detecta `CosmosSchemaValidationException` (contene
 | `Alertas.GetByUserAsync`/`GetPendingByUserAsync`/`GetActiveAlertsAsync` | sin límite total | Partición del usuario; TTL 1 año; eventos de negocio escasos. |
 | `Contactos.GetByUserAsync` | sin límite total | Capado por plan (3/5/10). |
 | `Monitores.GetByUserAsync`/`GetActiveByUserAsync` | sin límite total | Capado por plan (1/3/6). |
-| `Notificaciones.GetByUserAsync` | sin límite total | **El de mayor volumen**: TTL 30 días, alta frecuencia. Deuda de paginación (ver abajo). |
+| `Notificaciones.GetByUserAsync` | sin límite total | **El de mayor volumen**: TTL 30 días, alta frecuencia. Paginación implementada en PR 2B (header `X-Continuation-Token`). |
 | `Pagos.GetByUserAsync` | sin límite total | Acotado por compras reales. |
 | `Suscripciones.GetHistoryByUserAsync`/`GetActiveByUserAsync` | sin límite total | Pocas por usuario. |
 | `Dispositivos.GetByUsuarioIdAsync`/`GetActiveByUsuarioIdAsync` | sin límite total | Pocos por usuario. |
 | `Wearables.GetAllByUsuarioIdAsync` | sin límite total | Pocos por usuario. |
-| `Incidentes.GetByUserAsync`/`GetFilteredAsync` | sin límite total | Filtro paginado OFFSET/LIMIT; **`Tamano` sin cota superior en el contrato** (default 20; un cliente puede pedir la partición completa; el endpoint de tendencia analítica pasa `int.MaxValue`). Particionado, sin fuga entre usuarios. |
+| `Incidentes.GetByUserAsync`/`GetFilteredAsync` | sin límite total | Filtro paginado OFFSET/LIMIT; **`Tamano` acotado en PR 2B a 1–100 (default 20) y `Pagina ≥ 1`** (400 fuera de rango); el endpoint de tendencia analítica pasa `int.MaxValue` internamente. Particionado, sin fuga entre usuarios. |
 | `Viajes.GetTelemetryByViajeAsync` | sin límite total | Partición `/viajeId`; lectura completa necesaria para calcular distancia/media/máx al finalizar el viaje. |
 
 **C. Procesamiento administrativo / global — cross-partition justificada, procesa todas las páginas:**
 `Suscripciones.GetExpiredAsync`/`GetTrialsEndingAsync` (mantenimiento global, comentado en código), `RefreshTokens.RevokeAllByUsuarioIdAsync`, `PasswordResetTokens.InvalidateAllByUsuarioIdAsync`, `Dispositivos.DeleteAllByUsuarioIdAsync`, `Notificaciones.MarkAllAsReadAsync`/`DeleteAllByUserAsync` (deben procesar todo el conjunto del usuario para cumplir su semántica; particionadas).
 
-**Deuda de paginación (continuation tokens) — no resuelta en PR 2A:**
-- Los listados "sin límite total" de la sección B solo leen la partición del usuario (nunca el contenedor completo), pero un usuario con mucha historia puede acumular una respuesta grande. Agregar un corte total cambiaría las respuestas públicas de forma arbitraria (el contrato actual devuelve el listado completo).
-- Solución futura: paginación con continuation tokens en `GET /api/v1/notificaciones`, `GET /api/v1/alertas` y `GET /api/v1/incidentes` (y cota de `Tamano` en `IncidentFilterRequest`, p. ej. 1–100), manteniendo el orden por fecha.
+**Deuda de paginación (continuation tokens) — resuelta en PR 2B:**
+- PR 2B implementó paginación con continuation tokens (ver `docs/COSMOS_PAGINATION.md`): los endpoints legacy conservan `List<T>` + header `X-Continuation-Token`; los endpoints nuevos (`GET /api/v1/trips`, `GET /api/v1/trips/{id}/telemetry`, `GET /api/v1/alerts`, `GET /api/v1/wearable/all`) devuelven `PagedResult<T>`. `IncidentFilterRequest.Tamano` ahora tiene cota 1–100 y `Pagina ≥ 1` (400). `GetExpiredAsync`/`GetTrialsEndingAsync` fueron reemplazadas por `ExpireAllAsync`/`ProcessTrialsEndingAsync` (página a página).
 - La telemetría por viaje quedará acotada cuando exista exportación a sumidero (sección 10).
 
 ## 13. Pruebas (PR 2A)
@@ -177,3 +198,8 @@ Si la validación de arranque detecta `CosmosSchemaValidationException` (contene
 - `PlanSeederTests`: 3 planes determinísticos, idempotencia total/parcial, legacy por nombre sin duplicados, Conflict tolerado, 401 propaga, cancelación, sin scan del contenedor (point-reads + COUNT).
 - `CosmosPartitionKeysTests` (Category=Security): serialización consistente de partition keys.
 - `IncidenteQueryBuilderTests` (Category=Security): SQL sin input crudo del usuario, parámetros enlazados.
+
+## 14. Pruebas adicionales (PR 2C — ingesta y batch)
+
+- `CosmosViajeRepositoryTelemetryTests` (15: 11 de ingesta + 4 de la auditoría atómica): point-read de telemetría con `PartitionKey(viajeId)`; lote atómico con un único `ExecuteAsync`; **409 del `TransactionalBatch` resuelto por re-lectura point-read** (idéntico → duplicado; diferente → `ConflictException`); **batch fallido con operación individual 200 → cero insertados**; `FailedDependency` resuelto como candidato; carrera con reintento solo de pendientes (1+1); agotamiento de reintentos → `CosmosException` segura; resultados mezclados; **sin upsert/replace**; detección de errores de operación indexada; parte de Category=Security.
+- Documentación completa del endpoint, contrato e idempotencia en `docs/TELEMETRY_INGESTION.md`.

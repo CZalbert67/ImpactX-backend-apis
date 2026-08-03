@@ -89,8 +89,9 @@ public class CosmosInitializationService : BackgroundService
                     // migración controlada. Solo se registra el nombre lógico
                     // del contenedor, nunca valores internos.
                     _logger.LogError(
-                        "Cosmos schema mismatch detected for container {ContainerName}; controlled migration required.",
-                        ex.ContainerName);
+                        "Cosmos schema mismatch detected for container {ContainerName} ({MismatchKind}); controlled migration required.",
+                        ex.ContainerName,
+                        ex.MismatchKind);
                     _state.MarkFailed("Database schema mismatch detected; controlled migration required.");
                     return;
                 }
@@ -134,8 +135,20 @@ public class CosmosInitializationService : BackgroundService
 
     protected virtual async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        await _cosmosDb.EnsureContainersAsync(cancellationToken);
-        await PlanSeeder.SeedPlansAsync(_cosmosDb, cancellationToken);
+        switch (_options.Mode)
+        {
+            case DatabaseInitializationMode.Ensure:
+                await _cosmosDb.EnsureContainersAsync(cancellationToken);
+                await PlanSeeder.SeedPlansAsync(_cosmosDb, cancellationToken);
+                break;
+
+            case DatabaseInitializationMode.ValidateOnly:
+                await _cosmosDb.ValidateSchemaAsync(cancellationToken);
+                break;
+
+            default:
+                throw new InvalidOperationException("Unsupported database initialization mode.");
+        }
     }
 
     private static async Task DelayRetryAsync(TimeSpan delay, CancellationToken cancellationToken)

@@ -12,11 +12,13 @@ public class AuthResponse
 
 public class UsuarioDto
 {
-    public Guid Id { get; set; }
+    // Compatibilidad: contiene PublicProfileId, nunca la primary key interna.
+    public string Id { get; set; } = string.Empty;
+    public string PublicProfileId { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
-    public string AppId { get; set; } = string.Empty;
     public string Nombre { get; set; } = string.Empty;
     public string Correo { get; set; } = string.Empty;
     public string? Telefono { get; set; }
     public string? PlanActivo { get; set; }
+    public OnboardingDto? Onboarding { get; set; }
 }

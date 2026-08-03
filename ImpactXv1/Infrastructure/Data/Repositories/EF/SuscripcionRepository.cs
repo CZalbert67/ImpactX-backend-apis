@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 
 namespace ImpactX.Infrastructure.Data.Repositories.EF;
 
@@ -21,6 +22,15 @@ public class SuscripcionRepository : ISuscripcionRepository
             .FirstOrDefaultAsync();
     }
 
+    public async Task<Suscripcion?> GetCurrentByUserAsync(Guid usuarioId)
+    {
+        return await _context.Set<Suscripcion>()
+            .Where(s => s.UsuarioId == usuarioId &&
+                (s.Estado == "Trial" || s.Estado == "Activa" || s.Estado == "Grace"))
+            .OrderByDescending(s => s.Inicio)
+            .FirstOrDefaultAsync();
+    }
+
     public async Task<List<Suscripcion>> GetHistoryByUserAsync(Guid usuarioId)
     {
         return await _context.Set<Suscripcion>()
@@ -29,9 +39,24 @@ public class SuscripcionRepository : ISuscripcionRepository
             .ToListAsync();
     }
 
+    public async Task<PagedResult<Suscripcion>> GetHistoryByUserPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        return await EfPageReader.ReadSinglePageAsync(
+            _context.Set<Suscripcion>()
+                .Where(s => s.UsuarioId == usuarioId)
+                .OrderByDescending(s => s.Inicio),
+            pageSize, continuationToken, cancellationToken);
+    }
+
     public async Task<Suscripcion?> GetByIdAsync(Guid id)
     {
         return await _context.Set<Suscripcion>().FindAsync(id);
+    }
+
+    public async Task<Suscripcion?> GetByIdAsync(Guid usuarioId, Guid id)
+    {
+        return await _context.Set<Suscripcion>()
+            .FirstOrDefaultAsync(s => s.UsuarioId == usuarioId && s.Id == id);
     }
 
     public async Task AddAsync(Suscripcion suscripcion)
@@ -60,5 +85,93 @@ public class SuscripcionRepository : ISuscripcionRepository
         return await _context.Set<Suscripcion>()
             .Where(s => s.Estado == "Trial" && s.TrialFin != null && s.TrialFin <= threshold)
             .ToListAsync();
+    }
+
+    public async Task<int> ExpireAllAsync(Func<Suscripcion, CancellationToken, Task> process, CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var processed = 0;
+        var offset = 0;
+        const int pageSize = PaginationDefaults.MaxPageSize;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var page = await _context.Set<Suscripcion>()
+                .Where(s => (s.Estado == "Activa" || s.Estado == "Trial") && s.Fin != null && s.Fin <= now)
+                .OrderBy(s => s.Inicio)
+                .Skip(offset)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+
+            if (page.Count == 0)
+                break;
+
+            foreach (var s in page)
+            {
+                await process(s, cancellationToken);
+                processed++;
+            }
+
+            offset += page.Count;
+            if (page.Count < pageSize)
+                break;
+        }
+
+        return processed;
+    }
+
+    public async Task<int> ProcessLifecycleAsync(
+        DateTime utcNow,
+        Func<Suscripcion, CancellationToken, Task> process,
+        CancellationToken cancellationToken = default)
+    {
+        var candidates = await _context.Set<Suscripcion>()
+            .Where(s =>
+                ((s.Estado == "Activa" || s.Estado == "Trial") && s.Fin != null && s.Fin <= utcNow)
+                || (s.Estado == "Grace" && s.GraceEndsAtUtc != null && s.GraceEndsAtUtc <= utcNow))
+            .OrderBy(s => s.Inicio)
+            .ToListAsync(cancellationToken);
+
+        foreach (var subscription in candidates)
+            await process(subscription, cancellationToken);
+
+        return candidates.Count;
+    }
+
+    public async Task<int> ProcessTrialsEndingAsync(int daysRemaining, Func<Suscripcion, CancellationToken, Task> process, CancellationToken cancellationToken = default)
+    {
+        var threshold = DateTime.UtcNow.AddDays(daysRemaining);
+        var processed = 0;
+        var offset = 0;
+        const int pageSize = PaginationDefaults.MaxPageSize;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var page = await _context.Set<Suscripcion>()
+                .Where(s => s.Estado == "Trial" && s.TrialFin != null && s.TrialFin <= threshold)
+                .OrderBy(s => s.Inicio)
+                .Skip(offset)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+
+            if (page.Count == 0)
+                break;
+
+            foreach (var s in page)
+            {
+                await process(s, cancellationToken);
+                processed++;
+            }
+
+            offset += page.Count;
+            if (page.Count < pageSize)
+                break;
+        }
+
+        return processed;
     }
 }

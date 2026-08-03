@@ -73,6 +73,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("RateLimiting:Incidents:CreatePerMinutePerUser", "1000");
         builder.UseSetting("RateLimiting:Alerts:DetectPerMinutePerUser", "1000");
         builder.UseSetting("RateLimiting:Alerts:SosPerMinutePerUser", "1000");
+        builder.UseSetting("ImpactDetection:Enabled", "true");
+        builder.UseSetting("ImpactDetection:PendingDispatchWorkerEnabled", "false");
+        builder.UseSetting("SubscriptionLifecycle:Enabled", "false");
         builder.ConfigureLogging(logging =>
         {
             logging.ClearProviders();

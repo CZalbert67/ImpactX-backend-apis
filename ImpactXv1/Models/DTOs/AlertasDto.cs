@@ -67,6 +67,12 @@ public class AlertStatusDto
     public string Modo { get; set; } = string.Empty;
     public string? Canal { get; set; }
     public string? ViajeId { get; set; }
+    public Guid? SourceTelemetryEventId { get; set; }
+    public string? DetectionLabel { get; set; }
+    public string? RuleVersion { get; set; }
+    public int? DetectionScore { get; set; }
+    public DateTime? AutoSendAtUtc { get; set; }
+    public int? CancellationSecondsRemaining { get; set; }
     public bool EsBypassCritico { get; set; }
     public bool EsOffline { get; set; }
     public string? TiempoRespuesta { get; set; }

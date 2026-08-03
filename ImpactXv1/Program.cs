@@ -97,7 +97,11 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(corsOrigins)
                   .WithHeaders("Authorization", "Content-Type", "X-Correlation-Id", "Idempotency-Key", "traceparent")
-                  .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD");
+                  .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD")
+                  .WithExposedHeaders(
+                      "X-Continuation-Token", "X-Correlation-Id", "X-ImpactX-Api-Version",
+                      "X-ImpactX-Contract-Version", "X-ImpactX-Legacy-Route", "Deprecation",
+                      "Sunset", "Warning", "Link", "Retry-After", "ETag");
         }
     });
 });
@@ -298,6 +302,7 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<ProblemDetailsMiddleware>();
 app.UseMiddleware<SecurityHeadersMiddleware>();
+app.UseMiddleware<ApiContractHeadersMiddleware>();
 app.UseMiddleware<LegacyDeprecationMiddleware>();
 
 app.UseCors("ApiCors");

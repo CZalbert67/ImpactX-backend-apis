@@ -1,5 +1,6 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
+using ImpactX.Core.Identity;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Models.DTOs;
 
@@ -27,6 +28,9 @@ public class UserService : IUserService
         if (usuario is null)
             throw new NotFoundException("Usuario no encontrado.");
 
+        if (await EnsureIdentityCompatibilityAsync(usuario))
+            await _usuarioRepository.UpdateAsync(usuario);
+
         return await MapToProfileDtoAsync(usuario);
     }
 
@@ -35,6 +39,8 @@ public class UserService : IUserService
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
         if (usuario is null)
             throw new NotFoundException("Usuario no encontrado.");
+
+        await EnsureIdentityCompatibilityAsync(usuario);
 
         if (request.Nombre is not null)
             usuario.Nombre = request.Nombre;
@@ -159,8 +165,179 @@ public class UserService : IUserService
         if (request.PermitirAprendizajeIA.HasValue)
             usuario.FichaMedica.PermitirAprendizajeIA = request.PermitirAprendizajeIA.Value;
 
+        usuario.Onboarding ??= new OnboardingProgress();
+        usuario.Onboarding.MedicalProfileStatus = MedicalProfileOnboardingStatus.Completed;
+        RecomputeOnboardingCompletion(usuario.Onboarding, DateTime.UtcNow);
+        usuario.Onboarding.UpdatedAtUtc = DateTime.UtcNow;
+
         await _usuarioRepository.UpdateAsync(usuario);
         return MapToMedicalProfileDto(usuario.FichaMedica) ?? new MedicalProfileDto();
+    }
+
+    public async Task<OnboardingDto> GetOnboardingAsync(Guid usuarioId)
+    {
+        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
+        if (usuario is null)
+            throw new NotFoundException("Usuario no encontrado.");
+
+        usuario.Onboarding ??= new OnboardingProgress();
+        return MapToOnboardingDto(usuario.Onboarding) ?? new OnboardingDto();
+    }
+
+    public async Task<OnboardingDto> UpdateOnboardingAsync(Guid usuarioId, UpdateOnboardingRequest request)
+    {
+        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
+        if (usuario is null)
+            throw new NotFoundException("Usuario no encontrado.");
+
+        await EnsureIdentityCompatibilityAsync(usuario);
+        usuario.Onboarding ??= new OnboardingProgress();
+        var onboarding = usuario.Onboarding;
+
+        if (request.CurrentStep.HasValue)
+        {
+            if (request.CurrentStep.Value is < 1 or > 8)
+                throw new BadRequestException("El paso de onboarding debe estar entre 1 y 8.");
+            if (request.CurrentStep.Value > onboarding.CurrentStep)
+                onboarding.CurrentStep = request.CurrentStep.Value;
+        }
+
+        if (request.PrivacyAccepted.HasValue)
+        {
+            if (!request.PrivacyAccepted.Value && onboarding.PrivacyAccepted)
+            {
+                throw new BadRequestException(
+                    "La aceptación del aviso de privacidad no se revoca desde el onboarding. Administra por separado los consentimientos opcionales.");
+            }
+
+            if (request.PrivacyAccepted.Value && !onboarding.PrivacyAccepted)
+            {
+                onboarding.PrivacyAccepted = true;
+                onboarding.PrivacyNoticeVersion = RegistrationContract.PrivacyNoticeVersion;
+                onboarding.PrivacyAcceptedAtUtc = DateTime.UtcNow;
+            }
+        }
+        if (request.LocationIncidentConsent.HasValue)
+            onboarding.LocationIncidentConsent = request.LocationIncidentConsent.Value;
+        if (request.DrivingPatternConsent.HasValue)
+            onboarding.DrivingPatternConsent = request.DrivingPatternConsent.Value;
+
+        if (!string.IsNullOrWhiteSpace(request.MedicalProfileStatus))
+        {
+            if (!Enum.TryParse<MedicalProfileOnboardingStatus>(request.MedicalProfileStatus, true, out var medicalStatus))
+                throw new BadRequestException("Estado de perfil médico inválido.");
+            onboarding.MedicalProfileStatus = medicalStatus;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Status))
+        {
+            onboarding.Status = request.Status switch
+            {
+                "Completed" => OnboardingStatus.Completed,
+                "Pending" => OnboardingStatus.Pending,
+                _ => throw new BadRequestException("Estado de onboarding inválido.")
+            };
+        }
+
+        RecomputeOnboardingCompletion(onboarding, DateTime.UtcNow);
+        onboarding.UpdatedAtUtc = DateTime.UtcNow;
+        await _usuarioRepository.UpdateAsync(usuario);
+
+        return MapToOnboardingDto(onboarding) ?? new OnboardingDto();
+    }
+
+    public async Task<OnboardingDto> AcceptLegalDocumentsAsync(
+        Guid usuarioId,
+        AcceptLegalDocumentsRequest request)
+    {
+        if (request.ContractVersion != RegistrationContract.CurrentVersion)
+        {
+            throw new BadRequestException("Versión de contrato legal no compatible.");
+        }
+
+        if (!request.TermsAccepted || !request.PrivacyAccepted)
+        {
+            throw new BadRequestException(
+                "Debes aceptar los términos de uso y el aviso de privacidad vigentes.");
+        }
+
+        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
+        if (usuario is null)
+        {
+            throw new NotFoundException("Usuario no encontrado.");
+        }
+
+        await EnsureIdentityCompatibilityAsync(usuario);
+        usuario.Onboarding ??= new OnboardingProgress();
+        var onboarding = usuario.Onboarding;
+        var now = DateTime.UtcNow;
+
+        var termsVersionChanged = !string.Equals(
+            onboarding.TermsVersion,
+            RegistrationContract.TermsVersion,
+            StringComparison.Ordinal);
+        var privacyVersionChanged = !string.Equals(
+            onboarding.PrivacyNoticeVersion,
+            RegistrationContract.PrivacyNoticeVersion,
+            StringComparison.Ordinal);
+
+        onboarding.RegistrationContractVersion = RegistrationContract.CurrentVersion;
+        onboarding.TermsAccepted = true;
+        onboarding.TermsVersion = RegistrationContract.TermsVersion;
+        if (termsVersionChanged || !onboarding.TermsAcceptedAtUtc.HasValue)
+        {
+            onboarding.TermsAcceptedAtUtc = now;
+        }
+
+        onboarding.PrivacyAccepted = true;
+        onboarding.PrivacyNoticeVersion = RegistrationContract.PrivacyNoticeVersion;
+        if (privacyVersionChanged || !onboarding.PrivacyAcceptedAtUtc.HasValue)
+        {
+            onboarding.PrivacyAcceptedAtUtc = now;
+        }
+        onboarding.UpdatedAtUtc = now;
+
+        RecomputeOnboardingCompletion(onboarding, now);
+        await _usuarioRepository.UpdateAsync(usuario);
+
+        return OnboardingDtoMapper.Map(onboarding) ?? new OnboardingDto();
+    }
+
+    public async Task<UserProfileDto> UpdateUsernameAsync(Guid usuarioId, UpdateUsernameRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Username))
+            throw new BadRequestException("El username es obligatorio.");
+
+        var username = UsernamePolicy.Normalize(request.Username);
+        if (username is null || username.Length is < 3 or > 30)
+            throw new BadRequestException("El username debe tener entre 3 y 30 caracteres (a-z, 0-9, punto y guion bajo).");
+
+        if (UsernamePolicy.IsReserved(username))
+            throw new ConflictException("Ese username está reservado.");
+
+        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
+        if (usuario is null)
+            throw new NotFoundException("Usuario no encontrado.");
+
+        if (string.Equals(usuario.Username, username, StringComparison.OrdinalIgnoreCase))
+            return await MapToProfileDtoAsync(usuario);
+
+        if (await _usuarioRepository.ExistsByUsernameAsync(username)
+            || await _usuarioRepository.ExistsByUsernameHistoryExcludingUsuarioAsync(username, usuarioId))
+            throw new ConflictException("Ese username ya está en uso.");
+
+        if (!string.IsNullOrWhiteSpace(usuario.Username))
+        {
+            usuario.UsernamesAnteriores ??= new List<string>();
+            if (!usuario.UsernamesAnteriores.Contains(usuario.Username, StringComparer.OrdinalIgnoreCase))
+            {
+                usuario.UsernamesAnteriores.Add(usuario.Username);
+            }
+        }
+
+        usuario.Username = username;
+        await _usuarioRepository.UpdateAsync(usuario);
+        return await MapToProfileDtoAsync(usuario);
     }
 
     public async Task UpdateFcmTokenAsync(Guid usuarioId, UpdateFcmTokenRequest request)
@@ -183,20 +360,82 @@ public class UserService : IUserService
         await _usuarioRepository.UpdateAsync(usuario);
     }
 
-    public async Task<List<UserSearchResultDto>> SearchUsersAsync(string query, Guid? excludeUserId = null)
+    public async Task<List<UserSearchResultDto>> SearchUsersAsync(string query, string? by = null, Guid? excludeUserId = null)
     {
-        var users = await _usuarioRepository.SearchAsync(query);
+        var users = await _usuarioRepository.SearchAsync(query, by);
 
         return users
             .Where(u => excludeUserId is null || u.Id != excludeUserId.Value)
             .Select(u => new UserSearchResultDto
             {
-                Id = u.Id,
+                Id = u.PublicProfileId,
+                PublicProfileId = u.PublicProfileId,
                 Username = u.Username,
-                AppId = u.AppId,
                 Nombre = u.Nombre
             })
             .ToList();
+    }
+
+    private static void RecomputeOnboardingCompletion(OnboardingProgress o, DateTime now)
+    {
+        var legalOk = o.RegistrationContractVersion < RegistrationContract.CurrentVersion
+            ? o.PrivacyAccepted
+            : o.TermsAccepted && o.PrivacyAccepted;
+        var medicalOk = o.MedicalProfileStatus is MedicalProfileOnboardingStatus.Completed or MedicalProfileOnboardingStatus.Skipped;
+        var completionCriteriaMet = o.CurrentStep >= 8 && legalOk && medicalOk;
+
+        if (completionCriteriaMet && o.Status != OnboardingStatus.Completed)
+        {
+            o.Status = OnboardingStatus.Completed;
+            o.CompletedAtUtc = now;
+        }
+        else if (!completionCriteriaMet && o.Status == OnboardingStatus.Completed)
+        {
+            o.Status = OnboardingStatus.Pending;
+            o.CompletedAtUtc = null;
+        }
+    }
+
+    private async Task<bool> EnsureIdentityCompatibilityAsync(Usuario usuario)
+    {
+        var changed = false;
+
+        if (string.IsNullOrWhiteSpace(usuario.PublicProfileId))
+        {
+            usuario.PublicProfileId = await GenerateUniquePublicProfileIdAsync();
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(usuario.CorreoNormalizado))
+        {
+            usuario.CorreoNormalizado = EmailNormalizer.Normalize(usuario.Correo);
+            changed = true;
+        }
+
+        if (usuario.Onboarding is null)
+        {
+            usuario.Onboarding = new OnboardingProgress();
+            changed = true;
+        }
+        else if (usuario.Onboarding.RegistrationContractVersion < RegistrationContract.LegacyVersion)
+        {
+            usuario.Onboarding.RegistrationContractVersion = RegistrationContract.LegacyVersion;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private async Task<string> GenerateUniquePublicProfileIdAsync()
+    {
+        for (var i = 0; i < 25; i++)
+        {
+            var candidate = PublicProfileIdGenerator.Generate();
+            if (!await _usuarioRepository.ExistsByPublicProfileIdAsync(candidate))
+                return candidate;
+        }
+
+        throw new InvalidOperationException("No se pudo generar un PublicProfileId único.");
     }
 
     private async Task<UserProfileDto> MapToProfileDtoAsync(Usuario u)
@@ -224,10 +463,9 @@ public class UserService : IUserService
 
         return new UserProfileDto
         {
-            Id = u.Id,
+            Id = u.PublicProfileId,
+            PublicProfileId = u.PublicProfileId,
             Username = u.Username,
-            AppId = u.AppId,
-            InviteCode = u.InviteCode,
             Nombre = u.Nombre,
             Correo = u.Correo,
             Telefono = u.Telefono,
@@ -244,6 +482,7 @@ public class UserService : IUserService
             EmailConfirmed = u.EmailConfirmed,
             CreatedAt = u.CreatedAt,
             LastLoginAt = u.LastLoginAt,
+            Onboarding = MapToOnboardingDto(u.Onboarding),
             PerfilConduccion = MapToDriverProfileDto(u.PerfilConduccion),
             FichaMedica = MapToMedicalProfileDto(u.FichaMedica),
             Preferencias = MapToPreferencesDto(u.Preferencias),
@@ -257,6 +496,11 @@ public class UserService : IUserService
                 TwoFactorEnabled = u.Settings.TwoFactorEnabled
             } : null,
         };
+    }
+
+    private static OnboardingDto? MapToOnboardingDto(OnboardingProgress? onboarding)
+    {
+        return OnboardingDtoMapper.Map(onboarding);
     }
 
     private static PermisosPlataformaDto? MapToPermisosPlataformaDto(PermisosPlataforma? p)

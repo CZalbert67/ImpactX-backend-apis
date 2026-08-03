@@ -1,6 +1,8 @@
 using ImpactX.Core.Domain;
+using ImpactX.Core.Domain.Enums;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -27,9 +29,22 @@ public class ContactService : IContactService
         return contactos.Select(MapToDto).ToList();
     }
 
+    public async Task<PagedResult<ContactoDto>> GetContactsPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _contactoRepository.GetByUserPagedAsync(usuarioId, size, continuationToken);
+        return new PagedResult<ContactoDto>
+        {
+            Items = page.Items.Select(MapToDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
+    }
+
     public async Task<ContactoDto> GetContactByIdAsync(Guid usuarioId, Guid id)
     {
-        var contacto = await _contactoRepository.GetByIdAsync(id)
+        var contacto = await _contactoRepository.GetByIdAsync(usuarioId, id)
             ?? throw new NotFoundException("Contacto no encontrado.");
 
         if (contacto.UsuarioId != usuarioId)
@@ -64,7 +79,7 @@ public class ContactService : IContactService
             Notes = request.Notes,
             Priority = request.Priority,
             EsPrincipal = request.EsPrincipal,
-            Status = "Activo",
+            Status = EmergencyContactStatus.LegacyUnverified,
         };
 
         if (contacto.EsPrincipal)
@@ -79,7 +94,7 @@ public class ContactService : IContactService
 
     public async Task<ContactoDto> UpdateContactAsync(Guid usuarioId, Guid id, UpdateContactoRequest request)
     {
-        var contacto = await _contactoRepository.GetByIdAsync(id)
+        var contacto = await _contactoRepository.GetByIdAsync(usuarioId, id)
             ?? throw new NotFoundException("Contacto no encontrado.");
 
         if (contacto.UsuarioId != usuarioId)
@@ -105,7 +120,7 @@ public class ContactService : IContactService
 
     public async Task DeleteContactAsync(Guid usuarioId, Guid id)
     {
-        var contacto = await _contactoRepository.GetByIdAsync(id)
+        var contacto = await _contactoRepository.GetByIdAsync(usuarioId, id)
             ?? throw new NotFoundException("Contacto no encontrado.");
 
         if (contacto.UsuarioId != usuarioId)
@@ -118,7 +133,7 @@ public class ContactService : IContactService
 
     public async Task<ContactoDto> MakePrimaryAsync(Guid usuarioId, MakePrimaryRequest request)
     {
-        var contacto = await _contactoRepository.GetByIdAsync(request.ContactoId)
+        var contacto = await _contactoRepository.GetByIdAsync(usuarioId, request.ContactoId)
             ?? throw new NotFoundException("Contacto no encontrado.");
 
         if (contacto.UsuarioId != usuarioId)
@@ -158,9 +173,9 @@ public class ContactService : IContactService
 
         return suscripcion?.PlanNombre switch
         {
-            "Premium" => 8,
-            "Basic" => 3,
-            _ => 2,
+            "Premium" => 10,
+            "Basic" => 5,
+            _ => 3,
         };
     }
 
@@ -174,7 +189,7 @@ public class ContactService : IContactService
         AppUserId = c.AppUserId,
         Channel = c.Channel,
         Email = c.Email,
-        Status = c.Status,
+        Status = c.Status.ToString(),
         Notes = c.Notes,
         MonitorId = c.MonitorId,
         UnreadMessages = 0,

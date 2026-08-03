@@ -2,6 +2,7 @@ using ImpactX.Core.Exceptions;
 using Monitor = ImpactX.Core.Domain.Monitor;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using Microsoft.Extensions.Logging;
 
@@ -41,6 +42,19 @@ public class MonitorService : IMonitorService
         }
 
         return monitors.Select(MapToDto).ToList();
+    }
+
+    public async Task<PagedResult<MonitorDto>> GetMonitorsPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    {
+        var size = PaginationValidator.Resolve(pageSize, continuationToken);
+        var page = await _monitorRepository.GetByUserPagedAsync(usuarioId, size, continuationToken);
+        return new PagedResult<MonitorDto>
+        {
+            Items = page.Items.Select(MapToDto).ToList(),
+            ContinuationToken = page.ContinuationToken,
+            HasMoreResults = page.HasMoreResults,
+            PageSize = page.PageSize,
+        };
     }
 
     public async Task<InviteMonitorResponse> InviteAsync(Guid usuarioId, InviteMonitorRequest request)
@@ -108,7 +122,7 @@ public class MonitorService : IMonitorService
 
     public async Task ResendInviteAsync(Guid usuarioId, Guid monitorId)
     {
-        var monitor = await _monitorRepository.GetByIdAsync(monitorId)
+        var monitor = await _monitorRepository.GetByIdAsync(usuarioId, monitorId)
             ?? throw new NotFoundException("Invitación no encontrada.");
 
         if (monitor.UsuarioId != usuarioId)
@@ -124,7 +138,7 @@ public class MonitorService : IMonitorService
 
     public async Task RestoreMonitorAsync(Guid usuarioId, Guid monitorId)
     {
-        var monitor = await _monitorRepository.GetByIdAsync(monitorId)
+        var monitor = await _monitorRepository.GetByIdAsync(usuarioId, monitorId)
             ?? throw new NotFoundException("Monitor no encontrado.");
 
         if (monitor.UsuarioId != usuarioId)
@@ -140,7 +154,7 @@ public class MonitorService : IMonitorService
 
     public async Task RevokeMonitorAsync(Guid usuarioId, Guid monitorId)
     {
-        var monitor = await _monitorRepository.GetByIdAsync(monitorId)
+        var monitor = await _monitorRepository.GetByIdAsync(usuarioId, monitorId)
             ?? throw new NotFoundException("Monitor no encontrado.");
 
         if (monitor.UsuarioId != usuarioId)
@@ -167,13 +181,18 @@ public class MonitorService : IMonitorService
         if (monitor.Expiracion.HasValue && DateTime.UtcNow > monitor.Expiracion.Value)
             throw new ConflictException("El token de invitación ha expirado.");
 
+        var invitador = await _usuarioRepository.GetByIdAsync(monitor.UsuarioId);
+        var publicProfileId = string.IsNullOrWhiteSpace(invitador?.PublicProfileId)
+            ? invitador?.Username ?? string.Empty
+            : invitador!.PublicProfileId;
+
         return new InvitationInfoDto
         {
-            Id = monitor.Id,
-            UsuarioId = monitor.UsuarioId,
+            Id = publicProfileId,
+            PublicProfileId = publicProfileId,
+            Username = monitor.Username ?? invitador?.Username ?? string.Empty,
+            Nombre = invitador?.Nombre,
             CorreoInvitado = monitor.CorreoInvitado,
-            Username = monitor.Username,
-            AppUserId = monitor.AppUserId,
             Estado = monitor.Estado,
             CreadoEn = monitor.CreadoEn,
             Expiracion = monitor.Expiracion,

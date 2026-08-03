@@ -1,19 +1,32 @@
 namespace ImpactX.Infrastructure.Data;
 
+public enum CosmosSchemaMismatchKind
+{
+    MissingContainer,
+    PartitionKey,
+    TimeToLive
+}
+
 /// <summary>
-/// Indica un desajuste de esquema entre un contenedor Cosmos real y el
-/// catálogo (p. ej. partition key path diferente). El mensaje es seguro:
-/// solo contiene el nombre lógico del contenedor y una descripción
-/// genérica. No se borra ni recrea el contenedor: requiere migración
-/// controlada.
+/// Desajuste seguro entre el esquema real y CosmosContainerCatalog. Nunca
+/// contiene endpoint, key, partition key real ni valores de documentos.
 /// </summary>
 public sealed class CosmosSchemaValidationException : Exception
 {
     public CosmosSchemaValidationException(string containerName)
-        : base($"Container '{containerName}' partition key does not match the catalog definition. Controlled migration required.")
+        : this(containerName, CosmosSchemaMismatchKind.PartitionKey)
+    {
+    }
+
+    public CosmosSchemaValidationException(
+        string containerName,
+        CosmosSchemaMismatchKind mismatchKind)
+        : base($"Container '{containerName}' does not match the required schema. Controlled migration required.")
     {
         ContainerName = containerName;
+        MismatchKind = mismatchKind;
     }
 
     public string ContainerName { get; }
+    public CosmosSchemaMismatchKind MismatchKind { get; }
 }

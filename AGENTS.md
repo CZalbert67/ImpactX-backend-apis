@@ -33,10 +33,10 @@ dotnet add package <PackageName>
 - **Auth** (register, login, logout, recover/reset password, sessions, account export/delete, **refresh token**)
 - **Users** (profile CRUD, driver profile, medical profile, preferences, permissions, settings, **FCM token** PUT/DELETE)
 - **Plans + Subscriptions + Payments**
-- **Contacts** (emergency contacts CRUD)
+- **Contacts**: legacy `/api/contacts` (nombre/teléfono, no operativo) + V1 `/api/v1/contacts` como relación interna aceptada con preinvitación, código hash, bloqueo y revocación lógica
 - **Monitors** (invite, accept, reject, revoke, restore, **Premium allows 6**)
 - **Routes** (Rutas)
-- **Trips** (Viajes + telemetry)
+- **Trips** (Viajes + telemetry: GET paginado, PATCH legacy por evento, **POST ingesta por lotes con idempotencia por EventId**)
 - **Wearables**
 - **Alerts** (Alertas + **monitor notification integration**)
 - **Incidents** (Incidentes)
@@ -236,6 +236,42 @@ if (app.Environment.IsDevelopment())
 - **Documentación**: `docs/COSMOS_DATA_ARCHITECTURE.md` (nuevo) + AGENTS.md/BACKEND_AUDIT/DEVSECOPS_EVIDENCE actualizados.
 - **Pendiente**: abrir el PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deuda documentada: unicidad global TokenFcm query-before-write no atómica en Cosmos (sin falsa transacción entre contenedores; propuesta futura: contenedor de registro con id = hash del token), StubEmailService, Firebase real, OpenTelemetry, rate limiting sin calibrar.
 
+## R0.6 — Pagination and Query Efficiency / PR 2B (implementado)
+- **Branch**: `feat/backend-pagination-query-efficiency`, base `main` en `ab025d6` (PR #27)
+- **Modelo de paginación** (`Core/Pagination/`): `PaginationDefaults` (pageSize 20 default, 1–100, token máx 2048 chars), `PagedResult<T>` (Items, ContinuationToken, HasMoreResults, PageSize), `PaginationValidator` (400 con `BadRequestException` para pageSize fuera de rango, token vacío/CR-LF/largo), `PagedResultHttp` (header `X-Continuation-Token`).
+- **Contrato legacy conservado**: endpoints existentes (routes/frequent, routes/history, notifications, contacts, devices, monitors, subscription history/payments) siguen devolviendo `List<T>` en body; el siguiente token va en el header `X-Continuation-Token` (nunca URL/body; no se envía en la última página). Endpoints nuevos paginados (body `PagedResult<T>`): `GET /api/trips`, `GET /api/trips/{id}/telemetry`, `GET /api/alerts`, `GET /api/wearable/all`. `pageSize` y `continuationToken` opcionales en todos.
+- **Cosmos**: `CosmosPageReader.ReadSinglePageAsync` — un único `ReadNextAsync`, `MaxItemCount = pageSize`, `QueryRequestOptions.PartitionKey`, token del SDK opaco (nunca descodificado); error 400 de Cosmos mapeado a `BadRequestException` genérica (token inválido/expirado, sin detalle). **EF**: `EfPageReader` + `OffsetContinuationToken` (base64 `offset:N`, rechazo de malformados) — consulta con probe `pageSize+1` para decidir `HasMoreResults`; la página final exacta o parcial **nunca** genera token.
+- **Point-reads `GetByIdAsync(usuarioId, id)`** (11 repos): `ReadItemAsync` con `PartitionKey(usuarioId)` en Cosmos / doble condición en EF; servicios validan propiedad (404/403). Se conserva `GetByIdAsync(id)` (cross-partition TOP 1) solo donde no hay PK. Aplicado a Viaje (telemetría), Alerta, Incidente, Notificación, Contacto, Monitor, Pago, Ruta, Dispositivo, Wearable, Suscripción.
+- **Procesos incrementales** (página→actuar→token, sin acumular en memoria): `RevokeAllByUsuarioIdAsync`, `InvalidateAllByUsuarioIdAsync`, `DeleteAllByUsuarioIdAsync` (dispositivos/notificaciones), `MarkAllAsReadAsync`, `ExpireAllAsync`, `ProcessTrialsEndingAsync`. `PlanService.ExpireSubscriptionsAsync` usa `ExpireAllAsync(process, ct)`; se retiraron `GetExpiredAsync`/`GetTrialsEndingAsync` del flujo de servicio.
+- **Incidentes**: `Pagina ≥ 1` y `Tamano` 1–100 (default 20) validados en servicio → 400 (legacy OFFSET/LIMIT conservado, nunca mezclado con token).
+- **CORS/OpenAPI**: `WithExposedHeaders("X-Continuation-Token", "X-Correlation-Id")` en `Program.cs` (el token viaja como query param, fuera de `WithHeaders`); operation transformer documenta `pageSize` (min 1, max 100, default 20) y `continuationToken` (token opaco del header); 400 ya cubierto por el response transformer.
+- **Total real**: 731 pruebas (705 baseline + 26 nuevas: EfPageReader 11, CosmosPageReader 8, contrato paginación +7 con JSON legacy y 6 Category=Security), 164 Category=Security, 77 contratos V1, 30 Python, scanner 0 violaciones (282 archivos), NuGet 0 vulnerables, actionlint limpio, dotnet format limpio en C# modificados/nuevos, git diff --check limpio. Build y tests pasan en Debug y Release (731/731 ambos). OpenAPI verificado en vivo (`/openapi/v1.json`, 79 paths, min/max y descripciones presentes).
+- **Históricos**: 415/104 → 474/114/58 → 487/115/70 → 490/115/75 → 532/137 → 547/142 → 558/144 → 607/146 → 662/158 → 705/158 → **731/164**.
+- **Documentación**: `docs/COSMOS_PAGINATION.md` (nuevo) + AGENTS.md/BACKEND_AUDIT/DEVSECOPS_EVIDENCE actualizados.
+- **Pendiente**: abrir el PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar).
+
+## R0.7 — Wearable V1 Route Alias (implementado)
+- **Branch**: `fix/wearable-v1-route-alias`
+- **Alias V1 agregado**: `GET /api/v1/wearable/all` como segundo atributo de ruta sobre el mismo método `GetWearables` de `WearableController` (patrón de atributos apilados ya usado en `UsersController`/`SubscriptionController`). La ruta legacy `GET /api/wearable/all` se conserva exactamente: mismo método, misma autorización (`[Authorize]` de clase + `UsuarioId` del claim `ClaimTypes.NameIdentifier`), mismos parámetros opcionales (`pageSize`, `continuationToken`) y mismo body `PagedResult<T>`. Sin lógica duplicada, sin DTOs/paginación/repositorios/Cosmos modificados, sin ruta plural `api/v1/wearables/all`.
+- **OpenAPI**: el alias aparece en `/openapi/v1.json` (filtro `ShouldInclude` de `api/v1/`); `pageSize` y `continuationToken` documentados automáticamente por `OpenApiV1OperationTransformer`.
+- **Pruebas**: `WearableControllerTests` +6 — 401 sin JWT en ambas rutas (2, Category=Security), mismo status + estructura JSON en ambas rutas autenticadas (1), OpenAPI contiene `/api/v1/wearable/all` con `pageSize`/`continuationToken` (2), ausencia de la ruta plural (1).
+- **Total real**: pendiente de la validación final de esta rama.
+- **Pendiente**: abrir el PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar).
+
+## R0.8 — Telemetry Ingestion and Idempotency / PR 2C (implementado)
+- **Branch**: `feat/backend-telemetry-ingestion-idempotency`
+- **Endpoint**: `POST /api/v1/trips/{id}/telemetry` (rutas duales legacy/V1 sobre la misma acción en `TripsController`) — ingesta por lotes de telemetría con **idempotencia por `EventId`** (GUID del cliente = `Id` persistido en `TelemetriaViaje`, partition key `/viajeId`, sin upsert, sin consultas globales). `[Authorize]` de clase, `usuarioId` siempre del JWT. `[EnableRateLimiting("telemetry-ingestion")]` (misma política que el PATCH legacy) + `[RequestSizeLimit(32768)]` → 413 en Kestrel para payloads > 32 KB. El lote máximo válido (100 eventos con todos los campos) serializa **≈ 19 KB** y cabe en los 32 KB (verificado por prueba).
+- **Contrato**: `TelemetryBatchRequest` (`eventos`: 1–100), `TelemetryEventRequest` (`eventId` GUID único en el lote, `timestamp` UTC obligatorio con sufijo `Z`/`+00:00` vía `UtcTimestampJsonConverter` — sin sufijo → 400; tolerancia de 5 min al futuro; rangos lat `[-90,90]`, lng `[-180,180]`, velocidad `[0,400]`, altitud `[-1000,10000]`, heading `[0,360)`; NaN/Infinity → 400) y `TelemetryIngestionResultDto` (`viajeId`, `recibidos`, `insertados`, `duplicados`, `primerEventoUtc`, `ultimoEventoUtc`). Límites y validación en `Core/Telemetry/` (`TelemetryIngestionLimits`, `TelemetryBatchValidator`, `TelemetryEventEquality`).
+- **Idempotencia**: point-read por evento antes del batch; evento existente **idéntico** → duplicado (no se reinserta); **diferente** → `ConflictException` → 409 genérico (protege el registro original). Sin eventos nuevos el servicio **no crea ningún batch**. `RecibidoEn` (nuevo campo en `ViajeTelemetry`, UTC del servidor) **no** participa en la igualdad idempotente. **Semántica atómica (auditada)**: un batch fallido **nunca** cuenta inserciones — los estados individuales de operación (200/409/FailedDependency) no declaran escrituras dentro de un batch global fallido; la clasificación tras el fallo es por point-read (`id` + `PartitionKey(viajeId)`). Carrera → reintento acotado: batch reconstruido **solo con pendientes**, **máximo 1 inicial + 2 reintentos** (`CancellationToken` respetado); conflicto de contenido → 409 sin reintentar ni revelar EventId; todos idénticos → `Insertados=0`/`Duplicados=Recibidos` sin segundo batch; agotamiento → `CosmosException` segura sin afirmar inserciones. **Invariante 200**: `Recibidos == Insertados + Duplicados`.
+- **Estados**: solo `Activo`/`Pausado` (misma regla legacy); otro estado → 409. Viaje inexistente → 404; viaje ajeno → `ForbiddenException` interno mapeado a **404** genérico por `ProblemDetailsMiddleware` (sin revelar existencia).
+- **Repos**: `IViajeRepository` + `GetTelemetryByEventIdAsync` + `AddTelemetryBatchAsync`. Cosmos: `ReadItemAsync(id, PartitionKey(viajeId))` + `TransactionalBatch` + ctor `internal` para tests (sin upsert/replace; `TransactionalBatchResponse`/`ItemResponse<T>` mockeables: ctores protegidos + getters virtuales). EF: pre-check `ViajeId+Id` (InMemory no lanza en claves duplicadas — verificado) + `AddRange` + un `SaveChangesAsync` (sin simular TransactionalBatch).
+- **Servicio**: `ViajeService.IngestTelemetryAsync` — valida → propiedad del viaje → estado → duplicados → batch → resultado; logs solo con conteos, nunca detalles del payload.
+- **OpenAPI**: descripción del POST (límites, reintentos seguros, EventId, UTC) en `OpenApiV1OperationTransformer` + `[ProducesResponseType(typeof(TelemetryIngestionResultDto), 200)]` (el generador no infiere 200 para `IActionResult`).
+- **Total real**: 837 pruebas (737 baseline + 100 de PR 2C: ingesta 84 + auditoría atómica 8 + igualdad exacta de CodeQL 8), 183 Category=Security (166 + 17), 77 contratos V1, 30 Python, scanner 0 violaciones (294 archivos), NuGet 0 vulnerables, actionlint limpio, dotnet format limpio en C# modificados/nuevos (CRLF), git diff --check limpio. Build y tests pasan en Release (837/837; dirigidas del filtro CodeQL 106/106, Security 183/183).
+- **Históricos**: 415/104 → 474/114/58 → 487/115/70 → 490/115/75 → 532/137 → 547/142 → 558/144 → 607/146 → 662/158 → 705/158 → 731/164 → **737/166 → 829/183 → 837/183**.
+- **Documentación**: `docs/TELEMETRY_INGESTION.md` (nuevo) + AGENTS.md/BACKEND_AUDIT/DEVSECOPS_EVIDENCE/COSMOS_DATA_ARCHITECTURE actualizados.
+- **Pendiente**: abrir el PR. Resultados GitHub pendientes. Azure/Cosmos real no contactados en esta rama (no afirmar validación). Deudas previas vigentes (TokenFcm no atómico, StubEmailService, Firebase, OpenTelemetry, rate limiting sin calibrar).
+
 ## Rules
 - **No commits or pushes without explicit authorization**
 - **Trabajar siempre en una rama feature y utilizar Pull Request. No hacer push directo a main.**
@@ -243,3 +279,71 @@ if (app.Environment.IsDevelopment())
 - **Run `dotnet restore`, `dotnet build`, `dotnet test` after each batch of changes**
 - **JWT secret must be set externally** — `Jwt__Secret` via env var or `dotnet user-secrets set "Jwt:Secret" "..."`. Minimum 32 bytes UTF-8.
 - **No hardcoded secrets** — `scripts/security/check_hardcoded_secrets.py` scans for violations. Run `python3 scripts/security/check_hardcoded_secrets.py` before PR.
+
+## ImpactX canonical monitoring contract (backend-complete-v1)
+- `MonitoringRelationships` is the operational source for monitor authorization,
+  quick messages and alert recipients.
+- Do not use `Monitores` to authorize new behavior; it remains legacy-only until
+  a controlled migration is approved.
+- Alert dispatch requires an accepted relationship with both
+  `ReceiveCriticalAlerts` and `ReceiveNotifications` enabled.
+- `/api/v1/permissions/mobile` is mobile-only and
+  `/api/v1/permissions/web` is web-only.
+- Do not add free-text messaging. Quick messages always use approved templates.
+
+## Checkpoint interno — Galaxy Watch 8 y telemetría V2
+- Wearable objetivo validado por backend: Samsung Galaxy Watch 8 con WearOS.
+- Vinculación/configuración/desvinculación: `client=mobile`; heartbeat, batería,
+  diagnóstico y sync operativo: `client=wearable`.
+- Telemetría V2: hasta 100 eventos / 256 KiB, `batchId`, `batchSequence`,
+  `sequenceNumber`, procedencia del wearable, GPS, acelerómetro, giroscopio,
+  biometría opcional, orientación, calidad y sincronización offline.
+- La magnitud de movimiento se calcula en servidor cuando están presentes los
+  tres ejes. Las etiquetas de reglas/ML son de solo servidor.
+- Compatibilidad: esquema V1 y documentos históricos siguen siendo legibles.
+- No se agregaron contenedores Cosmos ni cambios destructivos. La validación
+  Release debe ejecutarse en Arch antes de commit, push o despliegue.
+
+
+## Checkpoint interno — mobile sync + impact-rules-v1
+- `GET /api/v1/mobile/sync/bootstrap` es exclusivo de `client=mobile` y solo
+  entrega un snapshot de lectura; nunca habilita start/pause/resume/finish ni
+  escritura de telemetría.
+- `impact-rules-v1` corre en servidor sobre telemetría canonicalizada. Ningún
+  cliente puede escribir etiquetas, versión de regla, puntaje o versión ML.
+- Alertas moderadas tienen ventana de cancelación de 10 segundos; severas y
+  críticas se envían inmediatamente a destinatarios internos autorizados.
+- Idempotencia de alerta: `sourceTelemetryEventId`; no crear una segunda alerta
+  por reintentar el mismo evento.
+- No integrar 911, SMS, WhatsApp ni canales externos automáticos.
+
+## Checkpoint interno — finalización funcional V8
+- V8 concentra los bloques antes separados de sincronización offline,
+  suscripciones, incidentes y ciclo de cuenta; no recorta funcionalidades.
+- Mobile sync V2: bootstrap/changes/push/ack, máximo 50 operaciones, recibos
+  idempotentes por `operationId`, y 200 recibos recientes embebidos en Usuario.
+- Plan público: Free/Standard/Premium. `Basic` permanece solo como nombre legacy
+  de almacenamiento para Standard.
+- Vigencia: ciclo mensual simulado, anual opcional y gracia de tres días.
+- Incidente: upsert único por alerta, gestión web/móvil y TTL por documento de
+  365 días.
+- Eliminación de cuenta: revocación de sesiones + anonimización inmediata; los
+  registros de dominio siguen TTL, sin borrado masivo destructivo.
+- No se agregan contenedores, no se cambian partition keys, throughput ni secretos.
+- Tras validar V8, V9 será exclusivamente cierre: legacy/OpenAPI, seguridad,
+  pruebas Cosmos/Firebase/Azure y congelamiento del contrato para frontend.
+
+## Checkpoint final — Backend V9 y contrato congelado
+- La API canónica queda congelada en `2026.08.02`; cambios incompatibles requieren
+  nueva versión y no deben alterar silenciosamente `/api/v1`.
+- Contrato runtime: `GET /api/v1/meta/contract`; capacidades públicas por cliente
+  en `GET /api/v1/meta/clients/{web|mobile|wearable}`.
+- Toda respuesta expone `X-ImpactX-Api-Version` y
+  `X-ImpactX-Contract-Version`.
+- Las rutas legacy se conservan temporalmente con `Deprecation`, `Sunset`,
+  `Warning`, `Link` y `X-ImpactX-Legacy-Route`; el frontend nuevo no debe usarlas.
+- V9 no agrega contenedores Cosmos, no cambia partition keys, throughput ni TTL.
+- La validación externa debe ser de solo lectura para Cosmos y mediante flujos de
+  prueba controlados para Firebase/Azure.
+- El siguiente trabajo funcional es conectar y completar frontend, móvil y
+  wearable sobre el contrato congelado; no agregar endpoints ad hoc para la UI.
