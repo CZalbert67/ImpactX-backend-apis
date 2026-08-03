@@ -247,111 +247,111 @@ public sealed class MobileSyncService : IMobileSyncService
         switch (operation.Type.Trim().ToLowerInvariant())
         {
             case "notification.mark-read":
-            {
-                var payload = Deserialize<NotificationReadPayload>(operation.Payload);
-                if (payload.NotificationId == Guid.Empty)
-                    throw new BadRequestException("notificationId es obligatorio.");
-                await _notificationService.ToggleReadAsync(
-                    userId,
-                    payload.NotificationId,
-                    new ToggleReadRequest { Leida = payload.Read });
-                break;
-            }
+                {
+                    var payload = Deserialize<NotificationReadPayload>(operation.Payload);
+                    if (payload.NotificationId == Guid.Empty)
+                        throw new BadRequestException("notificationId es obligatorio.");
+                    await _notificationService.ToggleReadAsync(
+                        userId,
+                        payload.NotificationId,
+                        new ToggleReadRequest { Leida = payload.Read });
+                    break;
+                }
             case "notification.mark-all-read":
                 await _notificationService.MarkAllAsReadAsync(userId);
                 break;
             case "quick-message.mark-read":
-            {
-                var payload = Deserialize<QuickMessageReadPayload>(operation.Payload);
-                if (string.IsNullOrWhiteSpace(payload.PublicMessageId))
-                    throw new BadRequestException("publicMessageId es obligatorio.");
-                await _quickMessageService.MarkReadAsync(
-                    userId,
-                    payload.PublicMessageId.Trim(),
-                    cancellationToken);
-                break;
-            }
+                {
+                    var payload = Deserialize<QuickMessageReadPayload>(operation.Payload);
+                    if (string.IsNullOrWhiteSpace(payload.PublicMessageId))
+                        throw new BadRequestException("publicMessageId es obligatorio.");
+                    await _quickMessageService.MarkReadAsync(
+                        userId,
+                        payload.PublicMessageId.Trim(),
+                        cancellationToken);
+                    break;
+                }
             case "permissions.update":
-            {
-                var payload = Deserialize<UpdatePermissionsRequest>(operation.Payload);
-                await _permissionService.UpdateMobilePermissionsAsync(userId, payload);
-                break;
-            }
+                {
+                    var payload = Deserialize<UpdatePermissionsRequest>(operation.Payload);
+                    await _permissionService.UpdateMobilePermissionsAsync(userId, payload);
+                    break;
+                }
             case "fcm-token.upsert":
-            {
-                var payload = Deserialize<UpdateFcmTokenRequest>(operation.Payload);
-                if (string.IsNullOrWhiteSpace(payload.Token))
-                    throw new BadRequestException("El token FCM es obligatorio.");
-                await _userService.UpdateFcmTokenAsync(userId, payload);
-                break;
-            }
+                {
+                    var payload = Deserialize<UpdateFcmTokenRequest>(operation.Payload);
+                    if (string.IsNullOrWhiteSpace(payload.Token))
+                        throw new BadRequestException("El token FCM es obligatorio.");
+                    await _userService.UpdateFcmTokenAsync(userId, payload);
+                    break;
+                }
             case "fcm-token.delete":
                 await _userService.DeleteFcmTokenAsync(userId);
                 break;
             case "profile.update":
-            {
-                var payload = Deserialize<UpdateUserProfileRequest>(operation.Payload);
-                await _userService.UpdateProfileAsync(userId, payload);
-                break;
-            }
+                {
+                    var payload = Deserialize<UpdateUserProfileRequest>(operation.Payload);
+                    await _userService.UpdateProfileAsync(userId, payload);
+                    break;
+                }
             case "preferences.update":
-            {
-                var payload = Deserialize<UpdateUserPreferencesRequest>(operation.Payload);
-                await _userService.UpdatePreferencesAsync(userId, payload);
-                break;
-            }
+                {
+                    var payload = Deserialize<UpdateUserPreferencesRequest>(operation.Payload);
+                    await _userService.UpdatePreferencesAsync(userId, payload);
+                    break;
+                }
             case "onboarding.update":
-            {
-                var payload = Deserialize<UpdateOnboardingRequest>(operation.Payload);
-                await _userService.UpdateOnboardingAsync(userId, payload);
-                break;
-            }
+                {
+                    var payload = Deserialize<UpdateOnboardingRequest>(operation.Payload);
+                    await _userService.UpdateOnboardingAsync(userId, payload);
+                    break;
+                }
             case "vehicle.create":
-            {
-                var payload = Deserialize<CreateVehicleRequest>(operation.Payload);
-                await _vehicleService.CreateVehicleAsync(userId, payload, cancellationToken);
-                break;
-            }
+                {
+                    var payload = Deserialize<CreateVehicleRequest>(operation.Payload);
+                    await _vehicleService.CreateVehicleAsync(userId, payload, cancellationToken);
+                    break;
+                }
             case "vehicle.update":
-            {
-                var payload = Deserialize<VehicleUpdatePayload>(operation.Payload);
-                if (string.IsNullOrWhiteSpace(payload.PublicVehicleId) || payload.Vehicle is null)
-                    throw new BadRequestException("publicVehicleId y vehicle son obligatorios.");
-                await _vehicleService.UpdateVehicleAsync(
-                    userId,
-                    payload.PublicVehicleId.Trim(),
-                    payload.Vehicle,
-                    cancellationToken);
-                break;
-            }
+                {
+                    var payload = Deserialize<VehicleUpdatePayload>(operation.Payload);
+                    if (string.IsNullOrWhiteSpace(payload.PublicVehicleId) || payload.Vehicle is null)
+                        throw new BadRequestException("publicVehicleId y vehicle son obligatorios.");
+                    await _vehicleService.UpdateVehicleAsync(
+                        userId,
+                        payload.PublicVehicleId.Trim(),
+                        payload.Vehicle,
+                        cancellationToken);
+                    break;
+                }
             case "vehicle.delete":
-            {
-                var payload = Deserialize<VehicleIdPayload>(operation.Payload);
-                if (string.IsNullOrWhiteSpace(payload.PublicVehicleId))
-                    throw new BadRequestException("publicVehicleId es obligatorio.");
-                await _vehicleService.DeleteVehicleAsync(
-                    userId,
-                    payload.PublicVehicleId.Trim(),
-                    cancellationToken);
-                break;
-            }
+                {
+                    var payload = Deserialize<VehicleIdPayload>(operation.Payload);
+                    if (string.IsNullOrWhiteSpace(payload.PublicVehicleId))
+                        throw new BadRequestException("publicVehicleId es obligatorio.");
+                    await _vehicleService.DeleteVehicleAsync(
+                        userId,
+                        payload.PublicVehicleId.Trim(),
+                        cancellationToken);
+                    break;
+                }
             case "vehicle.set-primary":
-            {
-                var payload = Deserialize<VehicleIdPayload>(operation.Payload);
-                if (string.IsNullOrWhiteSpace(payload.PublicVehicleId))
-                    throw new BadRequestException("publicVehicleId es obligatorio.");
-                await _vehicleService.SetPrimaryVehicleAsync(
-                    userId,
-                    payload.PublicVehicleId.Trim(),
-                    cancellationToken);
-                break;
-            }
+                {
+                    var payload = Deserialize<VehicleIdPayload>(operation.Payload);
+                    if (string.IsNullOrWhiteSpace(payload.PublicVehicleId))
+                        throw new BadRequestException("publicVehicleId es obligatorio.");
+                    await _vehicleService.SetPrimaryVehicleAsync(
+                        userId,
+                        payload.PublicVehicleId.Trim(),
+                        cancellationToken);
+                    break;
+                }
             case "quick-message.send":
-            {
-                var payload = Deserialize<SendQuickMessageRequest>(operation.Payload);
-                await _quickMessageService.SendAsync(userId, payload, cancellationToken);
-                break;
-            }
+                {
+                    var payload = Deserialize<SendQuickMessageRequest>(operation.Payload);
+                    await _quickMessageService.SendAsync(userId, payload, cancellationToken);
+                    break;
+                }
             default:
                 throw new BadRequestException($"Operación de sincronización no soportada: {operation.Type}.");
         }

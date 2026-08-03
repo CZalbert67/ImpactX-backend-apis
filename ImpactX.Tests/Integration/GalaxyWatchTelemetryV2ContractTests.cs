@@ -75,19 +75,19 @@ public class GalaxyWatchTelemetryV2ContractTests : IClassFixture<CustomWebApplic
         Guid batchId,
         DateTime timestampUtc,
         string wearableDeviceId) => new
-    {
-        schemaVersion = TelemetrySchema.EnrichedVersion,
-        batchId,
-        batchSequence = 1L,
-        capturedOffline = true,
-        wearableDeviceId,
-        wearableModel = "Galaxy Watch 8",
-        wearableAppVersion = "2.0.0-test",
-        wearableOsVersion = "WearOS-test",
-        wearableFirmwareVersion = "FW-test",
-        batteryLevel = 78,
-        clockOffsetMilliseconds = 25L,
-        eventos = new[]
+        {
+            schemaVersion = TelemetrySchema.EnrichedVersion,
+            batchId,
+            batchSequence = 1L,
+            capturedOffline = true,
+            wearableDeviceId,
+            wearableModel = "Galaxy Watch 8",
+            wearableAppVersion = "2.0.0-test",
+            wearableOsVersion = "WearOS-test",
+            wearableFirmwareVersion = "FW-test",
+            batteryLevel = 78,
+            clockOffsetMilliseconds = 25L,
+            eventos = new[]
         {
             new
             {
@@ -118,7 +118,7 @@ public class GalaxyWatchTelemetryV2ContractTests : IClassFixture<CustomWebApplic
                 sensorFlags = new[] { "gps_degraded", "heart_rate_available" }
             }
         }
-    };
+        };
 
     [Fact]
     public async Task Pair_NonTargetDevice_Returns400()
