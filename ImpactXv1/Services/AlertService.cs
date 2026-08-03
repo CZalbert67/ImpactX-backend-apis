@@ -77,9 +77,9 @@ public class AlertService : IAlertService
             if (existing is not null)
             {
                 _logger.LogInformation(
-                    "Reintento SOS idempotente detectado para usuario {UsuarioId}, evento {ClientEventId}",
+                    "Reintento SOS idempotente detectado para usuario {UsuarioId}; alerta existente {AlertaId}",
                     usuarioId,
-                    request.ClientEventId);
+                    existing.Id);
                 return MapToDto(existing);
             }
         }
