@@ -39,7 +39,10 @@ public class CosmosFamilySubscriptionRepository : IFamilySubscriptionRepository
             "SELECT TOP 1 * FROM c WHERE (c.status = 'Active' OR c.status = 'PastDue') AND " +
             "(c.ownerUserId = @userId OR EXISTS(" +
             "SELECT VALUE m FROM m IN c.memberships " +
-            "WHERE m.userId = @userId AND m.status = 'Active')) " +
+            "WHERE m.userId = @userId AND m.status = 'Active') OR EXISTS(" +
+            "SELECT VALUE i FROM i IN c.invitations " +
+            "WHERE i.targetUserId = @userId " +
+            "AND (i.status = 'Accepted' OR i.status = 'Consumed'))) " +
             "ORDER BY c.updatedAtUtc DESC")
             .WithParameter("@userId", userId.ToString());
 
@@ -81,6 +84,46 @@ public class CosmosFamilySubscriptionRepository : IFamilySubscriptionRepository
             .WithParameter("@publicInvitationId", publicInvitationId);
 
         return await ReadFirstAsync(query, null, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<FamilySubscription>> GetPendingInvitationsForTargetAsync(
+        Guid userId,
+        string username,
+        string publicProfileId,
+        string emailNormalized,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE (c.status = 'Active' OR c.status = 'PastDue') AND EXISTS(" +
+            "SELECT VALUE i FROM i IN c.invitations WHERE i.status = 'Pending' " +
+            "AND i.expiresAtUtc > @utcNow AND (" +
+            "i.targetUserId = @userId OR i.targetUsername = @username " +
+            "OR i.targetPublicProfileId = @publicProfileId " +
+            "OR i.targetEmailNormalized = @emailNormalized)) " +
+            "ORDER BY c.updatedAtUtc DESC")
+            .WithParameter("@utcNow", utcNow.ToString("O"))
+            .WithParameter("@userId", userId.ToString())
+            .WithParameter("@username", username)
+            .WithParameter("@publicProfileId", publicProfileId)
+            .WithParameter("@emailNormalized", emailNormalized);
+
+        var results = new List<FamilySubscription>();
+        string? continuationToken = null;
+        do
+        {
+            var page = await CosmosPageReader.ReadSinglePageAsync<FamilySubscription>(
+                _container,
+                query,
+                null,
+                PaginationDefaults.MaxPageSize,
+                continuationToken,
+                cancellationToken);
+            results.AddRange(page.Items);
+            continuationToken = page.ContinuationToken;
+        } while (continuationToken is not null);
+
+        return results;
     }
 
     public async Task AddAsync(

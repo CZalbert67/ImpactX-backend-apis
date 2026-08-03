@@ -14,6 +14,9 @@ public class CreateMonitoringInvitationRequest
     [EmailAddress, MaxLength(256)]
     public string? Email { get; set; }
 
+    public MonitoringRequestDirection Direction { get; set; } =
+        MonitoringRequestDirection.MonitorInvitesMonitored;
+
     public MonitoringPermissionsRequest? Permissions { get; set; }
 }
 

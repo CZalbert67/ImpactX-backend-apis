@@ -46,6 +46,9 @@ public class FamilySubscriptionSummaryDto
     public string OwnerName { get; set; } = string.Empty;
     public int AcceptedMembers { get; set; }
     public int InvitedMemberLimit { get; set; }
+    public int TotalActivePeople { get; set; }
+    public int TotalPeopleLimit { get; set; }
+    public int PendingInvitationCount { get; set; }
     public int AvailableMemberSlots { get; set; }
     public int VehicleLimitPerUser { get; set; }
     public bool PendingAdjustment { get; set; }
@@ -78,6 +81,14 @@ public class FamilyInvitationDto
     public FamilyInvitationStatus Status { get; set; }
     public DateTime CreatedAtUtc { get; set; }
     public DateTime ExpiresAtUtc { get; set; }
+}
+
+public class IncomingFamilyInvitationDto : FamilyInvitationDto
+{
+    public string OwnerPublicProfileId { get; set; } = string.Empty;
+    public string OwnerUsername { get; set; } = string.Empty;
+    public string OwnerName { get; set; } = string.Empty;
+    public string PlanName { get; set; } = string.Empty;
 }
 
 public class CreateFamilyInvitationResponse

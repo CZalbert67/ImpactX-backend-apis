@@ -39,7 +39,11 @@ public class FamilySubscriptionRepository : IFamilySubscriptionRepository
                     && (subscription.OwnerUserId == userId
                         || subscription.Memberships.Any(membership =>
                             membership.UserId == userId
-                            && membership.Status == FamilyMembershipStatus.Active)),
+                            && membership.Status == FamilyMembershipStatus.Active)
+                        || subscription.Invitations.Any(invitation =>
+                            invitation.TargetUserId == userId
+                            && (invitation.Status == FamilyInvitationStatus.Accepted
+                                || invitation.Status == FamilyInvitationStatus.Consumed))),
                 cancellationToken);
     }
 
@@ -75,6 +79,29 @@ public class FamilySubscriptionRepository : IFamilySubscriptionRepository
                 subscription => subscription.Invitations.Any(invitation =>
                     invitation.PublicInvitationId == publicInvitationId),
                 cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<FamilySubscription>> GetPendingInvitationsForTargetAsync(
+        Guid userId,
+        string username,
+        string publicProfileId,
+        string emailNormalized,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.FamilySubscriptions
+            .Where(subscription =>
+                (subscription.Status == FamilySubscriptionStatus.Active
+                    || subscription.Status == FamilySubscriptionStatus.PastDue)
+                && subscription.Invitations.Any(invitation =>
+                    invitation.Status == FamilyInvitationStatus.Pending
+                    && invitation.ExpiresAtUtc > utcNow
+                    && (invitation.TargetUserId == userId
+                        || invitation.TargetUsername == username
+                        || invitation.TargetPublicProfileId == publicProfileId
+                        || invitation.TargetEmailNormalized == emailNormalized)))
+            .OrderByDescending(subscription => subscription.UpdatedAtUtc)
+            .ToListAsync(cancellationToken);
     }
 
     public async Task AddAsync(

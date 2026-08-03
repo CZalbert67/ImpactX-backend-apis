@@ -43,9 +43,14 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             return null;
 
         await ApplyLifecycleAsync(subscription, DateTime.UtcNow, cancellationToken);
-        return subscription.Status == FamilySubscriptionStatus.Expired
-            ? null
-            : await MapSummaryAsync(subscription, userId, cancellationToken);
+        if (subscription.Status == FamilySubscriptionStatus.Expired)
+        {
+            return null;
+        }
+
+        await ReconcileAcceptedMembershipsAsync(subscription, cancellationToken);
+        await ReconcileFamilyMonitoringDirectionAsync(subscription, cancellationToken);
+        return await MapSummaryAsync(subscription, userId, cancellationToken);
     }
 
     public async Task<FamilySubscriptionSummaryDto> ActivateAsync(
@@ -192,7 +197,10 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         CancellationToken cancellationToken = default)
     {
         var subscription = await RequireMembershipAsync(userId, cancellationToken);
+        await ReconcileAcceptedMembershipsAsync(subscription, cancellationToken);
+        await ReconcileFamilyMonitoringDirectionAsync(subscription, cancellationToken);
         return subscription.Memberships
+            .Where(value => value.Status == FamilyMembershipStatus.Active)
             .OrderBy(value => value.Role)
             .ThenBy(value => value.AcceptedAtUtc)
             .Select(MapMember)
@@ -228,6 +236,37 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             .ToList();
     }
 
+    public async Task<IReadOnlyList<IncomingFamilyInvitationDto>> GetIncomingInvitationsAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await GetUserAsync(userId);
+        var now = DateTime.UtcNow;
+        var subscriptions = await _familyRepository.GetPendingInvitationsForTargetAsync(
+            user.Id,
+            user.Username,
+            user.PublicProfileId,
+            NormalizeUserEmail(user),
+            now,
+            cancellationToken);
+
+        var results = new List<IncomingFamilyInvitationDto>();
+        foreach (var subscription in subscriptions)
+        {
+            var owner = await GetUserAsync(subscription.OwnerUserId);
+            results.AddRange(subscription.Invitations
+                .Where(invitation =>
+                    invitation.Status == FamilyInvitationStatus.Pending
+                    && invitation.ExpiresAtUtc > now
+                    && InvitationTargetsUser(invitation, user, NormalizeUserEmail(user)))
+                .Select(invitation => MapIncomingInvitation(subscription, invitation, owner)));
+        }
+
+        return results
+            .OrderByDescending(value => value.CreatedAtUtc)
+            .ToList();
+    }
+
     public async Task<CreateFamilyInvitationResponse> CreateInvitationAsync(
         Guid userId,
         CreateFamilyInvitationRequest request,
@@ -246,6 +285,19 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         if (pendingCount >= MaxPendingInvitations)
         {
             throw new ConflictException("Has alcanzado el límite temporal de invitaciones pendientes.");
+        }
+
+        var memberLimit = GetMemberLimit(subscription.PlanName);
+        var acceptedCount = CountAcceptedInvitedMembers(subscription);
+        if (acceptedCount >= memberLimit)
+        {
+            throw new ConflictException("El plan ya alcanzó su límite de personas.");
+        }
+
+        if (acceptedCount + pendingCount >= memberLimit)
+        {
+            throw new ConflictException(
+                "Todos los espacios disponibles ya están ocupados o reservados por invitaciones pendientes.");
         }
 
         var target = await ResolveTargetAsync(request);
@@ -498,6 +550,10 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             existingMembership.EndedAtUtc = null;
         }
 
+        invitation.TargetUserId = user.Id;
+        invitation.TargetEmailNormalized = NormalizeUserEmail(user);
+        invitation.TargetPublicProfileId = user.PublicProfileId;
+        invitation.TargetUsername = user.Username;
         invitation.Status = FamilyInvitationStatus.Accepted;
         invitation.RespondedAtUtc = now;
         invitation.ConsumedAtUtc = now;
@@ -516,7 +572,7 @@ public class FamilySubscriptionService : IFamilySubscriptionService
     private async Task EnsureMonitoringCapacityIfRequestedAsync(
         FamilySubscription subscription,
         FamilyInvitation invitation,
-        Guid monitoredUserId,
+        Guid invitedMonitorUserId,
         CancellationToken cancellationToken)
     {
         if (!invitation.CreateMonitoringRelationship || _monitoringRepository is null)
@@ -525,8 +581,8 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         }
 
         if (await _monitoringRepository.ExistsBlockedAsync(
+                invitedMonitorUserId,
                 subscription.OwnerUserId,
-                monitoredUserId,
                 cancellationToken))
         {
             throw new ForbiddenException(
@@ -534,27 +590,27 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         }
 
         if (await _monitoringRepository.ExistsActiveOrPendingAsync(
+                invitedMonitorUserId,
                 subscription.OwnerUserId,
-                monitoredUserId,
                 cancellationToken))
         {
             return;
         }
 
-        var acceptedRelationships = await _monitoringRepository.CountAcceptedByMonitorAsync(
+        var acceptedRelationships = await _monitoringRepository.CountAcceptedForMonitoredAsync(
             subscription.OwnerUserId,
             cancellationToken);
-        if (acceptedRelationships >= GetMemberLimit(subscription.PlanName))
+        if (acceptedRelationships >= GetMonitoringLimit(subscription.PlanName))
         {
             throw new ConflictException(
-                "La invitación también crea una relación de monitoreo y la red ya alcanzó el límite del plan.");
+                "La invitación también crea un monitor y la red ya alcanzó el límite del plan.");
         }
     }
 
     private async Task CreateAcceptedMonitoringRelationshipIfRequestedAsync(
         FamilySubscription subscription,
         FamilyInvitation invitation,
-        Usuario monitoredUser,
+        Usuario invitedMonitor,
         CancellationToken cancellationToken)
     {
         if (!invitation.CreateMonitoringRelationship || _monitoringRepository is null)
@@ -563,8 +619,8 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         }
 
         if (await _monitoringRepository.ExistsActiveOrPendingAsync(
+                invitedMonitor.Id,
                 subscription.OwnerUserId,
-                monitoredUser.Id,
                 cancellationToken))
         {
             return;
@@ -575,14 +631,14 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         {
             Id = Guid.NewGuid(),
             PublicRelationshipId = MonitoringPublicIdGenerator.GenerateRelationshipId(),
-            MonitorUserId = subscription.OwnerUserId,
-            MonitoredUserId = monitoredUser.Id,
+            MonitorUserId = invitedMonitor.Id,
+            MonitoredUserId = subscription.OwnerUserId,
             InitiatedByUserId = subscription.OwnerUserId,
-            Direction = MonitoringRequestDirection.MonitorInvitesMonitored,
+            Direction = MonitoringRequestDirection.MonitoredRequestsMonitor,
             Status = MonitoringRelationshipStatus.Accepted,
-            TargetEmailNormalized = monitoredUser.CorreoNormalizado,
-            TargetPublicProfileId = monitoredUser.PublicProfileId,
-            TargetUsername = monitoredUser.Username,
+            TargetEmailNormalized = NormalizeUserEmail(invitedMonitor),
+            TargetPublicProfileId = invitedMonitor.PublicProfileId,
+            TargetUsername = invitedMonitor.Username,
             InvitationCodeHash = string.Empty,
             Permissions = new MonitoringPermissions
             {
@@ -745,6 +801,9 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             ? FamilyMembershipRole.Owner
             : membership?.Role ?? throw new NotFoundException("Membresía no encontrada.");
         var accepted = CountAcceptedInvitedMembers(subscription);
+        var pending = subscription.Invitations.Count(value =>
+            value.Status == FamilyInvitationStatus.Pending
+            && value.ExpiresAtUtc > DateTime.UtcNow);
         var limit = GetMemberLimit(subscription.PlanName);
 
         return new FamilySubscriptionSummaryDto
@@ -758,7 +817,10 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             OwnerName = owner.Nombre,
             AcceptedMembers = accepted,
             InvitedMemberLimit = limit,
-            AvailableMemberSlots = Math.Max(0, limit - accepted),
+            TotalActivePeople = accepted + 1,
+            TotalPeopleLimit = limit + 1,
+            PendingInvitationCount = pending,
+            AvailableMemberSlots = Math.Max(0, limit - accepted - pending),
             VehicleLimitPerUser = GetVehicleLimit(subscription.PlanName),
             PendingAdjustment = subscription.PendingAdjustment,
             PendingPlanName = string.IsNullOrWhiteSpace(subscription.PendingPlanName)
@@ -773,6 +835,231 @@ public class FamilySubscriptionService : IFamilySubscriptionService
                 .OrderByDescending(value => value.OccurredAtUtc)
                 .Select(MapPayment)
                 .FirstOrDefault()
+        };
+    }
+
+    private async Task ReconcileAcceptedMembershipsAsync(
+        FamilySubscription subscription,
+        CancellationToken cancellationToken)
+    {
+        var changed = false;
+        var owner = await GetUserAsync(subscription.OwnerUserId);
+        var ownerMembership = subscription.Memberships.FirstOrDefault(value =>
+            value.UserId == subscription.OwnerUserId
+            && value.Role == FamilyMembershipRole.Owner);
+
+        if (ownerMembership is null)
+        {
+            subscription.Memberships.Add(new FamilyMembership
+            {
+                Id = Guid.NewGuid(),
+                PublicMembershipId = FamilyPublicIdGenerator.GenerateMembershipId(),
+                UserId = owner.Id,
+                Role = FamilyMembershipRole.Owner,
+                Status = FamilyMembershipStatus.Active,
+                AcceptedAtUtc = subscription.CreatedAtUtc,
+                PublicProfileIdSnapshot = owner.PublicProfileId,
+                UsernameSnapshot = owner.Username,
+                DisplayNameSnapshot = owner.Nombre
+            });
+            changed = true;
+        }
+        else if (ownerMembership.Status != FamilyMembershipStatus.Active)
+        {
+            ownerMembership.Status = FamilyMembershipStatus.Active;
+            ownerMembership.EndedAtUtc = null;
+            ownerMembership.AcceptedAtUtc ??= subscription.CreatedAtUtc;
+            changed = true;
+        }
+
+        foreach (var invitation in subscription.Invitations.Where(value =>
+                     value.Status is FamilyInvitationStatus.Accepted
+                         or FamilyInvitationStatus.Consumed))
+        {
+            var invitedUser = await ResolveAcceptedInvitationUserAsync(invitation);
+            if (invitedUser is null || invitedUser.Id == subscription.OwnerUserId)
+            {
+                continue;
+            }
+
+            if (!invitation.TargetUserId.HasValue)
+            {
+                invitation.TargetUserId = invitedUser.Id;
+                changed = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(invitation.TargetEmailNormalized))
+            {
+                invitation.TargetEmailNormalized = NormalizeUserEmail(invitedUser);
+                changed = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(invitation.TargetPublicProfileId))
+            {
+                invitation.TargetPublicProfileId = invitedUser.PublicProfileId;
+                changed = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(invitation.TargetUsername))
+            {
+                invitation.TargetUsername = invitedUser.Username;
+                changed = true;
+            }
+
+            var membership = subscription.Memberships.FirstOrDefault(value =>
+                value.UserId == invitedUser.Id
+                && value.Role == FamilyMembershipRole.Member);
+            if (membership is null)
+            {
+                subscription.Memberships.Add(new FamilyMembership
+                {
+                    Id = Guid.NewGuid(),
+                    PublicMembershipId = FamilyPublicIdGenerator.GenerateMembershipId(),
+                    UserId = invitedUser.Id,
+                    Role = FamilyMembershipRole.Member,
+                    Status = FamilyMembershipStatus.Active,
+                    InvitedAtUtc = invitation.CreatedAtUtc,
+                    AcceptedAtUtc = invitation.ConsumedAtUtc
+                        ?? invitation.RespondedAtUtc
+                        ?? invitation.CreatedAtUtc,
+                    PublicProfileIdSnapshot = invitedUser.PublicProfileId,
+                    UsernameSnapshot = invitedUser.Username,
+                    DisplayNameSnapshot = invitedUser.Nombre
+                });
+                changed = true;
+                continue;
+            }
+
+            if (membership.Status != FamilyMembershipStatus.Active)
+            {
+                membership.Status = FamilyMembershipStatus.Active;
+                membership.EndedAtUtc = null;
+                membership.AcceptedAtUtc ??= invitation.ConsumedAtUtc
+                    ?? invitation.RespondedAtUtc
+                    ?? invitation.CreatedAtUtc;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            subscription.UpdatedAtUtc = DateTime.UtcNow;
+            await _familyRepository.UpdateAsync(subscription, cancellationToken);
+        }
+    }
+
+    private async Task<Usuario?> ResolveAcceptedInvitationUserAsync(
+        FamilyInvitation invitation)
+    {
+        if (invitation.TargetUserId.HasValue)
+        {
+            return await _usuarioRepository.GetByIdAsync(invitation.TargetUserId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(invitation.TargetPublicProfileId))
+        {
+            return await _usuarioRepository.GetByPublicProfileIdAsync(
+                invitation.TargetPublicProfileId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(invitation.TargetUsername))
+        {
+            return await _usuarioRepository.GetByUsernameAsync(invitation.TargetUsername);
+        }
+
+        return string.IsNullOrWhiteSpace(invitation.TargetEmailNormalized)
+            ? null
+            : await _usuarioRepository.GetByCorreoAsync(invitation.TargetEmailNormalized);
+    }
+
+    private async Task ReconcileFamilyMonitoringDirectionAsync(
+        FamilySubscription subscription,
+        CancellationToken cancellationToken)
+    {
+        if (_monitoringRepository is null)
+        {
+            return;
+        }
+
+        var relationships = await _monitoringRepository.GetForUserAsync(
+            subscription.OwnerUserId,
+            cancellationToken);
+        foreach (var invitation in subscription.Invitations.Where(value =>
+                     value.CreateMonitoringRelationship
+                     && (value.Status is FamilyInvitationStatus.Accepted
+                         or FamilyInvitationStatus.Consumed)
+                     && value.TargetUserId.HasValue))
+        {
+            var memberUserId = invitation.TargetUserId!.Value;
+            var correctExists = relationships.Any(value =>
+                value.MonitorUserId == memberUserId
+                && value.MonitoredUserId == subscription.OwnerUserId
+                && value.Status == MonitoringRelationshipStatus.Accepted);
+            if (correctExists)
+            {
+                continue;
+            }
+
+            var legacy = relationships.FirstOrDefault(value =>
+                value.MonitorUserId == subscription.OwnerUserId
+                && value.MonitoredUserId == memberUserId
+                && value.Status == MonitoringRelationshipStatus.Accepted
+                && Math.Abs((value.RequestedAtUtc - invitation.CreatedAtUtc).TotalSeconds) < 5);
+            if (legacy is null)
+            {
+                continue;
+            }
+
+            var member = await _usuarioRepository.GetByIdAsync(memberUserId);
+            if (member is null)
+            {
+                continue;
+            }
+
+            legacy.Status = MonitoringRelationshipStatus.Revoked;
+            legacy.RevokedAtUtc = DateTime.UtcNow;
+            legacy.UpdatedAtUtc = DateTime.UtcNow;
+            await _monitoringRepository.UpdateAsync(legacy, cancellationToken);
+
+            var now = DateTime.UtcNow;
+            await _monitoringRepository.AddAsync(new MonitoringRelationship
+            {
+                Id = Guid.NewGuid(),
+                PublicRelationshipId = MonitoringPublicIdGenerator.GenerateRelationshipId(),
+                MonitorUserId = memberUserId,
+                MonitoredUserId = subscription.OwnerUserId,
+                InitiatedByUserId = subscription.OwnerUserId,
+                Direction = MonitoringRequestDirection.MonitoredRequestsMonitor,
+                Status = MonitoringRelationshipStatus.Accepted,
+                TargetEmailNormalized = NormalizeUserEmail(member),
+                TargetPublicProfileId = member.PublicProfileId,
+                TargetUsername = member.Username,
+                InvitationCodeHash = string.Empty,
+                Permissions = CloneMonitoringPermissions(legacy.Permissions),
+                RequestedAtUtc = invitation.CreatedAtUtc,
+                ExpiresAtUtc = invitation.ExpiresAtUtc,
+                AcceptedAtUtc = invitation.ConsumedAtUtc
+                    ?? invitation.RespondedAtUtc
+                    ?? now,
+                UpdatedAtUtc = now
+            }, cancellationToken);
+        }
+    }
+
+    private static MonitoringPermissions CloneMonitoringPermissions(
+        MonitoringPermissions source)
+    {
+        return new MonitoringPermissions
+        {
+            ViewRoutes = source.ViewRoutes,
+            ViewLocation = source.ViewLocation,
+            ViewEmergencyLocation = source.ViewEmergencyLocation,
+            ViewIncidents = source.ViewIncidents,
+            ReceiveCriticalAlerts = source.ReceiveCriticalAlerts,
+            ViewMedicalProfile = source.ViewMedicalProfile,
+            SendMessages = source.SendMessages,
+            ViewTelemetry = source.ViewTelemetry,
+            ReceiveNotifications = source.ReceiveNotifications
         };
     }
 
@@ -1040,6 +1327,27 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         };
     }
 
+    private static IncomingFamilyInvitationDto MapIncomingInvitation(
+        FamilySubscription subscription,
+        FamilyInvitation invitation,
+        Usuario owner)
+    {
+        return new IncomingFamilyInvitationDto
+        {
+            PublicInvitationId = invitation.PublicInvitationId,
+            TargetUsername = invitation.TargetUsername,
+            TargetPublicProfileId = invitation.TargetPublicProfileId,
+            TargetEmail = invitation.TargetEmailNormalized,
+            Status = invitation.Status,
+            CreatedAtUtc = invitation.CreatedAtUtc,
+            ExpiresAtUtc = invitation.ExpiresAtUtc,
+            OwnerPublicProfileId = owner.PublicProfileId,
+            OwnerUsername = owner.Username,
+            OwnerName = owner.Nombre,
+            PlanName = PlanNamePolicy.ToPublicName(subscription.PlanName)
+        };
+    }
+
     private static FamilyInvitationDto MapInvitation(FamilyInvitation invitation)
     {
         return new FamilyInvitationDto
@@ -1075,6 +1383,17 @@ public class FamilySubscriptionService : IFamilySubscriptionService
     }
 
     public static int GetMemberLimit(string planName)
+    {
+        return NormalizePlanName(planName) switch
+        {
+            "Free" => 1,
+            "Basic" => 2,
+            "Premium" => 5,
+            _ => 1
+        };
+    }
+
+    public static int GetMonitoringLimit(string planName)
     {
         return NormalizePlanName(planName) switch
         {

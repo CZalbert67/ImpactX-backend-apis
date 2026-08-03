@@ -12,6 +12,7 @@ public class MonitoringRelationshipConsolidationTests
     private readonly Mock<IMonitoringRelationshipRepository> _repository = new();
     private readonly Mock<IUsuarioRepository> _users = new();
     private readonly Mock<IFamilySubscriptionService> _family = new();
+    private readonly Mock<INotificacionRepository> _notifications = new();
 
     [Fact]
     public async Task GetRelationships_ExpiredPendingInvitation_IsPersistedAsExpired()
@@ -70,7 +71,8 @@ public class MonitoringRelationshipConsolidationTests
         return new MonitoringRelationshipService(
             _repository.Object,
             _users.Object,
-            _family.Object);
+            _family.Object,
+            _notifications.Object);
     }
 
     private void SetupUsers(Usuario monitor, Usuario monitored)

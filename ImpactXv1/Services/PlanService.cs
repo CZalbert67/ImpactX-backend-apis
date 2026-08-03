@@ -532,8 +532,8 @@ public class PlanService : IPlanService
             },
             InvitedMemberLimit = publicName switch
             {
-                PlanNamePolicy.Standard => 3,
-                PlanNamePolicy.Premium => 6,
+                PlanNamePolicy.Standard => 2,
+                PlanNamePolicy.Premium => 5,
                 _ => 1
             },
             MonitoringLimit = publicName switch

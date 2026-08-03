@@ -34,6 +34,10 @@ public interface IFamilySubscriptionService
         Guid userId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<IncomingFamilyInvitationDto>> GetIncomingInvitationsAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
     Task<CreateFamilyInvitationResponse> CreateInvitationAsync(
         Guid userId,
         CreateFamilyInvitationRequest request,

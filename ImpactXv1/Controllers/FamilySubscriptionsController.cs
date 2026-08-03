@@ -93,6 +93,15 @@ public class FamilySubscriptionsController : ControllerBase
         return Ok(await _service.GetInvitationsAsync(GetUserId(), cancellationToken));
     }
 
+    [HttpGet("invitations/incoming")]
+    public async Task<IActionResult> GetIncomingInvitations(
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _service.GetIncomingInvitationsAsync(
+            GetUserId(),
+            cancellationToken));
+    }
+
     [HttpPost("invitations")]
     [EnableRateLimiting("monitor-invite-create")]
     [ProducesResponseType(typeof(CreateFamilyInvitationResponse), StatusCodes.Status201Created)]

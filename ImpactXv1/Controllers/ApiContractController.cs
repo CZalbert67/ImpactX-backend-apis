@@ -12,7 +12,7 @@ namespace ImpactX.Controllers;
 [AllowAnonymous]
 public sealed class ApiContractController : ControllerBase
 {
-    private const string ContractEtag = "\"impactx-api-contract-2026.08.02\"";
+    private const string ContractEtag = "\"impactx-api-contract-2026.08.04\"";
     private readonly EndpointDataSource _endpointDataSource;
 
     public ApiContractController(EndpointDataSource endpointDataSource)

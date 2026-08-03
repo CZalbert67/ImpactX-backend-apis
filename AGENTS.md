@@ -334,7 +334,7 @@ if (app.Environment.IsDevelopment())
   pruebas Cosmos/Firebase/Azure y congelamiento del contrato para frontend.
 
 ## Checkpoint final — Backend V9 y contrato congelado
-- La API canónica queda congelada en `2026.08.02`; cambios incompatibles requieren
+- La API canónica queda congelada en `2026.08.04`; cambios incompatibles requieren
   nueva versión y no deben alterar silenciosamente `/api/v1`.
 - Contrato runtime: `GET /api/v1/meta/contract`; capacidades públicas por cliente
   en `GET /api/v1/meta/clients/{web|mobile|wearable}`.
