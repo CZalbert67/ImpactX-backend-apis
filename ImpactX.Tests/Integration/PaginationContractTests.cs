@@ -19,7 +19,7 @@ public class PaginationContractTests : IClassFixture<CustomWebApplicationFactory
 
     private HttpClient NewClient() => _factory.CreateClient();
 
-    private async Task<string> RegisterAndGetTokenAsync(HttpClient? client = null)
+    private async Task<string> RegisterAndGetTokenAsync(HttpClient? client = null, string clientType = "web")
     {
         var target = client ?? _client;
         var email = $"pagination_{Guid.NewGuid()}@test.com";
@@ -27,10 +27,11 @@ public class PaginationContractTests : IClassFixture<CustomWebApplicationFactory
         {
             nombre = "Pagination Tester",
             correo = email,
-            password = "Password123!"
+            password = "Password123!",
+            client = clientType
         });
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
-        return result!.Token;
+        return result!.Token!;
     }
 
     private async Task CreateContactsAsync(HttpClient client, string token, int count)
@@ -159,7 +160,7 @@ public class PaginationContractTests : IClassFixture<CustomWebApplicationFactory
     [Fact]
     public async Task TripsTelemetry_OtherUsersTrip_ReturnsNotFound()
     {
-        var token = await RegisterAndGetTokenAsync();
+        var token = await RegisterAndGetTokenAsync(clientType: "wearable");
         var client = NewClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", token);
@@ -290,7 +291,7 @@ public class PaginationContractTests : IClassFixture<CustomWebApplicationFactory
     [Fact]
     public async Task TripsTelemetry_OtherUsersTrip_DoesNotRevealOwner()
     {
-        var token = await RegisterAndGetTokenAsync();
+        var token = await RegisterAndGetTokenAsync(clientType: "wearable");
         var client = NewClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", token);

@@ -24,6 +24,12 @@ public class IncidenteRepository : IIncidenteRepository
             .FirstOrDefaultAsync(i => i.UsuarioId == usuarioId && i.Id == id);
     }
 
+    public async Task<Incidente?> GetByAlertIdAsync(Guid usuarioId, Guid alertaId)
+    {
+        return await _context.Incidentes
+            .FirstOrDefaultAsync(i => i.UsuarioId == usuarioId && i.AlertaId == alertaId);
+    }
+
     public async Task<List<Incidente>> GetByUserAsync(Guid usuarioId)
     {
         return await _context.Incidentes

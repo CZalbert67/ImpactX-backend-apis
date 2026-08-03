@@ -150,7 +150,7 @@ public class AlertServiceTests
     }
 
     [Fact]
-    public async Task BypassCriticalAsync_SetsBypassAndActive()
+    public async Task BypassCriticalAsync_SetsBypassAndSent()
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Enviada" };
@@ -159,8 +159,8 @@ public class AlertServiceTests
         var result = await _alertService.BypassCriticalAsync(usuarioId, alerta.Id);
 
         Assert.True(alerta.EsBypassCritico);
-        Assert.Equal("Activa", alerta.Estado);
-        Assert.Equal("Activa", result.Estado);
+        Assert.Equal("Enviada", alerta.Estado);
+        Assert.Equal("Enviada", result.Estado);
         _alertaRepo.Verify(r => r.UpdateAsync(alerta), Times.Once);
     }
 
@@ -414,7 +414,7 @@ public class AlertServiceTests
     }
 
     [Fact]
-    public async Task BypassCriticalAsync_WithEstadoActiva_DoesNotInvokeNotify()
+    public async Task BypassCriticalAsync_NotifiesImmediately()
     {
         var usuarioId = Guid.NewGuid();
         var alerta = new Alerta { Id = Guid.NewGuid(), UsuarioId = usuarioId, Estado = "Pendiente" };
@@ -422,8 +422,8 @@ public class AlertServiceTests
 
         await _alertService.BypassCriticalAsync(usuarioId, alerta.Id);
 
-        Assert.Equal("Activa", alerta.Estado);
-        _notificationService.Verify(n => n.NotifyAlertMonitorsAsync(It.IsAny<Alerta>(), It.IsAny<CancellationToken>()), Times.Never);
+        Assert.Equal("Enviada", alerta.Estado);
+        _notificationService.Verify(n => n.NotifyAlertMonitorsAsync(alerta, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

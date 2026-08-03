@@ -2,6 +2,7 @@ using Microsoft.Azure.Cosmos;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Security;
 using ImpactX.Infrastructure.Data;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
@@ -105,9 +106,12 @@ public class CosmosWearableRepository : IWearableRepository
     {
         // Cross-partition justificada: búsqueda por pairing token sin
         // usuarioId conocido; la partición es /usuarioId. Detención temprana.
+        var normalized = InvitationCodeHasher.Normalize(token);
+        var hash = InvitationCodeHasher.Hash(normalized);
         var query = new QueryDefinition(
-            "SELECT TOP 1 * FROM c WHERE c.pairingToken = @token")
-            .WithParameter("@token", token);
+            "SELECT TOP 1 * FROM c WHERE c.pairingToken = @hash OR c.pairingToken = @legacyToken")
+            .WithParameter("@hash", hash)
+            .WithParameter("@legacyToken", normalized);
 
         using var iterator = _container.GetItemQueryIterator<Wearable>(query,
             requestOptions: new QueryRequestOptions { MaxItemCount = 1 });

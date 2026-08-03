@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using ImpactX.Configuration;
+using ImpactX.Core.ImpactDetection;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
 using ImpactX.Infrastructure.Data;
@@ -81,9 +82,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IDeviceService, DeviceService>();
         services.AddScoped<IPlanService, PlanService>();
+        services.Configure<SubscriptionLifecycleOptions>(config.GetSection(SubscriptionLifecycleOptions.SectionName));
+        services.AddHostedService<SubscriptionLifecycleWorker>();
         services.AddScoped<IWearableService, WearableService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IContactService, ContactService>();
+        services.AddScoped<IEmergencyContactService, EmergencyContactService>();
         services.AddScoped<IMonitorService, MonitorService>();
         services.AddScoped<IRutaService, RutaService>();
         services.AddScoped<IViajeService, ViajeService>();
@@ -96,7 +100,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IVehicleService, VehicleService>();
         services.AddScoped<IFamilySubscriptionService, FamilySubscriptionService>();
         services.AddScoped<IMonitoringRelationshipService, MonitoringRelationshipService>();
+        services.Configure<ImpactDetectionOptions>(config.GetSection(ImpactDetectionOptions.SectionName));
+        services.AddSingleton<IImpactDetectionEngine, ImpactDetectionEngine>();
+        services.AddScoped<IImpactAlertOrchestrator, ImpactAlertOrchestrator>();
+        services.AddHostedService<ImpactAlertDispatchWorker>();
+        services.AddScoped<IMobileSyncService, MobileSyncService>();
         services.AddScoped<IQuickMessageService, QuickMessageService>();
+        services.AddScoped<IAccountService, AccountService>();
 
         return services;
     }

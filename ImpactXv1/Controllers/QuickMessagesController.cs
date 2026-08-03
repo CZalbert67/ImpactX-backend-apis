@@ -21,6 +21,12 @@ public class QuickMessagesController : ControllerBase
         _service = service;
     }
 
+    [HttpGet("recipients")]
+    public async Task<IActionResult> GetRecipients(CancellationToken cancellationToken)
+    {
+        return Ok(await _service.GetRecipientsAsync(GetUserId(), cancellationToken));
+    }
+
     [HttpGet("templates")]
     public async Task<IActionResult> GetTemplates(CancellationToken cancellationToken)
     {

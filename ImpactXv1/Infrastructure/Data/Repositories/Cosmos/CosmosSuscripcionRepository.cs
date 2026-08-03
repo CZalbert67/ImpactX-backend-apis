@@ -35,6 +35,26 @@ public class CosmosSuscripcionRepository : ISuscripcionRepository
         return null;
     }
 
+    public async Task<Suscripcion?> GetCurrentByUserAsync(Guid usuarioId)
+    {
+        var query = new QueryDefinition(
+            "SELECT TOP 1 * FROM c WHERE c.usuarioId = @usuarioId AND (c.estado = 'Trial' OR c.estado = 'Activa' OR c.estado = 'Grace') ORDER BY c.inicio DESC")
+            .WithParameter("@usuarioId", usuarioId.ToString());
+
+        using var iterator = _container.GetItemQueryIterator<Suscripcion>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 1
+            });
+        if (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync();
+            return response.FirstOrDefault();
+        }
+        return null;
+    }
+
     public async Task<List<Suscripcion>> GetHistoryByUserAsync(Guid usuarioId)
     {
         var query = new QueryDefinition(
@@ -181,6 +201,32 @@ public class CosmosSuscripcionRepository : ISuscripcionRepository
                 processed++;
             }
 
+            continuationToken = page.ContinuationToken;
+        } while (continuationToken is not null);
+
+        return processed;
+    }
+
+    public async Task<int> ProcessLifecycleAsync(
+        DateTime utcNow,
+        Func<Suscripcion, CancellationToken, Task> process,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE (((c.estado = 'Activa' OR c.estado = 'Trial') AND c.fin != null AND c.fin <= @now) OR (c.estado = 'Grace' AND c.graceEndsAtUtc != null AND c.graceEndsAtUtc <= @now))")
+            .WithParameter("@now", utcNow.ToString("O"));
+
+        var processed = 0;
+        string? continuationToken = null;
+        do
+        {
+            var page = await CosmosPageReader.ReadSinglePageAsync<Suscripcion>(
+                _container, query, null, PaginationDefaults.MaxPageSize, continuationToken, cancellationToken);
+            foreach (var subscription in page.Items)
+            {
+                await process(subscription, cancellationToken);
+                processed++;
+            }
             continuationToken = page.ContinuationToken;
         } while (continuationToken is not null);
 

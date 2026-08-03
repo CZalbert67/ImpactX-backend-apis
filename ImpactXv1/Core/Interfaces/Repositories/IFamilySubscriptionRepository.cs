@@ -31,4 +31,9 @@ public interface IFamilySubscriptionRepository
     Task UpdateAsync(
         FamilySubscription subscription,
         CancellationToken cancellationToken = default);
+
+    Task<int> ProcessLifecycleAsync(
+        DateTime utcNow,
+        Func<FamilySubscription, CancellationToken, Task> process,
+        CancellationToken cancellationToken = default);
 }

@@ -1,3 +1,5 @@
+using ImpactX.Core.ApiContract;
+
 namespace ImpactX.Middleware;
 
 public class LegacyDeprecationMiddleware
@@ -29,6 +31,8 @@ public class LegacyDeprecationMiddleware
                     context.Response.Headers["Deprecation"] = "true";
                     context.Response.Headers["Warning"] = "299 - \"Deprecated API. Use /api/v1.\"";
                     context.Response.Headers["Link"] = "</openapi/v1.json>; rel=\"successor-version\"";
+                    context.Response.Headers["Sunset"] = ApiContractDefinition.LegacySunsetHttpDate;
+                    context.Response.Headers["X-ImpactX-Legacy-Route"] = "true";
                 }
                 return Task.CompletedTask;
             });

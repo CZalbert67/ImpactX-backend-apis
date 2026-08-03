@@ -1,6 +1,7 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Domain.Enums;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Pagination;
 using Microsoft.Azure.Cosmos;
 
 namespace ImpactX.Infrastructure.Data.Repositories.Cosmos;
@@ -35,7 +36,7 @@ public class CosmosFamilySubscriptionRepository : IFamilySubscriptionRepository
         CancellationToken cancellationToken = default)
     {
         var query = new QueryDefinition(
-            "SELECT TOP 1 * FROM c WHERE c.status = 'Active' AND " +
+            "SELECT TOP 1 * FROM c WHERE (c.status = 'Active' OR c.status = 'PastDue') AND " +
             "(c.ownerUserId = @userId OR EXISTS(" +
             "SELECT VALUE m FROM m IN c.memberships " +
             "WHERE m.userId = @userId AND m.status = 'Active')) " +
@@ -108,6 +109,41 @@ public class CosmosFamilySubscriptionRepository : IFamilySubscriptionRepository
             options,
             cancellationToken);
         subscription.ETag = response.ETag;
+    }
+
+    public async Task<int> ProcessLifecycleAsync(
+        DateTime utcNow,
+        Func<FamilySubscription, CancellationToken, Task> process,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE (c.status = 'Active' AND c.periodEndUtc <= @now) " +
+            "OR (c.status = 'PastDue' AND IS_DEFINED(c.graceEndsAtUtc) " +
+            "AND c.graceEndsAtUtc != null AND c.graceEndsAtUtc <= @now)")
+            .WithParameter("@now", utcNow.ToString("O"));
+
+        var processed = 0;
+        string? continuationToken = null;
+        do
+        {
+            var page = await CosmosPageReader.ReadSinglePageAsync<FamilySubscription>(
+                _container,
+                query,
+                null,
+                PaginationDefaults.MaxPageSize,
+                continuationToken,
+                cancellationToken);
+
+            foreach (var subscription in page.Items)
+            {
+                await process(subscription, cancellationToken);
+                processed++;
+            }
+
+            continuationToken = page.ContinuationToken;
+        } while (continuationToken is not null);
+
+        return processed;
     }
 
     private async Task<FamilySubscription?> ReadFirstAsync(

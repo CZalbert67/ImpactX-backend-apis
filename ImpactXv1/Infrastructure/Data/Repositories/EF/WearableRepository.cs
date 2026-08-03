@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Security;
 
 namespace ImpactX.Infrastructure.Data.Repositories.EF;
 
@@ -50,8 +51,10 @@ public class WearableRepository : IWearableRepository
 
     public async Task<Wearable?> GetByPairingTokenAsync(string token)
     {
+        var normalized = InvitationCodeHasher.Normalize(token);
+        var hash = InvitationCodeHasher.Hash(normalized);
         return await _context.Wearables
-            .Where(w => w.PairingToken == token)
+            .Where(w => w.PairingToken == hash || w.PairingToken == normalized)
             .FirstOrDefaultAsync();
     }
 

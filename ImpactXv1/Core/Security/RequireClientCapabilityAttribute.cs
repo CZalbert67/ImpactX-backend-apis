@@ -8,6 +8,8 @@ public sealed class RequireClientCapabilityAttribute : Attribute, IAuthorization
 {
     private readonly HashSet<string> _allowedClients;
 
+    public IReadOnlyCollection<string> AllowedClients => _allowedClients;
+
     public RequireClientCapabilityAttribute(params string[] allowedClients)
     {
         if (allowedClients is null || allowedClients.Length == 0)
@@ -27,14 +29,19 @@ public sealed class RequireClientCapabilityAttribute : Attribute, IAuthorization
             return;
         }
 
-        // Compatibilidad temporal para tokens emitidos antes de incorporar la claim client.
+        // Las operaciones con capacidad de cliente requieren la claim firmada
+        // explícita. Un token legacy sin `client` no recibe permisos por defecto.
         var client = context.HttpContext.User.FindFirst("client")?.Value;
+        if (string.IsNullOrWhiteSpace(client))
+        {
+            context.Result = new ForbidResult();
+            return;
+        }
+
         string normalizedClient;
         try
         {
-            normalizedClient = string.IsNullOrWhiteSpace(client)
-                ? ClientTypePolicy.Mobile
-                : ClientTypePolicy.Normalize(client);
+            normalizedClient = ClientTypePolicy.Normalize(client);
         }
         catch (ArgumentException)
         {

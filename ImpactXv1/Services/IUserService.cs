@@ -15,6 +15,7 @@ public interface IUserService
     Task<MedicalProfileDto> UpdateMedicalProfileAsync(Guid usuarioId, UpdateMedicalProfileRequest request);
     Task<OnboardingDto> GetOnboardingAsync(Guid usuarioId);
     Task<OnboardingDto> UpdateOnboardingAsync(Guid usuarioId, UpdateOnboardingRequest request);
+    Task<OnboardingDto> AcceptLegalDocumentsAsync(Guid usuarioId, AcceptLegalDocumentsRequest request);
     Task<UserProfileDto> UpdateUsernameAsync(Guid usuarioId, UpdateUsernameRequest request);
     Task<List<UserSearchResultDto>> SearchUsersAsync(string query, string? by = null, Guid? excludeUserId = null);
     Task UpdateFcmTokenAsync(Guid usuarioId, UpdateFcmTokenRequest request);

@@ -909,7 +909,7 @@ public class AuthServiceTests
     public async Task RegisterAsync_FreePlanConflict_DoesNotFailRegistration()
     {
         _usuarioRepo.Setup(r => r.ExistsByCorreoAsync("conflict@test.com")).ReturnsAsync(false);
-        _usuarioRepo.Setup(r => r.ExistsByUsernameAsync(It.IsAny<string>())).ReturnsAsync(false);
+        _usuarioRepo.Setup(r => r.ExistsByUsernameIncludingHistoryAsync(It.IsAny<string>())).ReturnsAsync(false);
         _planRepo.Setup(r => r.GetByNameAsync("Free")).ReturnsAsync(new Plan { Id = Guid.NewGuid(), Nombre = "Free" });
         _suscripcionRepo.Setup(r => r.AddAsync(It.IsAny<Suscripcion>()))
             .ThrowsAsync(new CosmosException("Conflict", System.Net.HttpStatusCode.Conflict, 409, string.Empty, 0));
@@ -931,7 +931,7 @@ public class AuthServiceTests
     public async Task RegisterAsync_FreePlanUnexpectedError_Propagates()
     {
         _usuarioRepo.Setup(r => r.ExistsByCorreoAsync("unexpected@test.com")).ReturnsAsync(false);
-        _usuarioRepo.Setup(r => r.ExistsByUsernameAsync(It.IsAny<string>())).ReturnsAsync(false);
+        _usuarioRepo.Setup(r => r.ExistsByUsernameIncludingHistoryAsync(It.IsAny<string>())).ReturnsAsync(false);
         _planRepo.Setup(r => r.GetByNameAsync("Free")).ThrowsAsync(new InvalidOperationException("boom"));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => _authService.RegisterAsync(new RegisterRequest
@@ -947,7 +947,7 @@ public class AuthServiceTests
     public async Task RegisterAsync_FreePlanCancellation_Propagates()
     {
         _usuarioRepo.Setup(r => r.ExistsByCorreoAsync("cancel@test.com")).ReturnsAsync(false);
-        _usuarioRepo.Setup(r => r.ExistsByUsernameAsync(It.IsAny<string>())).ReturnsAsync(false);
+        _usuarioRepo.Setup(r => r.ExistsByUsernameIncludingHistoryAsync(It.IsAny<string>())).ReturnsAsync(false);
         _planRepo.Setup(r => r.GetByNameAsync("Free")).ThrowsAsync(new OperationCanceledException());
 
         await Assert.ThrowsAsync<OperationCanceledException>(() => _authService.RegisterAsync(new RegisterRequest

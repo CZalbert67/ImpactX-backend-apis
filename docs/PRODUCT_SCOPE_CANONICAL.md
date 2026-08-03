@@ -73,14 +73,14 @@ La aplicación móvil:
 - Consume los mismos contratos backend de mensajes rápidos que la web.
 - Recibe alertas y notificaciones.
 - Sincroniza datos locales con el backend.
-- Puede iniciar, pausar, reanudar o finalizar un viaje **únicamente como
-  mecanismo de respaldo** cuando el wearable falla.
+- Puede consultar el estado, historial y telemetría de los viajes.
+- **No** puede iniciar, pausar, reanudar ni finalizar viajes.
 - Administra los vehículos del usuario (ver sección 8).
 - Gestiona la **membresía de suscripción familiar** cuando corresponde:
   plan, pago simulado, unirse a un plan mediante código y abandonar el plan
   (ver sección 15).
 
-Debe **registrarse y auditarse** cuándo el móvil toma control de respaldo.
+El control del ciclo de vida del viaje permanece exclusivamente en el wearable.
 
 ---
 
@@ -153,7 +153,8 @@ Cada cuenta tendrá los siguientes componentes de identidad:
 
 ### `Username`
 
-- Se genera automáticamente al registrar la cuenta.
+- En el registro completo lo elige el usuario; el backend lo normaliza y valida.
+- Las cuentas legacy pueden recibir uno generado automáticamente por compatibilidad.
 - Único sin distinguir mayúsculas y minúsculas.
 - Modificable por el propietario.
 - Los usernames anteriores quedan _reservados_ para evitar suplantación.
@@ -194,6 +195,15 @@ El onboarding puede dividirse en pasos:
   - Ficha médica omitida.
   - Onboarding completado.
   - Onboarding pendiente.
+  - Versión del contrato de registro.
+  - Versión y fecha UTC de aceptación de términos.
+  - Versión y fecha UTC de aceptación del aviso de privacidad.
+- El contrato de registro vigente se consulta en
+  `GET /api/v1/auth/registration-contract`.
+- El registro completo exige nombre, username, correo, teléfono, contraseña y
+  aceptación explícita de términos y privacidad.
+- `confirmPassword` es una validación exclusiva del frontend y no se envía ni se
+  persiste en el backend.
 
 ---
 
@@ -459,8 +469,16 @@ Reglas:
 - Los tokens sensibles **no se registran en logs**.
 - Los tokens se transmiten mediante **cuerpos JSON seguros** cuando sea
   necesario.
-- La implementación exacta del mecanismo de canje de la preinvitación queda
-  **pendiente** (ver «Decisiones todavía pendientes»).
+- El canje se realiza mediante `publicContactId` o un código manual de un solo
+  uso enviado en el cuerpo JSON. El backend conserva únicamente el hash del
+  código, lo invalida al aceptar, rechazar, revocar, bloquear o expirar y nunca
+  lo coloca en una URL ni lo registra en logs.
+- La preinvitación puede vincularse con una cuenta creada posteriormente cuando
+  el correo normalizado coincide; aun así, la relación permanece `Pending`
+  hasta que esa persona la acepta explícitamente.
+- Los documentos legacy con nombre y teléfono, sin `publicContactId`, se
+  consideran `LegacyUnverified`: no aparecen en el contrato V1 y no forman
+  parte de la red operativa de emergencia.
 
 ---
 
@@ -572,8 +590,7 @@ El backend conserva operaciones de:
 - Finalizar viaje.
 - Ingesta de telemetría.
 
-Estas operaciones son **invocadas por el wearable** y, como respaldo, por el
-móvil cuando corresponde.
+Estas operaciones son **invocadas exclusivamente por el wearable**.
 
 La web solo usa **lectura**:
 
@@ -963,13 +980,13 @@ Los usuarios autorizados pueden consultar:
 | Configurar sensores directamente | No | Sí | No | Sí | Sí | El móvil administra permisos y configuración. |
 | Capturar datos de sensores | No | No | Sí | No | No | El wearable captura de forma local. |
 | Aplicar la configuración en el dispositivo | No | No | Sí | No | No | El wearable aplica la configuración. |
-| Enviar telemetría | No | Solo sincronización o respaldo autorizado | Sí | Sí | Sí | Móvil únicamente sincronización o respaldo técnicamente autorizado cuando corresponda. Siempre asociada a `TripId`. |
-| Detección inicial de accidentes | No | No | Sí | No | — | Detección local inicial en el wearable; el backend no realiza la detección local inicial. |
+| Enviar telemetría | No | No | Sí | Sí | Sí | Escritura exclusiva del wearable. Web y móvil solo consultan estado e historial. Siempre asociada a `TripId`. |
+| Detección inicial de accidentes | No | No | Captura señales | Sí | — | El wearable captura; el backend calcula magnitudes, aplica reglas versionadas y genera alertas internas. |
 | Flujo integral del incidente | — | — | No | Sí | Sí | Backend: recibe, valida, registra, conserva evidencia, aplica reglas, crea alertas, notifica y mantiene trazabilidad. |
-| Iniciar viaje | No | Respaldo | Sí | Sí | Sí | Móvil solo como respaldo cuando falla el wearable. |
-| Pausar viaje | No | Respaldo | Sí | Sí | Sí | Móvil solo como respaldo cuando falla el wearable. |
-| Reanudar viaje | No | Respaldo | Sí | Sí | Sí | Móvil solo como respaldo cuando falla el wearable. |
-| Finalizar viaje | No | Respaldo | Sí | Sí | Sí | Móvil solo como respaldo cuando falla el wearable. |
+| Iniciar viaje | No | No | Sí | Sí | Sí | Control exclusivo del wearable; el móvil es lectura. |
+| Pausar viaje | No | No | Sí | Sí | Sí | Control exclusivo del wearable; el móvil es lectura. |
+| Reanudar viaje | No | No | Sí | Sí | Sí | Control exclusivo del wearable; el móvil es lectura. |
+| Finalizar viaje | No | No | Sí | Sí | Sí | Control exclusivo del wearable; el móvil es lectura. |
 | Consultar rutas sincronizadas | Sí | Sí | No requerido | Sí | Sí | Lectura. |
 | Consultar detalle de rutas | Sí | Sí | No requerido | Sí | Sí | Lectura. |
 | Consultar telemetría por `TripId` | Sí | Sí | No requerido | Sí | Sí | Lectura. |
@@ -1023,8 +1040,6 @@ El documento debe:
 ## Decisiones todavía pendientes
 
 - Duración del **ciclo de suscripción simulado** (mensual, anual u otro).
-- Duración o **expiración exacta** de códigos de invitación y de
-  preinvitaciones.
 - Política de **periodo de gracia** tras un pago simulado vencido.
 - **Comportamiento final** de integrantes tras cancelar o expirar una
   suscripción.
@@ -1032,8 +1047,6 @@ El documento debe:
   confirma la forma de generación del flujo).
 - Subconjunto exacto de la ficha médica visible con consentimiento.
 - Umbrales exactos de rate limiting.
-- Semántica de sincronización offline y de resolución de conflictos en la
-  telemetría.
 
 ---
 
@@ -1055,3 +1068,84 @@ El documento debe:
   de **mensajes rápidos predefinidos** (plantillas del sistema, plantillas
   personalizadas, historial con copia inmutable, relación vigilada y sin
   decisión de tecnología de tiempo real).
+## Consolidación operativa de monitoreo
+
+- `MonitoringRelationships` es la fuente canónica para autorización, mensajes
+  y destinatarios de alertas.
+- `Monitores` queda como almacenamiento legacy no operativo; no se elimina de
+  forma automática.
+- Una alerta solo se envía al monitor de una relación `Accepted` que conserve
+  los permisos `ReceiveCriticalAlerts` y `ReceiveNotifications`.
+- Los permisos técnicos web/móvil son independientes de los permisos que una
+  persona monitoreada concede a su monitor.
+- Las invitaciones pendientes se persisten como `Expired` al detectarse su
+  vencimiento de siete días.
+
+## Contrato Galaxy Watch 8 y telemetría V2
+
+- Wearable objetivo: Samsung Galaxy Watch 8 con WearOS.
+- La vinculación, confirmación, permisos y desvinculación se administran desde
+  móvil; el backend rechaza otros modelos.
+- El heartbeat registra batería, carga, versiones, desfase del reloj y
+  capacidades. El diagnóstico registra sensores disponibles, no disponibles y
+  calidad real.
+- El esquema de telemetría 2 es el contrato operativo para nuevos clientes.
+  Conserva idempotencia por EventId y admite sincronización offline mediante
+  batch y secuencias.
+- Acelerómetro, giroscopio, GPS y calidad son obligatorios en V2. HR, HRV, SpO₂
+  y orientación son opcionales según disponibilidad y permisos.
+- Las magnitudes derivadas se calculan en servidor. Las etiquetas de detección y
+  severidad solo pueden ser escritas por procesos internos.
+- La versión 1 permanece disponible para compatibilidad; no se eliminan ni se
+  reescriben documentos históricos de Cosmos.
+
+
+## Motor inicial de impacto y sincronización móvil
+
+- El endpoint `GET /api/v1/mobile/sync/bootstrap` entrega al cliente móvil un
+  snapshot de lectura con perfil, permisos, wearable, viaje activo, vehículos,
+  contactos, relaciones de monitoreo, mensajes rápidos y contadores.
+- El snapshot no concede al móvil escritura de telemetría ni control del viaje.
+- La idempotencia offline de telemetría permanece por `eventId`; mismo contenido
+  es duplicado seguro y contenido distinto responde 409.
+- El motor `impact-rules-v1` etiqueta cada evento nuevo en servidor. Los clientes
+  no pueden enviar `impactCandidate`, `severityLabel`, `ruleVersion` ni puntaje.
+- Señales `severe`/`critical` generan alerta interna inmediata. Señales
+  `bump`/`moderate` generan una alerta pendiente con 10 segundos para cancelar.
+- No existe llamada automática a 911, SMS o WhatsApp. La salida se limita a
+  notificaciones internas/Firebase dirigidas a relaciones aceptadas y autorizadas.
+
+## Resoluciones funcionales V8 — sustituyen decisiones pendientes anteriores
+
+- Ciclo simulado: mensual por defecto y anual opcional.
+- Periodo de gracia: tres días para suscripción individual y familiar.
+- Expiración: el usuario y los integrantes afectados vuelven a Free; las
+  invitaciones pendientes expiran y las membresías dejan de otorgar beneficios.
+- Pago: registro simulado aprobado, sin proveedor financiero real.
+- Plan público Estándar: se mantiene compatibilidad de almacenamiento con Basic.
+- Sincronización móvil: bootstrap, changes, push y ack con idempotencia por
+  operationId; no concede control de viaje ni escritura de telemetría.
+- Incidentes: uno por alerta, actualizado de forma idempotente y retenido 365 días.
+- Cuenta: exportación, revocación de consentimientos, anonimización y retención.
+- El subconjunto médico visible a monitores continúa sujeto a consentimiento
+  explícito; no se amplía automáticamente.
+- Los umbrales finales de rate limiting se calibrarán en el cierre V9 sin cambiar
+  el contrato funcional de endpoints.
+
+## Cierre V9 — contrato definitivo para clientes
+
+- El contrato API V1 queda congelado con versión `2026.08.02`.
+- `/api/v1/meta/contract` enumera el contrato efectivo y
+  `/api/v1/meta/clients/{client}` publica capacidades de web, móvil y wearable.
+- OpenAPI V1 documenta el cliente permitido en operaciones restringidas.
+- Todas las respuestas publican versión de API y contrato.
+- Las rutas legacy se conservan temporalmente, marcadas como deprecadas con
+  sunset `2027-02-02T00:00:00Z`; ningún frontend nuevo debe consumirlas.
+- Los límites de rate limiting de producción quedan definidos sin cambiar
+  cuerpos, rutas ni reglas funcionales.
+- Cosmos se valida en modo `ValidateOnly`; V9 no crea ni elimina recursos.
+- La comprobación final de Cosmos, Firebase y Azure se ejecuta mediante el
+  runbook de producción. Esas comprobaciones no agregan endpoints ni cambian el
+  contrato funcional.
+- Tras aprobar la suite V9, el backend queda listo para handoff y el trabajo
+  pendiente corresponde a completar los clientes sobre este contrato.

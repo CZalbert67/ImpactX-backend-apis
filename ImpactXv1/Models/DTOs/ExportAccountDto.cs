@@ -10,4 +10,5 @@ public class ExportAccountDto
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public bool EmailConfirmed { get; set; }
+    public OnboardingDto? Onboarding { get; set; }
 }

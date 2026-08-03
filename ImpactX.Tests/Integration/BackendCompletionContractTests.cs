@@ -54,22 +54,47 @@ public class BackendCompletionContractTests : IClassFixture<CustomWebApplication
     }
 
     [Fact]
-    public async Task MobileClient_StartTrip_IsAuditedAsFallback()
+    [Trait("Category", "Security")]
+    public async Task MobileClient_CannotStartTrips_Returns403()
     {
         var mobile = await RegisterAsync("mobile");
         SetBearer(mobile.Token);
 
         var response = await _client.PostAsJsonAsync("/api/v1/trips/start", new
         {
-            dispositivoId = "MOBILE-001",
-            fallbackReason = "Wearable sin conexión"
+            dispositivoId = "MOBILE-NOT-ALLOWED"
         });
 
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("mobile", json.GetProperty("controlClient").GetString());
-        Assert.True(json.GetProperty("mobileFallbackUsed").GetBoolean());
-        Assert.Equal("Wearable sin conexión", json.GetProperty("fallbackReason").GetString());
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task WearableClient_CanStartPauseResumeAndFinishTrip()
+    {
+        var wearable = await RegisterAsync("wearable");
+        SetBearer(wearable.Token);
+
+        var start = await _client.PostAsJsonAsync("/api/v1/trips/start", new
+        {
+            dispositivoId = "WEARABLE-FLOW-001"
+        });
+        Assert.Equal(HttpStatusCode.Created, start.StatusCode);
+
+        var viaje = await start.Content.ReadFromJsonAsync<JsonElement>();
+        var tripId = viaje.GetProperty("id").GetGuid();
+        Assert.Equal("wearable", viaje.GetProperty("controlClient").GetString());
+        Assert.False(viaje.GetProperty("mobileFallbackUsed").GetBoolean());
+
+        var pause = await _client.PostAsync($"/api/v1/trips/{tripId}/pause", null);
+        Assert.Equal(HttpStatusCode.OK, pause.StatusCode);
+
+        var resume = await _client.PostAsync($"/api/v1/trips/{tripId}/resume", null);
+        Assert.Equal(HttpStatusCode.OK, resume.StatusCode);
+
+        var finish = await _client.PostAsync($"/api/v1/trips/{tripId}/finish", null);
+        Assert.Equal(HttpStatusCode.OK, finish.StatusCode);
+        var finished = await finish.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Finalizado", finished.GetProperty("estado").GetString());
     }
 
     [Fact]
@@ -105,7 +130,7 @@ public class BackendCompletionContractTests : IClassFixture<CustomWebApplication
         var current = await _client.GetFromJsonAsync<FamilySubscriptionSummaryDto>(
             "/api/v1/family-subscriptions/current");
         Assert.NotNull(current);
-        Assert.Equal("Basic", current!.PlanName);
+        Assert.Equal("Standard", current!.PlanName);
         Assert.Equal(3, current.VehicleLimitPerUser);
 
         for (var index = 0; index < 3; index++)
@@ -150,6 +175,13 @@ public class BackendCompletionContractTests : IClassFixture<CustomWebApplication
         Assert.Equal(HttpStatusCode.NoContent, accept.StatusCode);
 
         SetBearer(monitor.Token);
+        var recipients = await _client.GetFromJsonAsync<List<QuickMessageRecipientDto>>(
+            "/api/v1/quick-messages/recipients");
+        Assert.NotNull(recipients);
+        var recipient = Assert.Single(recipients!);
+        Assert.Equal(monitored.PublicProfileId, recipient.RecipientPublicProfileId);
+        Assert.Equal(invitation.Relationship.PublicRelationshipId, recipient.PublicRelationshipId);
+
         var medicalBeforeConsent = await _client.GetAsync(
             $"/api/v1/monitoring-relationships/{invitation.Relationship.PublicRelationshipId}/medical-profile");
         Assert.Equal(HttpStatusCode.Forbidden, medicalBeforeConsent.StatusCode);

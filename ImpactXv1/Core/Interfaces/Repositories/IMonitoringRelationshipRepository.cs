@@ -20,6 +20,10 @@ public interface IMonitoringRelationshipRepository
         Guid monitorUserId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<MonitoringRelationship>> GetAcceptedForMonitoredUserAsync(
+        Guid monitoredUserId,
+        CancellationToken cancellationToken = default);
+
     Task<bool> ExistsBlockedAsync(
         Guid monitorUserId,
         Guid monitoredUserId,

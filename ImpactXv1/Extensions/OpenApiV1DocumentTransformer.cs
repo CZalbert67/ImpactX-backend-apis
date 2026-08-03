@@ -1,3 +1,4 @@
+using ImpactX.Core.ApiContract;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
 
@@ -14,7 +15,7 @@ public sealed class OpenApiV1DocumentTransformer : IOpenApiDocumentTransformer
 
         document.Info.Title = "ImpactX API v1";
         document.Info.Version = "v1";
-        document.Info.Description = "ImpactX Backend API — Version 1";
+        document.Info.Description = $"ImpactX Backend API — Version 1. Contrato congelado {ApiContractDefinition.ContractVersion}. Los clientes deben enviar la claim firmada client=web|mobile|wearable según la operación.";
 
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();

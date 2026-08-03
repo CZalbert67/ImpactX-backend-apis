@@ -33,7 +33,7 @@ dotnet add package <PackageName>
 - **Auth** (register, login, logout, recover/reset password, sessions, account export/delete, **refresh token**)
 - **Users** (profile CRUD, driver profile, medical profile, preferences, permissions, settings, **FCM token** PUT/DELETE)
 - **Plans + Subscriptions + Payments**
-- **Contacts** (emergency contacts CRUD)
+- **Contacts**: legacy `/api/contacts` (nombre/teléfono, no operativo) + V1 `/api/v1/contacts` como relación interna aceptada con preinvitación, código hash, bloqueo y revocación lógica
 - **Monitors** (invite, accept, reject, revoke, restore, **Premium allows 6**)
 - **Routes** (Rutas)
 - **Trips** (Viajes + telemetry: GET paginado, PATCH legacy por evento, **POST ingesta por lotes con idempotencia por EventId**)
@@ -279,3 +279,71 @@ if (app.Environment.IsDevelopment())
 - **Run `dotnet restore`, `dotnet build`, `dotnet test` after each batch of changes**
 - **JWT secret must be set externally** — `Jwt__Secret` via env var or `dotnet user-secrets set "Jwt:Secret" "..."`. Minimum 32 bytes UTF-8.
 - **No hardcoded secrets** — `scripts/security/check_hardcoded_secrets.py` scans for violations. Run `python3 scripts/security/check_hardcoded_secrets.py` before PR.
+
+## ImpactX canonical monitoring contract (backend-complete-v1)
+- `MonitoringRelationships` is the operational source for monitor authorization,
+  quick messages and alert recipients.
+- Do not use `Monitores` to authorize new behavior; it remains legacy-only until
+  a controlled migration is approved.
+- Alert dispatch requires an accepted relationship with both
+  `ReceiveCriticalAlerts` and `ReceiveNotifications` enabled.
+- `/api/v1/permissions/mobile` is mobile-only and
+  `/api/v1/permissions/web` is web-only.
+- Do not add free-text messaging. Quick messages always use approved templates.
+
+## Checkpoint interno — Galaxy Watch 8 y telemetría V2
+- Wearable objetivo validado por backend: Samsung Galaxy Watch 8 con WearOS.
+- Vinculación/configuración/desvinculación: `client=mobile`; heartbeat, batería,
+  diagnóstico y sync operativo: `client=wearable`.
+- Telemetría V2: hasta 100 eventos / 256 KiB, `batchId`, `batchSequence`,
+  `sequenceNumber`, procedencia del wearable, GPS, acelerómetro, giroscopio,
+  biometría opcional, orientación, calidad y sincronización offline.
+- La magnitud de movimiento se calcula en servidor cuando están presentes los
+  tres ejes. Las etiquetas de reglas/ML son de solo servidor.
+- Compatibilidad: esquema V1 y documentos históricos siguen siendo legibles.
+- No se agregaron contenedores Cosmos ni cambios destructivos. La validación
+  Release debe ejecutarse en Arch antes de commit, push o despliegue.
+
+
+## Checkpoint interno — mobile sync + impact-rules-v1
+- `GET /api/v1/mobile/sync/bootstrap` es exclusivo de `client=mobile` y solo
+  entrega un snapshot de lectura; nunca habilita start/pause/resume/finish ni
+  escritura de telemetría.
+- `impact-rules-v1` corre en servidor sobre telemetría canonicalizada. Ningún
+  cliente puede escribir etiquetas, versión de regla, puntaje o versión ML.
+- Alertas moderadas tienen ventana de cancelación de 10 segundos; severas y
+  críticas se envían inmediatamente a destinatarios internos autorizados.
+- Idempotencia de alerta: `sourceTelemetryEventId`; no crear una segunda alerta
+  por reintentar el mismo evento.
+- No integrar 911, SMS, WhatsApp ni canales externos automáticos.
+
+## Checkpoint interno — finalización funcional V8
+- V8 concentra los bloques antes separados de sincronización offline,
+  suscripciones, incidentes y ciclo de cuenta; no recorta funcionalidades.
+- Mobile sync V2: bootstrap/changes/push/ack, máximo 50 operaciones, recibos
+  idempotentes por `operationId`, y 200 recibos recientes embebidos en Usuario.
+- Plan público: Free/Standard/Premium. `Basic` permanece solo como nombre legacy
+  de almacenamiento para Standard.
+- Vigencia: ciclo mensual simulado, anual opcional y gracia de tres días.
+- Incidente: upsert único por alerta, gestión web/móvil y TTL por documento de
+  365 días.
+- Eliminación de cuenta: revocación de sesiones + anonimización inmediata; los
+  registros de dominio siguen TTL, sin borrado masivo destructivo.
+- No se agregan contenedores, no se cambian partition keys, throughput ni secretos.
+- Tras validar V8, V9 será exclusivamente cierre: legacy/OpenAPI, seguridad,
+  pruebas Cosmos/Firebase/Azure y congelamiento del contrato para frontend.
+
+## Checkpoint final — Backend V9 y contrato congelado
+- La API canónica queda congelada en `2026.08.02`; cambios incompatibles requieren
+  nueva versión y no deben alterar silenciosamente `/api/v1`.
+- Contrato runtime: `GET /api/v1/meta/contract`; capacidades públicas por cliente
+  en `GET /api/v1/meta/clients/{web|mobile|wearable}`.
+- Toda respuesta expone `X-ImpactX-Api-Version` y
+  `X-ImpactX-Contract-Version`.
+- Las rutas legacy se conservan temporalmente con `Deprecation`, `Sunset`,
+  `Warning`, `Link` y `X-ImpactX-Legacy-Route`; el frontend nuevo no debe usarlas.
+- V9 no agrega contenedores Cosmos, no cambia partition keys, throughput ni TTL.
+- La validación externa debe ser de solo lectura para Cosmos y mediante flujos de
+  prueba controlados para Firebase/Azure.
+- El siguiente trabajo funcional es conectar y completar frontend, móvil y
+  wearable sobre el contrato congelado; no agregar endpoints ad hoc para la UI.

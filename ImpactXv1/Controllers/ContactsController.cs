@@ -10,7 +10,6 @@ namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/contacts")]
-[Route("api/v1/contacts")]
 [Authorize]
 [RequireClientCapability(ClientTypePolicy.Web, ClientTypePolicy.Mobile)]
 public class ContactsController : ControllerBase

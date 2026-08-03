@@ -23,19 +23,21 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("start")]
-    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Start([FromBody] StartTripRequest request)
     {
         var usuarioId = GetUsuarioId();
-        request.Client = User.FindFirst("client")?.Value ?? ClientTypePolicy.Mobile;
+        request.Client = ClientTypePolicy.Wearable;
         var viaje = await _viajeService.StartAsync(usuarioId, request);
         return CreatedAtAction(nameof(GetActive), null, viaje);
     }
 
     [HttpPost("{id:guid}/pause")]
-    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Pause(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -44,8 +46,9 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/resume")]
-    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Resume(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -54,8 +57,9 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/finish")]
-    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Finish(Guid id)
     {
         var usuarioId = GetUsuarioId();
@@ -64,9 +68,10 @@ public class TripsController : ControllerBase
     }
 
     [HttpPatch("{id:guid}/telemetry")]
-    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable)]
     [EnableRateLimiting("telemetry-ingestion")]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> UpdateTelemetry(Guid id, [FromBody] TelemetryUpdateRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -75,11 +80,12 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/telemetry")]
-    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable)]
     [EnableRateLimiting("telemetry-ingestion")]
     [RequestSizeLimit(ImpactX.Core.Telemetry.TelemetryIngestionLimits.MaxBodyBytes)]
     [ProducesResponseType(typeof(TelemetryIngestionResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> IngestTelemetry(Guid id, [FromBody] TelemetryBatchRequest request, CancellationToken cancellationToken)
     {
         var usuarioId = GetUsuarioId();

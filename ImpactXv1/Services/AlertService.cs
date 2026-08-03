@@ -89,6 +89,7 @@ public class AlertService : IAlertService
         _logger.LogWarning("SOS enviado para usuario {UsuarioId}, alerta {AlertaId} creada", usuarioId, alerta.Id);
 
         await NotifyIfEnviadaAsync(alerta);
+        await UpsertIncidentAsync(alerta);
 
         return MapToDto(alerta);
     }
@@ -108,10 +109,12 @@ public class AlertService : IAlertService
         alerta.EsFalsaAlarma = true;
         alerta.ConfirmadaEn = DateTime.UtcNow;
         alerta.CerradaEn = DateTime.UtcNow;
+        alerta.AutoSendAtUtc = null;
         alerta.MetodoCierre = "ConfirmacionOk";
         alerta.Timeline.Add([DateTime.UtcNow.ToString("O"), "Usuario confirmó estar bien — alerta cancelada"]);
 
         await _alertaRepository.UpdateAsync(alerta);
+        await UpsertIncidentAsync(alerta);
         _logger.LogInformation("Alerta {AlertaId} cancelada por usuario {UsuarioId} (confirmó estar bien)", alertaId, usuarioId);
 
         return new ConfirmOkResponse
@@ -133,13 +136,16 @@ public class AlertService : IAlertService
             throw new ConflictException("Esta alerta ya fue cerrada.");
 
         alerta.EsBypassCritico = true;
-        alerta.Estado = "Activa";
+        alerta.Estado = "Enviada";
+        alerta.EnviadaEn ??= DateTime.UtcNow;
+        alerta.AutoSendAtUtc = null;
         alerta.Timeline.Add([DateTime.UtcNow.ToString("O"), "Bypass crítico activado — alerta inmediata"]);
 
         await _alertaRepository.UpdateAsync(alerta);
         _logger.LogCritical("BYPASS CRÍTICO para alerta {AlertaId} del usuario {UsuarioId}", alertaId, usuarioId);
 
         await NotifyIfEnviadaAsync(alerta);
+        await UpsertIncidentAsync(alerta);
 
         return new AlertActionResponse
         {
@@ -170,6 +176,7 @@ public class AlertService : IAlertService
             alerta.Reintentos, alertaId, usuarioId);
 
         await _notificationService.RetryAlertNotificationsAsync(alerta);
+        await UpsertIncidentAsync(alerta);
 
         return new AlertActionResponse
         {
@@ -214,31 +221,8 @@ public class AlertService : IAlertService
 
         await _alertaRepository.UpdateAsync(alerta);
 
-        var incidente = new Incidente
-        {
-            UsuarioId = usuarioId,
-            AlertaId = alerta.Id,
-            Severidad = alerta.Severidad,
-            Lat = alerta.Lat,
-            Lng = alerta.Lng,
-            Lugar = alerta.Lugar,
-            GForce = alerta.GForce,
-            Decibeles = alerta.Decibeles,
-            FrecuenciaCardiaca = alerta.FrecuenciaCardiaca,
-            Canal = alerta.Canal,
-            MetodoCierre = metodoCierre,
-            EsFalsaAlarma = alerta.EsFalsaAlarma,
-            EsBypassCritico = alerta.EsBypassCritico,
-            EsOffline = alerta.EsOffline,
-            Nota = alerta.Nota,
-            Timeline = alerta.Timeline,
-            ContactosNotificados = alerta.ContactosNotificados,
-            CreadoEn = alerta.CreadoEn,
-            CerradaEn = alerta.CerradaEn,
-        };
-
-        await _incidenteRepository.AddAsync(incidente);
-        _logger.LogInformation("Alerta {AlertaId} cerrada, incidente {IncidenteId} creado", alertaId, incidente.Id);
+        var incidente = await UpsertIncidentAsync(alerta);
+        _logger.LogInformation("Alerta {AlertaId} cerrada, incidente {IncidenteId} actualizado", alertaId, incidente.Id);
 
         return new AlertActionResponse
         {
@@ -275,6 +259,7 @@ public class AlertService : IAlertService
             };
 
             await _alertaRepository.AddAsync(alerta);
+            await UpsertIncidentAsync(alerta);
             resultados.Add(MapToDto(alerta));
         }
 
@@ -308,6 +293,52 @@ public class AlertService : IAlertService
             HasMoreResults = page.HasMoreResults,
             PageSize = page.PageSize,
         };
+    }
+
+    private async Task<Incidente> UpsertIncidentAsync(Alerta alert)
+    {
+        var incident = await _incidenteRepository.GetByAlertIdAsync(alert.UsuarioId, alert.Id);
+        var isNew = incident is null;
+        incident ??= new Incidente
+        {
+            UsuarioId = alert.UsuarioId,
+            AlertaId = alert.Id,
+            CreadoEn = alert.CreadoEn
+        };
+
+        incident.Tipo = alert.Tipo;
+        incident.Severidad = alert.Severidad;
+        incident.Estado = alert.Estado;
+        incident.Lat = alert.Lat;
+        incident.Lng = alert.Lng;
+        incident.Lugar = alert.Lugar;
+        incident.GForce = alert.GForce;
+        incident.Decibeles = alert.Decibeles;
+        incident.FrecuenciaCardiaca = alert.FrecuenciaCardiaca;
+        incident.Canal = alert.Canal;
+        incident.ViajeId = alert.ViajeId;
+        incident.SourceTelemetryEventId = alert.SourceTelemetryEventId;
+        incident.DetectionLabel = alert.DetectionLabel;
+        incident.RuleVersion = alert.RuleVersion;
+        incident.DetectionScore = alert.DetectionScore;
+        incident.MetodoCierre = alert.MetodoCierre ?? string.Empty;
+        incident.EsFalsaAlarma = alert.EsFalsaAlarma;
+        incident.EsBypassCritico = alert.EsBypassCritico;
+        incident.EsOffline = alert.EsOffline;
+        incident.Nota = alert.Nota;
+        incident.Timeline = alert.Timeline.Select(value => value.ToArray()).ToList();
+        incident.ContactosNotificados = alert.ContactosNotificados.ToList();
+        incident.EnviadaEn = alert.EnviadaEn;
+        incident.ConfirmadaEn = alert.ConfirmadaEn;
+        incident.CerradaEn = alert.CerradaEn;
+        incident.ActualizadoEn = DateTime.UtcNow;
+
+        if (isNew)
+            await _incidenteRepository.AddAsync(incident);
+        else
+            await _incidenteRepository.UpdateAsync(incident);
+
+        return incident;
     }
 
     private async Task NotifyIfEnviadaAsync(Alerta alerta)
@@ -344,6 +375,12 @@ public class AlertService : IAlertService
         Modo = a.Modo,
         Canal = a.Canal,
         ViajeId = a.ViajeId,
+        SourceTelemetryEventId = a.SourceTelemetryEventId,
+        DetectionLabel = a.DetectionLabel,
+        RuleVersion = a.RuleVersion,
+        DetectionScore = a.DetectionScore,
+        AutoSendAtUtc = a.AutoSendAtUtc,
+        CancellationSecondsRemaining = ResolveCancellationSecondsRemaining(a),
         EsBypassCritico = a.EsBypassCritico,
         EsOffline = a.EsOffline,
         TiempoRespuesta = a.TiempoRespuesta,
@@ -356,4 +393,12 @@ public class AlertService : IAlertService
         Timeline = a.Timeline,
         ContactosNotificados = a.ContactosNotificados,
     };
+
+    private static int? ResolveCancellationSecondsRemaining(Alerta alert)
+    {
+        if (alert.Estado != "Pendiente" || alert.AutoSendAtUtc is null)
+            return null;
+
+        return Math.Max(0, (int)Math.Ceiling((alert.AutoSendAtUtc.Value - DateTime.UtcNow).TotalSeconds));
+    }
 }

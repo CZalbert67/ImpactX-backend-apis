@@ -10,6 +10,8 @@ public interface IAlertaRepository
     Task<List<Alerta>> GetByUserAsync(Guid usuarioId);
     Task<PagedResult<Alerta>> GetByUserPagedAsync(Guid usuarioId, int pageSize, string? continuationToken, CancellationToken cancellationToken = default);
     Task<Alerta?> GetActiveByUserAsync(Guid usuarioId);
+    Task<Alerta?> GetBySourceTelemetryEventIdAsync(Guid usuarioId, Guid sourceTelemetryEventId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Alerta>> GetPendingDueAsync(DateTime utcNow, int maxCount, CancellationToken cancellationToken = default);
     Task<List<Alerta>> GetPendingByUserAsync(Guid usuarioId);
     Task<List<Alerta>> GetActiveAlertsAsync(Guid usuarioId);
     Task AddAsync(Alerta alerta);

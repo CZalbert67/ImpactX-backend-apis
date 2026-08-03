@@ -20,10 +20,38 @@ public class AlertasControllerTests : IClassFixture<CustomWebApplicationFactory>
         {
             nombre = "Alert Tester",
             correo = email,
-            password = "Password123!"
+            password = "Password123!",
+            client = "wearable"
         });
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
-        return result!.Token;
+        return result!.Token!;
+    }
+
+    private async Task<(string WearableToken, string MobileToken)> RegisterAndGetClientTokensAsync()
+    {
+        var email = $"alert_multi_{Guid.NewGuid():N}@test.com";
+        const string password = "Password123!";
+
+        var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            nombre = "Alert Multi Tester",
+            correo = email,
+            password,
+            client = "wearable"
+        });
+        registerResponse.EnsureSuccessStatusCode();
+        var wearable = await registerResponse.Content.ReadFromJsonAsync<AuthResponse>();
+
+        var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new
+        {
+            identifier = email,
+            password,
+            client = "mobile"
+        });
+        loginResponse.EnsureSuccessStatusCode();
+        var mobile = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>();
+
+        return (wearable!.Token!, mobile!.Token!);
     }
 
     [Fact]
@@ -190,7 +218,7 @@ public class AlertasControllerTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var result = await response.Content.ReadFromJsonAsync<AlertActionResponse>();
         Assert.NotNull(result);
-        Assert.Equal("Activa", result!.Estado);
+        Assert.Equal("Enviada", result!.Estado);
     }
 
     [Fact]
@@ -358,9 +386,9 @@ public class AlertasControllerTests : IClassFixture<CustomWebApplicationFactory>
     [Trait("Category", "Security")]
     public async Task Detect_DoesNotCreateNotificationHistory()
     {
-        var token = await RegisterAndGetTokenAsync();
+        var tokens = await RegisterAndGetClientTokensAsync();
         _client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.WearableToken);
 
         var response = await _client.PostAsJsonAsync("/api/alerts/detect", new
         {
@@ -374,7 +402,10 @@ public class AlertasControllerTests : IClassFixture<CustomWebApplicationFactory>
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.MobileToken);
         var notifResponse = await _client.GetAsync("/api/notifications");
+        Assert.Equal(HttpStatusCode.OK, notifResponse.StatusCode);
         var notifs = await notifResponse.Content.ReadFromJsonAsync<List<NotificacionDto>>();
         Assert.Empty(notifs!);
     }
@@ -383,9 +414,9 @@ public class AlertasControllerTests : IClassFixture<CustomWebApplicationFactory>
     [Trait("Category", "Security")]
     public async Task ConfirmOk_DoesNotGeneratePush()
     {
-        var token = await RegisterAndGetTokenAsync();
+        var tokens = await RegisterAndGetClientTokensAsync();
         _client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.WearableToken);
 
         var sosResponse = await _client.PostAsJsonAsync("/api/alerts/detect", new
         {
@@ -401,7 +432,10 @@ public class AlertasControllerTests : IClassFixture<CustomWebApplicationFactory>
         var confirmResponse = await _client.PostAsync($"/api/alerts/{created!.Id}/confirm-ok", null);
         Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
 
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.MobileToken);
         var notifResponse = await _client.GetAsync("/api/notifications");
+        Assert.Equal(HttpStatusCode.OK, notifResponse.StatusCode);
         var notifs = await notifResponse.Content.ReadFromJsonAsync<List<NotificacionDto>>();
         Assert.Empty(notifs!);
     }

@@ -33,9 +33,10 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         CancellationToken cancellationToken = default)
     {
         var relationships = await _repository.GetForUserAsync(userId, cancellationToken);
-        var result = new List<MonitoringRelationshipDto>();
+        var result = new List<MonitoringRelationshipDto>(relationships.Count);
         foreach (var relationship in relationships)
         {
+            await ExpirePendingInvitationIfNeededAsync(relationship, cancellationToken);
             result.Add(await MapAsync(relationship));
         }
 
@@ -402,17 +403,27 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
             throw new BadRequestException("Proporciona publicRelationshipId o code, pero no ambos.");
         }
 
+        MonitoringRelationship relationship;
         if (!string.IsNullOrWhiteSpace(publicRelationshipId))
         {
-            return await _repository.GetByPublicIdAsync(
+            relationship = await _repository.GetByPublicIdAsync(
                 publicRelationshipId.Trim(),
                 cancellationToken)
                 ?? throw new NotFoundException("Invitación no encontrada.");
         }
+        else
+        {
+            var hash = InvitationCodeHasher.Hash(code!);
+            relationship = await _repository.GetByInvitationCodeHashAsync(hash, cancellationToken)
+                ?? throw new NotFoundException("Código de invitación inválido o expirado.");
+        }
 
-        var hash = InvitationCodeHasher.Hash(code!);
-        return await _repository.GetByInvitationCodeHashAsync(hash, cancellationToken)
-            ?? throw new NotFoundException("Código de invitación inválido o expirado.");
+        if (await ExpirePendingInvitationIfNeededAsync(relationship, cancellationToken))
+        {
+            throw new ConflictException("La invitación ya expiró.");
+        }
+
+        return relationship;
     }
 
 
@@ -687,6 +698,23 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         }
 
         return string.Equals(storedValue, targetValue, comparison);
+    }
+
+    private async Task<bool> ExpirePendingInvitationIfNeededAsync(
+        MonitoringRelationship relationship,
+        CancellationToken cancellationToken)
+    {
+        if (relationship.Status != MonitoringRelationshipStatus.Pending
+            || relationship.ExpiresAtUtc > DateTime.UtcNow)
+        {
+            return false;
+        }
+
+        relationship.Status = MonitoringRelationshipStatus.Expired;
+        relationship.InvitationCodeHash = string.Empty;
+        relationship.UpdatedAtUtc = DateTime.UtcNow;
+        await _repository.UpdateAsync(relationship, cancellationToken);
+        return true;
     }
 
     private static void EnsurePending(MonitoringRelationship relationship)

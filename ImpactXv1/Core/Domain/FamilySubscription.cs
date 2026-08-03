@@ -32,6 +32,15 @@ public class FamilySubscription
     [JsonPropertyName("periodEndUtc")]
     public DateTime PeriodEndUtc { get; set; } = DateTime.UtcNow.AddMonths(1);
 
+    [JsonPropertyName("nextBillingAtUtc")]
+    public DateTime? NextBillingAtUtc { get; set; }
+
+    [JsonPropertyName("graceEndsAtUtc")]
+    public DateTime? GraceEndsAtUtc { get; set; }
+
+    [JsonPropertyName("autoRenew")]
+    public bool AutoRenew { get; set; }
+
     [JsonPropertyName("createdAtUtc")]
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 

@@ -8,12 +8,6 @@ namespace ImpactX.Services;
 
 public class UserService : IUserService
 {
-    private static readonly string[] ReservedUsernames =
-    {
-        "impactx", "admin", "support", "soporte", "root", "system",
-        "contact", "contacto", "privacy", "privacidad", "staff", "test"
-    };
-
     private readonly IUsuarioRepository _usuarioRepository;
 
     public UserService(IUsuarioRepository usuarioRepository)
@@ -186,7 +180,20 @@ public class UserService : IUserService
         }
 
         if (request.PrivacyAccepted.HasValue)
-            onboarding.PrivacyAccepted = request.PrivacyAccepted.Value;
+        {
+            if (!request.PrivacyAccepted.Value && onboarding.PrivacyAccepted)
+            {
+                throw new BadRequestException(
+                    "La aceptación del aviso de privacidad no se revoca desde el onboarding. Administra por separado los consentimientos opcionales.");
+            }
+
+            if (request.PrivacyAccepted.Value && !onboarding.PrivacyAccepted)
+            {
+                onboarding.PrivacyAccepted = true;
+                onboarding.PrivacyNoticeVersion = RegistrationContract.PrivacyNoticeVersion;
+                onboarding.PrivacyAcceptedAtUtc = DateTime.UtcNow;
+            }
+        }
         if (request.LocationIncidentConsent.HasValue)
             onboarding.LocationIncidentConsent = request.LocationIncidentConsent.Value;
         if (request.DrivingPatternConsent.HasValue)
@@ -216,6 +223,63 @@ public class UserService : IUserService
         return MapToOnboardingDto(onboarding) ?? new OnboardingDto();
     }
 
+    public async Task<OnboardingDto> AcceptLegalDocumentsAsync(
+        Guid usuarioId,
+        AcceptLegalDocumentsRequest request)
+    {
+        if (request.ContractVersion != RegistrationContract.CurrentVersion)
+        {
+            throw new BadRequestException("Versión de contrato legal no compatible.");
+        }
+
+        if (!request.TermsAccepted || !request.PrivacyAccepted)
+        {
+            throw new BadRequestException(
+                "Debes aceptar los términos de uso y el aviso de privacidad vigentes.");
+        }
+
+        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
+        if (usuario is null)
+        {
+            throw new NotFoundException("Usuario no encontrado.");
+        }
+
+        await EnsureIdentityCompatibilityAsync(usuario);
+        usuario.Onboarding ??= new OnboardingProgress();
+        var onboarding = usuario.Onboarding;
+        var now = DateTime.UtcNow;
+
+        var termsVersionChanged = !string.Equals(
+            onboarding.TermsVersion,
+            RegistrationContract.TermsVersion,
+            StringComparison.Ordinal);
+        var privacyVersionChanged = !string.Equals(
+            onboarding.PrivacyNoticeVersion,
+            RegistrationContract.PrivacyNoticeVersion,
+            StringComparison.Ordinal);
+
+        onboarding.RegistrationContractVersion = RegistrationContract.CurrentVersion;
+        onboarding.TermsAccepted = true;
+        onboarding.TermsVersion = RegistrationContract.TermsVersion;
+        if (termsVersionChanged || !onboarding.TermsAcceptedAtUtc.HasValue)
+        {
+            onboarding.TermsAcceptedAtUtc = now;
+        }
+
+        onboarding.PrivacyAccepted = true;
+        onboarding.PrivacyNoticeVersion = RegistrationContract.PrivacyNoticeVersion;
+        if (privacyVersionChanged || !onboarding.PrivacyAcceptedAtUtc.HasValue)
+        {
+            onboarding.PrivacyAcceptedAtUtc = now;
+        }
+        onboarding.UpdatedAtUtc = now;
+
+        RecomputeOnboardingCompletion(onboarding, now);
+        await _usuarioRepository.UpdateAsync(usuario);
+
+        return OnboardingDtoMapper.Map(onboarding) ?? new OnboardingDto();
+    }
+
     public async Task<UserProfileDto> UpdateUsernameAsync(Guid usuarioId, UpdateUsernameRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Username))
@@ -225,7 +289,7 @@ public class UserService : IUserService
         if (username is null || username.Length is < 3 or > 30)
             throw new BadRequestException("El username debe tener entre 3 y 30 caracteres (a-z, 0-9, punto y guion bajo).");
 
-        if (ReservedUsernames.Contains(username, StringComparer.OrdinalIgnoreCase))
+        if (UsernamePolicy.IsReserved(username))
             throw new ConflictException("Ese username está reservado.");
 
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
@@ -291,9 +355,11 @@ public class UserService : IUserService
 
     private static void RecomputeOnboardingCompletion(OnboardingProgress o, DateTime now)
     {
-        var consentOk = o.PrivacyAccepted;
+        var legalOk = o.RegistrationContractVersion < RegistrationContract.CurrentVersion
+            ? o.PrivacyAccepted
+            : o.TermsAccepted && o.PrivacyAccepted;
         var medicalOk = o.MedicalProfileStatus is MedicalProfileOnboardingStatus.Completed or MedicalProfileOnboardingStatus.Skipped;
-        var completionCriteriaMet = o.CurrentStep >= 8 && consentOk && medicalOk;
+        var completionCriteriaMet = o.CurrentStep >= 8 && legalOk && medicalOk;
 
         if (completionCriteriaMet && o.Status != OnboardingStatus.Completed)
         {
@@ -326,6 +392,11 @@ public class UserService : IUserService
         if (usuario.Onboarding is null)
         {
             usuario.Onboarding = new OnboardingProgress();
+            changed = true;
+        }
+        else if (usuario.Onboarding.RegistrationContractVersion < RegistrationContract.LegacyVersion)
+        {
+            usuario.Onboarding.RegistrationContractVersion = RegistrationContract.LegacyVersion;
             changed = true;
         }
 
@@ -390,19 +461,9 @@ public class UserService : IUserService
         };
     }
 
-    private static OnboardingDto? MapToOnboardingDto(OnboardingProgress? o)
+    private static OnboardingDto? MapToOnboardingDto(OnboardingProgress? onboarding)
     {
-        return o is null ? null : new OnboardingDto
-        {
-            Status = o.Status.ToString(),
-            CurrentStep = o.CurrentStep,
-            MedicalProfileStatus = o.MedicalProfileStatus.ToString(),
-            PrivacyAccepted = o.PrivacyAccepted,
-            LocationIncidentConsent = o.LocationIncidentConsent,
-            DrivingPatternConsent = o.DrivingPatternConsent,
-            CompletedAtUtc = o.CompletedAtUtc,
-            UpdatedAtUtc = o.UpdatedAtUtc,
-        };
+        return OnboardingDtoMapper.Map(onboarding);
     }
 
     private static DriverProfileDto? MapToDriverProfileDto(PerfilConduccion? p)

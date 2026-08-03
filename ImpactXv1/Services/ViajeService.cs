@@ -1,6 +1,8 @@
 using ImpactX.Core.Domain;
 using ImpactX.Core.Exceptions;
+using ImpactX.Core.ImpactDetection;
 using ImpactX.Core.Interfaces.Repositories;
+using ImpactX.Core.Interfaces.Services;
 using ImpactX.Core.Pagination;
 using ImpactX.Core.Security;
 using ImpactX.Core.Telemetry;
@@ -13,15 +15,21 @@ public class ViajeService : IViajeService
     private readonly IViajeRepository _viajeRepository;
     private readonly ILogger<ViajeService> _logger;
     private readonly IVehicleRepository? _vehicleRepository;
+    private readonly IImpactDetectionEngine? _impactDetectionEngine;
+    private readonly IImpactAlertOrchestrator? _impactAlertOrchestrator;
 
     public ViajeService(
         IViajeRepository viajeRepository,
         ILogger<ViajeService> logger,
-        IVehicleRepository? vehicleRepository = null)
+        IVehicleRepository? vehicleRepository = null,
+        IImpactDetectionEngine? impactDetectionEngine = null,
+        IImpactAlertOrchestrator? impactAlertOrchestrator = null)
     {
         _viajeRepository = viajeRepository;
         _logger = logger;
         _vehicleRepository = vehicleRepository;
+        _impactDetectionEngine = impactDetectionEngine;
+        _impactAlertOrchestrator = impactAlertOrchestrator;
     }
 
     public async Task<ViajeDto> StartAsync(Guid usuarioId, StartTripRequest request)
@@ -31,19 +39,18 @@ public class ViajeService : IViajeService
             throw new ConflictException("Ya tienes un viaje activo. Finalízalo antes de iniciar uno nuevo.");
 
         var vehiclePublicId = await ResolveVehiclePublicIdAsync(usuarioId, request.VehiclePublicId);
-        var client = ClientTypePolicy.Normalize(request.Client);
-        var fallbackReason = string.IsNullOrWhiteSpace(request.FallbackReason)
-            ? null
-            : request.FallbackReason.Trim();
 
+        // Invariante de producto: el ciclo de vida del viaje es controlado
+        // exclusivamente por el wearable. Los campos legacy se conservan solo
+        // para leer documentos históricos, no para crear nuevos viajes.
         var viaje = new Viaje
         {
             UsuarioId = usuarioId,
             DispositivoId = request.DispositivoId,
             VehiclePublicId = vehiclePublicId,
-            ControlClient = client,
-            MobileFallbackUsed = client == ClientTypePolicy.Mobile,
-            FallbackReason = fallbackReason,
+            ControlClient = ClientTypePolicy.Wearable,
+            MobileFallbackUsed = false,
+            FallbackReason = null,
             Estado = "Activo",
             Inicio = DateTime.UtcNow,
             Proposito = request.Proposito,
@@ -133,6 +140,33 @@ public class ViajeService : IViajeService
                 Velocidad = punto.Velocidad,
                 Altitud = punto.Altitud,
                 Heading = punto.Heading,
+                SchemaVersion = punto.SchemaVersion,
+                SequenceNumber = punto.SequenceNumber,
+                CapturedOffline = punto.CapturedOffline,
+                WearableDeviceId = TelemetryCanonicalizer.NormalizeOptionalText(punto.WearableDeviceId),
+                WearableModel = TelemetryCanonicalizer.NormalizeOptionalText(punto.WearableModel),
+                VehiclePublicId = viaje.VehiclePublicId,
+                BatteryLevel = punto.BatteryLevel,
+                GpsAccuracyMeters = punto.GpsAccuracyMeters,
+                AceleracionX = punto.AceleracionX,
+                AceleracionY = punto.AceleracionY,
+                AceleracionZ = punto.AceleracionZ,
+                MagnitudAceleracion = TelemetryCanonicalizer.ResolveMagnitude(
+                    punto.AceleracionX, punto.AceleracionY, punto.AceleracionZ, punto.MagnitudAceleracion),
+                GiroscopioX = punto.GiroscopioX,
+                GiroscopioY = punto.GiroscopioY,
+                GiroscopioZ = punto.GiroscopioZ,
+                MagnitudGiroscopio = TelemetryCanonicalizer.ResolveMagnitude(
+                    punto.GiroscopioX, punto.GiroscopioY, punto.GiroscopioZ, punto.MagnitudGiroscopio),
+                Desaceleracion = punto.Desaceleracion,
+                FrecuenciaCardiaca = punto.FrecuenciaCardiaca,
+                HrvMilisegundos = punto.HrvMilisegundos,
+                Spo2Porcentaje = punto.Spo2Porcentaje,
+                Pitch = punto.Pitch,
+                Roll = punto.Roll,
+                Yaw = punto.Yaw,
+                CalidadSensor = TelemetrySchema.NormalizeQuality(punto.CalidadSensor),
+                SensorFlagsCsv = TelemetryCanonicalizer.NormalizeSensorFlags(punto.SensorFlags),
             };
             await _viajeRepository.AddTelemetryAsync(telemetry);
         }
@@ -164,7 +198,7 @@ public class ViajeService : IViajeService
 
             if (existente is null)
             {
-                nuevos.Add(new ViajeTelemetry
+                var telemetry = new ViajeTelemetry
                 {
                     Id = evento.EventId,
                     ViajeId = viajeId,
@@ -175,8 +209,42 @@ public class ViajeService : IViajeService
                     Velocidad = evento.Velocidad,
                     Altitud = evento.Altitud,
                     Heading = evento.Heading,
+                    SchemaVersion = request.SchemaVersion,
+                    BatchId = request.BatchId,
+                    BatchSequence = request.BatchSequence,
+                    SequenceNumber = evento.SequenceNumber,
+                    CapturedOffline = request.CapturedOffline,
+                    WearableDeviceId = TelemetryCanonicalizer.NormalizeOptionalText(request.WearableDeviceId),
+                    WearableModel = TelemetryCanonicalizer.NormalizeOptionalText(request.WearableModel),
+                    WearableAppVersion = TelemetryCanonicalizer.NormalizeOptionalText(request.WearableAppVersion),
+                    WearableOsVersion = TelemetryCanonicalizer.NormalizeOptionalText(request.WearableOsVersion),
+                    WearableFirmwareVersion = TelemetryCanonicalizer.NormalizeOptionalText(request.WearableFirmwareVersion),
+                    VehiclePublicId = viaje.VehiclePublicId,
+                    BatteryLevel = request.BatteryLevel,
+                    ClockOffsetMilliseconds = request.ClockOffsetMilliseconds,
+                    GpsAccuracyMeters = evento.GpsAccuracyMeters,
+                    AceleracionX = evento.AceleracionX,
+                    AceleracionY = evento.AceleracionY,
+                    AceleracionZ = evento.AceleracionZ,
+                    MagnitudAceleracion = TelemetryCanonicalizer.ResolveAccelerationMagnitude(evento),
+                    GiroscopioX = evento.GiroscopioX,
+                    GiroscopioY = evento.GiroscopioY,
+                    GiroscopioZ = evento.GiroscopioZ,
+                    MagnitudGiroscopio = TelemetryCanonicalizer.ResolveGyroscopeMagnitude(evento),
+                    Desaceleracion = evento.Desaceleracion,
+                    FrecuenciaCardiaca = evento.FrecuenciaCardiaca,
+                    HrvMilisegundos = evento.HrvMilisegundos,
+                    Spo2Porcentaje = evento.Spo2Porcentaje,
+                    Pitch = evento.Pitch,
+                    Roll = evento.Roll,
+                    Yaw = evento.Yaw,
+                    CalidadSensor = TelemetrySchema.NormalizeQuality(evento.CalidadSensor),
+                    SensorFlagsCsv = TelemetryCanonicalizer.NormalizeSensorFlags(evento.SensorFlags),
                     RecibidoEn = DateTime.UtcNow,
-                });
+                };
+
+                ApplyServerDetection(telemetry);
+                nuevos.Add(telemetry);
             }
             else if (TelemetryEventEquality.IsIdentical(existente, evento))
             {
@@ -194,16 +262,36 @@ public class ViajeService : IViajeService
             ? new TelemetryBatchWriteResult()
             : await _viajeRepository.AddTelemetryBatchAsync(viajeId, nuevos, cancellationToken);
 
+        if (escritura.Insertados > 0 && _impactAlertOrchestrator is not null)
+        {
+            await _impactAlertOrchestrator.ProcessDetectedEventsAsync(
+                usuarioId,
+                viaje,
+                nuevos,
+                cancellationToken);
+        }
+
         // El timestamp del evento es el del cliente (UTC); la recepción del
         // servidor vive separada en ViajeTelemetry.RecibidoEn.
+        var sequences = request.Eventos
+            .Where(evento => evento.SequenceNumber is not null)
+            .Select(evento => evento.SequenceNumber!.Value)
+            .ToList();
+
         var resultado = new TelemetryIngestionResultDto
         {
             ViajeId = viajeId,
+            BatchId = request.BatchId,
+            SchemaVersion = request.SchemaVersion,
+            CapturedOffline = request.CapturedOffline,
             Recibidos = request.Eventos.Count,
             Insertados = escritura.Insertados,
             Duplicados = duplicados + escritura.Duplicados,
             PrimerEventoUtc = request.Eventos.Min(e => e.Timestamp),
             UltimoEventoUtc = request.Eventos.Max(e => e.Timestamp),
+            PrimeraSecuencia = sequences.Count == 0 ? null : sequences.Min(),
+            UltimaSecuencia = sequences.Count == 0 ? null : sequences.Max(),
+            ProcesadoEnUtc = DateTime.UtcNow,
         };
 
         // Logs únicamente con conteos: sin EventId, sin GPS, sin payload.
@@ -311,6 +399,21 @@ public class ViajeService : IViajeService
         return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
     }
 
+    private void ApplyServerDetection(ViajeTelemetry telemetry)
+    {
+        if (_impactDetectionEngine is null)
+            return;
+
+        var decision = _impactDetectionEngine.Evaluate(telemetry);
+        telemetry.ImpactCandidate = decision.IsCandidate;
+        telemetry.DetectionLabel = decision.DetectionLabel;
+        telemetry.SeverityLabel = decision.SeverityLabel;
+        telemetry.RuleVersion = decision.RuleVersion;
+        telemetry.DetectionScore = decision.Score;
+        telemetry.ModelVersion = null;
+        telemetry.LabeledAtUtc = DateTime.UtcNow;
+    }
+
     private static ViajeDto MapToDto(Viaje v) => new()
     {
         Id = v.Id,
@@ -340,5 +443,36 @@ public class ViajeService : IViajeService
         Altitud = t.Altitud,
         Heading = t.Heading,
         Timestamp = t.Timestamp,
+        SchemaVersion = t.SchemaVersion,
+        SequenceNumber = t.SequenceNumber,
+        CapturedOffline = t.CapturedOffline,
+        WearableDeviceId = t.WearableDeviceId,
+        WearableModel = t.WearableModel,
+        VehiclePublicId = t.VehiclePublicId,
+        BatteryLevel = t.BatteryLevel,
+        GpsAccuracyMeters = t.GpsAccuracyMeters,
+        AceleracionX = t.AceleracionX,
+        AceleracionY = t.AceleracionY,
+        AceleracionZ = t.AceleracionZ,
+        MagnitudAceleracion = t.MagnitudAceleracion,
+        GiroscopioX = t.GiroscopioX,
+        GiroscopioY = t.GiroscopioY,
+        GiroscopioZ = t.GiroscopioZ,
+        MagnitudGiroscopio = t.MagnitudGiroscopio,
+        Desaceleracion = t.Desaceleracion,
+        FrecuenciaCardiaca = t.FrecuenciaCardiaca,
+        HrvMilisegundos = t.HrvMilisegundos,
+        Spo2Porcentaje = t.Spo2Porcentaje,
+        Pitch = t.Pitch,
+        Roll = t.Roll,
+        Yaw = t.Yaw,
+        CalidadSensor = t.CalidadSensor,
+        SensorFlags = TelemetryCanonicalizer.ParseSensorFlags(t.SensorFlagsCsv),
+        ImpactCandidate = t.ImpactCandidate,
+        DetectionLabel = t.DetectionLabel,
+        SeverityLabel = t.SeverityLabel,
+        RuleVersion = t.RuleVersion,
+        DetectionScore = t.DetectionScore,
+        ModelVersion = t.ModelVersion,
     };
 }

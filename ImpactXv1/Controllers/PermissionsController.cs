@@ -30,6 +30,7 @@ public class PermissionsController : ControllerBase
     }
 
     [HttpPut("mobile")]
+    [RequireClientCapability(ClientTypePolicy.Mobile)]
     public async Task<IActionResult> UpdateMobilePermissions([FromBody] UpdatePermissionsRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -38,6 +39,7 @@ public class PermissionsController : ControllerBase
     }
 
     [HttpPut("web")]
+    [RequireClientCapability(ClientTypePolicy.Web)]
     public async Task<IActionResult> UpdateWebPermissions([FromBody] UpdatePermissionsRequest request)
     {
         var usuarioId = GetUsuarioId();

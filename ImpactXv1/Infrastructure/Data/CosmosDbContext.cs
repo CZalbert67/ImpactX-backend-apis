@@ -116,6 +116,27 @@ public class CosmosDbContext
         }
     }
 
+    /// <summary>
+    /// Valida de forma estrictamente read-only que la base y todos los
+    /// contenedores del catálogo existan con partition key y TTL compatibles.
+    /// No crea, modifica, elimina ni siembra recursos.
+    /// </summary>
+    public virtual async Task ValidateSchemaAsync(CancellationToken cancellationToken = default)
+    {
+        await ValidateDatabaseAccessAsync(cancellationToken);
+
+        foreach (var definition in CosmosContainerCatalog.All)
+        {
+            var existing = await ReadContainerPropertiesAsync(definition.Name, cancellationToken);
+            ValidateContainerSchema(definition, existing);
+        }
+    }
+
+    protected virtual async Task ValidateDatabaseAccessAsync(CancellationToken cancellationToken)
+    {
+        await _database.ReadAsync(cancellationToken: cancellationToken);
+    }
+
     protected virtual async Task EnsureDatabaseAsync(CancellationToken cancellationToken)
     {
         try
@@ -159,15 +180,41 @@ public class CosmosDbContext
             existing = await ReadContainerPropertiesAsync(definition.Name, cancellationToken);
         }
 
+        ValidateContainerSchema(definition, existing);
+    }
+
+    private static void ValidateContainerSchema(
+        CosmosContainerDefinition definition,
+        ContainerProperties? existing)
+    {
         if (existing is null)
         {
-            throw new CosmosSchemaValidationException(definition.Name);
+            throw new CosmosSchemaValidationException(
+                definition.Name,
+                CosmosSchemaMismatchKind.MissingContainer);
         }
 
-        if (!string.Equals(existing.PartitionKeyPath, definition.PartitionKeyPath, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(
+                existing.PartitionKeyPath,
+                definition.PartitionKeyPath,
+                StringComparison.OrdinalIgnoreCase))
         {
-            // No se borra ni se recrea: requiere migración controlada.
-            throw new CosmosSchemaValidationException(definition.Name);
+            throw new CosmosSchemaValidationException(
+                definition.Name,
+                CosmosSchemaMismatchKind.PartitionKey);
+        }
+
+        // Para contenedores sin expiración, Cosmos puede devolver null o -1
+        // según cómo fueron creados. Ambos representan compatibilidad con -1.
+        var ttlMatches = definition.DefaultTimeToLive == -1
+            ? existing.DefaultTimeToLive is null or -1
+            : existing.DefaultTimeToLive == definition.DefaultTimeToLive;
+
+        if (!ttlMatches)
+        {
+            throw new CosmosSchemaValidationException(
+                definition.Name,
+                CosmosSchemaMismatchKind.TimeToLive);
         }
     }
 

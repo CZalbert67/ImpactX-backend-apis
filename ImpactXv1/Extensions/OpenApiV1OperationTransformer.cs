@@ -1,3 +1,4 @@
+using ImpactX.Core.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.OpenApi;
@@ -27,6 +28,7 @@ public sealed class OpenApiV1OperationTransformer : IOpenApiOperationTransformer
 
         EnrichPaginationParameters(operation);
         EnrichTelemetryIngestionOperation(operation, context, metadata);
+        EnrichClientCapabilities(operation, metadata);
 
         return Task.CompletedTask;
     }
@@ -48,7 +50,7 @@ public sealed class OpenApiV1OperationTransformer : IOpenApiOperationTransformer
         if (!esPost)
             return;
 
-        operation.Description = "Ingesta por lotes de telemetría de un viaje (1 a 100 eventos). Cada evento requiere un EventId (GUID) generado por el cliente y un timestamp UTC. Los reintentos con eventos idénticos son seguros: los eventos ya recibidos se reportan como duplicados y no se vuelven a insertar. Reenviar un EventId con contenido diferente devuelve 409.";
+        operation.Description = "Ingesta por lotes de telemetría de un viaje (1 a 100 eventos, hasta 256 KiB). La versión 1 conserva GPS/velocidad; la versión 2 agrega batchId, secuencia offline, procedencia del Galaxy Watch 8, acelerómetro, giroscopio, biometría, orientación y calidad de sensores. Cada evento requiere EventId y timestamp UTC. Los reintentos con eventos idénticos son seguros; reenviar un EventId con contenido diferente devuelve 409.";
     }
 
     private static void EnrichPaginationParameters(OpenApiOperation operation)
@@ -83,4 +85,19 @@ public sealed class OpenApiV1OperationTransformer : IOpenApiOperationTransformer
             }
         }
     }
+    private static void EnrichClientCapabilities(OpenApiOperation operation, IList<object> metadata)
+    {
+        var capability = metadata.OfType<RequireClientCapabilityAttribute>().LastOrDefault();
+        if (capability is null)
+        {
+            return;
+        }
+
+        var clients = string.Join(", ", capability.AllowedClients.OrderBy(value => value, StringComparer.Ordinal));
+        var note = $"Clientes permitidos: {clients}.";
+        operation.Description = string.IsNullOrWhiteSpace(operation.Description)
+            ? note
+            : $"{operation.Description}\n\n{note}";
+    }
+
 }

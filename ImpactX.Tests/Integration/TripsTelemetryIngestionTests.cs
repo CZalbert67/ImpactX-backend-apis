@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using ImpactX.Core.Telemetry;
 using ImpactX.Models.DTOs;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Mvc;
@@ -29,13 +30,15 @@ public class TripsTelemetryIngestionTests : IClassFixture<CustomWebApplicationFa
         {
             nombre = "Ingest Tester",
             correo = email,
-            password = "Password123!"
+            password = "Password123!",
+            client = "wearable"
         });
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
         var client = _factory.CreateClient();
+        var token = result!.Token!;
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", result!.Token);
-        return (client, result.Token);
+            new AuthenticationHeaderValue("Bearer", token);
+        return (client, token);
     }
 
     private static async Task<ViajeDto> StartTripAsync(HttpClient client, string dispositivoId = "WEAR-ING-001")
@@ -367,7 +370,7 @@ public class TripsTelemetryIngestionTests : IClassFixture<CustomWebApplicationFa
             .Cast<RequestSizeLimitAttribute>()
             .Single();
         var metadata = (IRequestSizeLimitMetadata)atributo;
-        Assert.Equal(32 * 1024, metadata.MaxRequestBodySize);
+        Assert.Equal(TelemetryIngestionLimits.MaxBodyBytes, metadata.MaxRequestBodySize);
     }
 
     [Fact]

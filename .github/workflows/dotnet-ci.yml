@@ -61,6 +61,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Verify frozen API contract files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/validation/verify_contract_files.py
+
       - name: Restore and Audit Dependencies
         run: |
           dotnet restore ImpactX.slnx \
@@ -230,6 +236,18 @@ jobs:
             "http://127.0.0.1:5055/openapi/v1.json" > "$openapi_file"
           python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert 'openapi' in d; assert 'paths' in d; assert isinstance(d['paths'], dict); print('OK')" "$openapi_file"
           echo "/openapi/v1.json OK"
+
+          # Validate frozen client contract and version headers
+          contract_file="${{ runner.temp }}/api-contract.json"
+          header_file="${{ runner.temp }}/api-contract-headers.txt"
+          curl --fail --silent --show-error \
+            --dump-header "$header_file" \
+            --connect-timeout 2 --max-time 5 \
+            "http://127.0.0.1:5055/api/v1/meta/contract" > "$contract_file"
+          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['apiVersion']=='v1'; assert d['contractVersion']=='2026.08.02'; assert d['status']=='frozen'; assert any(r['path']=='/api/v1/auth/login' and r['method']=='POST' for r in d['routes']); print('OK')" "$contract_file"
+          grep -qi '^X-ImpactX-Api-Version: v1' "$header_file"
+          grep -qi '^X-ImpactX-Contract-Version: 2026.08.02' "$header_file"
+          echo "/api/v1/meta/contract OK"
 
           # Validate Swagger returns 404 in CI
           swagger_code=$(curl --silent --output /dev/null --write-out '%{http_code}' \

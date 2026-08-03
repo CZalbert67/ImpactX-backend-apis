@@ -1,15 +1,15 @@
 using System.Security.Claims;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using ImpactX.Core.Pagination;
 using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 namespace ImpactX.Controllers;
 
 [ApiController]
 [Route("api/wearable")]
+[Route("api/v1/wearable")]
 [Authorize]
 public class WearableController : ControllerBase
 {
@@ -31,7 +31,6 @@ public class WearableController : ControllerBase
     }
 
     [HttpGet("all")]
-    [HttpGet("/api/v1/wearable/all")]
     public async Task<IActionResult> GetWearables(int? pageSize, string? continuationToken)
     {
         var usuarioId = GetUsuarioId();
@@ -41,6 +40,7 @@ public class WearableController : ControllerBase
 
     [HttpPost("pair")]
     [RequireClientCapability(ClientTypePolicy.Mobile)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Pair([FromBody] PairWearableRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -50,6 +50,7 @@ public class WearableController : ControllerBase
 
     [HttpPost("pair/confirm")]
     [RequireClientCapability(ClientTypePolicy.Mobile)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> PairConfirm([FromBody] PairConfirmRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -57,8 +58,13 @@ public class WearableController : ControllerBase
         return Ok(wearable);
     }
 
+    /// <summary>
+    /// Sincronización legacy de estado del wearable. No sustituye la ingesta
+    /// de telemetría asociada a un viaje.
+    /// </summary>
     [HttpPost("sync")]
-    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Sync([FromBody] SyncTelemetryRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -68,6 +74,7 @@ public class WearableController : ControllerBase
 
     [HttpPost("calibration")]
     [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Calibrate([FromBody] CalibrationRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -77,6 +84,7 @@ public class WearableController : ControllerBase
 
     [HttpDelete("unlink")]
     [RequireClientCapability(ClientTypePolicy.Mobile)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Unlink()
     {
         var usuarioId = GetUsuarioId();
@@ -86,6 +94,7 @@ public class WearableController : ControllerBase
 
     [HttpPut("permissions")]
     [RequireClientCapability(ClientTypePolicy.Mobile)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> UpdatePermissions([FromBody] UpdateWearablePermissionsRequest request)
     {
         var usuarioId = GetUsuarioId();
@@ -101,12 +110,33 @@ public class WearableController : ControllerBase
         return Ok(diagnostics);
     }
 
+    [HttpPost("sensors/diagnostics")]
+    [RequireClientCapability(ClientTypePolicy.Wearable)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ReportSensorDiagnostics([FromBody] WearableDiagnosticsReportRequest request)
+    {
+        var usuarioId = GetUsuarioId();
+        var wearable = await _wearableService.ReportDiagnosticsAsync(usuarioId, request);
+        return Ok(wearable);
+    }
+
     [HttpPatch("battery")]
-    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> UpdateBattery([FromBody] BatteryUpdateRequest request)
     {
         var usuarioId = GetUsuarioId();
         var wearable = await _wearableService.UpdateBatteryAsync(usuarioId, request);
+        return Ok(wearable);
+    }
+
+    [HttpPost("heartbeat")]
+    [RequireClientCapability(ClientTypePolicy.Wearable)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> Heartbeat([FromBody] WearableHeartbeatRequest request)
+    {
+        var usuarioId = GetUsuarioId();
+        var wearable = await _wearableService.RegisterHeartbeatAsync(usuarioId, request);
         return Ok(wearable);
     }
 

@@ -1,87 +1,43 @@
-# Guía de Conexión a Cosmos DB - ImpactX Backend APIs
+# Cosmos DB — operación segura de ImpactX
 
-Esta guía contiene la configuración de acceso y snippets de código listos para conectar el Backend a **Azure Cosmos DB NoSQL**.
+La API usa la cuenta y base de datos configuradas mediante `AzureCosmosDb`. Las claves nunca deben quedar en archivos versionados.
 
-## Credenciales de Conexión (Desarrollo / Pruebas)
+## Variables recomendadas
 
-* **Account Endpoint:** `https://impactx-db-west-final.documents.azure.com:443/`
-* **Account Key (Lectura y Escritura):** `<REPLACE_WITH_YOUR_COSMOS_KEY>`
-* **Base de Datos:** `ImpactX-Data`
-
----
-
-## 🔒 Buenas Prácticas de Configuración
-
-No escribas de forma fija (hardcodeada) las credenciales de base de datos en tu código fuente. Configúralas como variables de entorno o archivos de configuración local ignorados por Git:
-
-* **En C# (.NET):** Guárdalas en `appsettings.Development.json` o usa Secret Manager de User Secrets.
-* **En Node.js:** Guárdalas en un archivo `.env` localmente (`COSMOS_ENDPOINT`, `COSMOS_KEY`).
-
----
-
-## Snippets de Código de Conexión
-
-### 1. Ejemplo en C# / .NET SDK (Microsoft.Azure.Cosmos)
-Instalar paquetes: `dotnet add package Microsoft.Azure.Cosmos` y `dotnet add package Newtonsoft.Json`.
-
-```csharp
-using Microsoft.Azure.Cosmos;
-
-string endpoint = "https://impactx-db-west-final.documents.azure.com:443/";
-string key = "<REPLACE_WITH_YOUR_COSMOS_KEY>";
-
-CosmosClient cosmosClient = new CosmosClient(endpoint, key, new CosmosClientOptions() 
-{ 
-    SerializerOptions = new CosmosSerializationOptions() { PropertyNamingPolicy = CosmosPropertyNamingPolicy.CamelCase } 
-});
-
-// Obtener base de datos y contenedor
-Database database = cosmosClient.GetDatabase("ImpactX-Data");
-Container container = database.GetContainer("MiContenedor");
-
-// Insertar Item
-MyItem item = new MyItem { id = "123", partitionKey = "grupo-1", name = "Test" };
-await container.CreateItemAsync(item, new PartitionKey(item.partitionKey));
+```bash
+export AzureCosmosDb__Endpoint="https://impactx-db-west-final.documents.azure.com:443/"
+export AzureCosmosDb__DatabaseName="ImpactX-Data"
+export AzureCosmosDb__Key="<secret>"
+export UseCosmosDb="true"
 ```
 
-### 2. Ejemplo en Node.js (SDK @azure/cosmos)
-Instalar paquete: `npm install @azure/cosmos`
+## Inicialización
 
-```javascript
-import { CosmosClient } from "@azure/cosmos";
+En producción se usa:
 
-const endpoint = "https://impactx-db-west-final.documents.azure.com:443/";
-const key = "<REPLACE_WITH_YOUR_COSMOS_KEY>";
-
-const client = new CosmosClient({ endpoint, key });
-
-// Obtener base de datos y contenedor
-const database = client.database("ImpactX-Data");
-const container = database.container("MiContenedor");
-
-// Insertar Item
-const item = { id: "123", partitionKey: "grupo-1", name: "Test" };
-const { resource } = await container.items.create(item);
-console.log(`Documento creado con ID: ${resource.id}`);
+```json
+{
+  "DatabaseInitialization": {
+    "Enabled": true,
+    "Mode": "ValidateOnly"
+  }
+}
 ```
 
----
+`ValidateOnly` comprueba base de datos, contenedores, partition keys y TTL sin crear, eliminar ni modificar recursos.
 
-## Cómo usar Cosmos DB Studio para Validaciones Locales
+## Validación de esquema de solo lectura
 
-Usa Cosmos DB Studio para validar que los datos enviados por la API lleguen correctamente:
+```bash
+bash scripts/smoke/cosmos_schema_readonly.sh
+```
 
-1. Descarga e instala **Cosmos DB Studio**.
-2. Crea una nueva conexión ingresando los siguientes datos:
-   * **Name:** `ImpactX`
-   * **Endpoint:** `https://impactx-db-west-final.documents.azure.com:443/`
-   * **Key:** `<REPLACE_WITH_YOUR_COSMOS_KEY>`
-   * **Serverless:** Desmarcado
-   * **Folder:** En blanco
-3. Haz clic en **OK**.
-4. Haz doble clic en el contenedor bajo `ImpactX-Data`.
-5. En la ventana central escribe:
-   ```sql
-   SELECT * FROM c
-   ```
-6. Haz clic en el botón de **Play (Triángulo Negro)**.
+El script usa Azure CLI para consultar el catálogo y compara los 23 contenedores esperados. No ejecuta comandos de creación, actualización o eliminación.
+
+## Retención
+
+- Viajes y telemetría: 90 días.
+- Alertas e incidentes: 365 días.
+- Notificaciones: 30 días.
+
+La eliminación de cuenta anonimiza identidad y respeta los TTL operativos; no realiza borrados masivos destructivos.

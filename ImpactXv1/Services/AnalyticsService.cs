@@ -28,7 +28,10 @@ public class AnalyticsService : IAnalyticsService
     public async Task<DashboardDto> GetDashboardAsync(Guid usuarioId)
     {
         var totalIncidentes = await _incidenteRepository.CountByUserAsync(usuarioId);
-        var contactosActivos = await _contactoRepository.CountByUserAsync(usuarioId);
+        // Solo relaciones internas aceptadas son operativas. Los contactos
+        // legacy de nombre/teléfono permanecen disponibles únicamente para
+        // migración y no deben inflar métricas de seguridad.
+        var contactosActivos = await _contactoRepository.CountAcceptedByOwnerAsync(usuarioId);
         var viajes = await _viajeRepository.GetByUserAsync(usuarioId);
         var suscripcion = await _suscripcionRepository.GetActiveByUserAsync(usuarioId);
         var incidentes = await _incidenteRepository.GetByUserAsync(usuarioId);
