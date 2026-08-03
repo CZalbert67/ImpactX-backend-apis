@@ -80,6 +80,14 @@ public class FamilyInvitationDto
     public DateTime ExpiresAtUtc { get; set; }
 }
 
+public class IncomingFamilyInvitationDto : FamilyInvitationDto
+{
+    public string OwnerPublicProfileId { get; set; } = string.Empty;
+    public string OwnerUsername { get; set; } = string.Empty;
+    public string OwnerName { get; set; } = string.Empty;
+    public string PlanName { get; set; } = string.Empty;
+}
+
 public class CreateFamilyInvitationResponse
 {
     public FamilyInvitationDto Invitation { get; set; } = new();

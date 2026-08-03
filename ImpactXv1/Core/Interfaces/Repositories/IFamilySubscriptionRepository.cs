@@ -24,6 +24,14 @@ public interface IFamilySubscriptionRepository
         string publicInvitationId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<FamilySubscription>> GetPendingInvitationsForTargetAsync(
+        Guid userId,
+        string username,
+        string publicProfileId,
+        string emailNormalized,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default);
+
     Task AddAsync(
         FamilySubscription subscription,
         CancellationToken cancellationToken = default);

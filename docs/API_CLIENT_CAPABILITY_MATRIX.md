@@ -172,6 +172,6 @@ campos `impactCandidate`, `detectionLabel`, `severityLabel`, `ruleVersion`,
 | `GET /api/v1/meta/clients/mobile` | R | R | R | No | Capacidades del JWT móvil. |
 | `GET /api/v1/meta/clients/wearable` | R | R | R | No | Capacidades del JWT wearable. |
 
-Versión del contrato: `2026.08.02`. Todas las respuestas incluyen headers de
+Versión del contrato: `2026.08.03`. Todas las respuestas incluyen headers de
 versión. Las rutas legacy permanecen únicamente para transición y tienen sunset
 el `2027-02-02T00:00:00Z`.

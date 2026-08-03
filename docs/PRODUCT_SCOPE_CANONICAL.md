@@ -640,7 +640,7 @@ Todos los planes permiten **al menos dos personas totales** para que el
 monitoreo tenga sentido: un **propietario** y al menos un **integrante
 invitado aceptado**.
 
-El propietario **no cuenta** dentro del límite de integrantes invitados.
+El propietario **sí cuenta** dentro de la capacidad total publicada del plan.
 
 Existe:
 
@@ -705,20 +705,22 @@ integrante invitado aceptado.
 | Plan | Integrantes invitados aceptados | Personas totales máximas |
 |---|---|---|
 | Gratuito | 1 | 2 |
-| Estándar | 3 | 4 |
-| Premium | 6 | 7 |
+| Estándar | 2 | 3 |
+| Premium | 5 | 6 |
 
-El **propietario no cuenta dentro del límite de integrantes invitados**.
+El **propietario cuenta dentro de la capacidad total publicada**.
 
 Por tanto:
 
 - **Gratuito**: propietario + 1 integrante aceptado = hasta 2 personas.
-- **Estándar**: propietario + 3 integrantes aceptados = hasta 4 personas.
-- **Premium**: propietario + 6 integrantes aceptados = hasta 7 personas.
+- **Estándar**: propietario + 2 integrantes aceptados = hasta 3 personas.
+- **Premium**: propietario + 5 integrantes aceptados = hasta 6 personas.
 
-Las invitaciones pendientes **no consumen cupo**.
+Las invitaciones pendientes **reservan cupo** para evitar generar más
+invitaciones de las que el plan puede aceptar.
 
-El cupo se consume al **aceptar la membresía**.
+El cupo queda ocupado de forma definitiva al **aceptar la membresía** y se
+libera cuando la invitación expira, se rechaza o se revoca.
 
 La prueba gratuita utiliza los límites del plan Gratuito y **no constituye un
 cuarto plan**.
@@ -1134,7 +1136,7 @@ El documento debe:
 
 ## Cierre V9 — contrato definitivo para clientes
 
-- El contrato API V1 queda congelado con versión `2026.08.02`.
+- El contrato API V1 queda congelado con versión `2026.08.03`.
 - `/api/v1/meta/contract` enumera el contrato efectivo y
   `/api/v1/meta/clients/{client}` publica capacidades de web, móvil y wearable.
 - OpenAPI V1 documenta el cliente permitido en operaciones restringidas.

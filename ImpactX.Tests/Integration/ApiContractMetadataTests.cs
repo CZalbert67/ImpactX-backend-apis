@@ -22,7 +22,7 @@ public class ApiContractMetadataTests : IClassFixture<CustomWebApplicationFactor
         var root = json.RootElement;
 
         Assert.Equal("v1", root.GetProperty("apiVersion").GetString());
-        Assert.Equal("2026.08.02", root.GetProperty("contractVersion").GetString());
+        Assert.Equal("2026.08.03", root.GetProperty("contractVersion").GetString());
         Assert.Equal("frozen", root.GetProperty("status").GetString());
 
         var routes = root.GetProperty("routes")
@@ -33,6 +33,7 @@ public class ApiContractMetadataTests : IClassFixture<CustomWebApplicationFactor
         Assert.Contains("POST /api/v1/auth/login", routes);
         Assert.Contains("POST /api/v1/mobile/sync/push", routes);
         Assert.Contains("GET /api/v1/account/export", routes);
+        Assert.Contains("GET /api/v1/family-subscriptions/invitations/incoming", routes);
         Assert.Contains("POST /api/v1/trips/start", routes);
     }
 
@@ -52,7 +53,7 @@ public class ApiContractMetadataTests : IClassFixture<CustomWebApplicationFactor
             .ToArray();
 
         Assert.Contains(capability, capabilities);
-        Assert.Equal("2026.08.02", json.RootElement.GetProperty("contractVersion").GetString());
+        Assert.Equal("2026.08.03", json.RootElement.GetProperty("contractVersion").GetString());
     }
 
     [Fact]
@@ -84,7 +85,7 @@ public class ApiContractMetadataTests : IClassFixture<CustomWebApplicationFactor
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("v1", response.Headers.GetValues("X-ImpactX-Api-Version").Single());
-        Assert.Equal("2026.08.02", response.Headers.GetValues("X-ImpactX-Contract-Version").Single());
+        Assert.Equal("2026.08.03", response.Headers.GetValues("X-ImpactX-Contract-Version").Single());
     }
 
     [Fact]
@@ -106,7 +107,7 @@ public class ApiContractMetadataTests : IClassFixture<CustomWebApplicationFactor
         var content = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("Contrato congelado 2026.08.02", content, StringComparison.Ordinal);
+        Assert.Contains("Contrato congelado 2026.08.03", content, StringComparison.Ordinal);
         Assert.Contains("Clientes permitidos:", content, StringComparison.Ordinal);
     }
 }
