@@ -28,13 +28,24 @@ Rutas V1:
 
 ## Suscripción familiar
 
-- El propietario no cuenta en el límite de invitados.
-- Free permite 1 invitado, Standard 3 y Premium 6.
+- La capacidad publicada incluye al propietario.
+- Free permite 2 personas totales, Standard 3 y Premium 6.
+- Esto equivale a 1, 2 y 5 integrantes invitados respectivamente.
+- Las invitaciones pendientes reservan espacio para evitar sobrecupo.
 - Los integrantes activos heredan el plan y su cuota individual de vehículos.
 - Al vencer, el plan pasa a `PastDue` y conserva tres días de gracia.
 - Al expirar la gracia, las membresías activas terminan, las invitaciones
   pendientes expiran y todos los integrantes vuelven a Free.
 - Una renovación durante gracia restaura `Active`.
+
+Rutas de lectura de invitaciones:
+
+- `GET /api/v1/family-subscriptions/invitations`: invitaciones enviadas por el titular.
+- `GET /api/v1/family-subscriptions/invitations/incoming`: invitaciones pendientes dirigidas al usuario autenticado.
+
+El frontend puede consultar la ruta de entrada de forma periódica; aceptar o
+rechazar una invitación invalida inmediatamente el resumen, miembros e
+invitaciones. No se requiere crear un contenedor Cosmos adicional.
 
 ## Proceso automático
 

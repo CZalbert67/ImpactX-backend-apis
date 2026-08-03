@@ -228,6 +228,37 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             .ToList();
     }
 
+    public async Task<IReadOnlyList<IncomingFamilyInvitationDto>> GetIncomingInvitationsAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await GetUserAsync(userId);
+        var now = DateTime.UtcNow;
+        var subscriptions = await _familyRepository.GetPendingInvitationsForTargetAsync(
+            user.Id,
+            user.Username,
+            user.PublicProfileId,
+            NormalizeUserEmail(user),
+            now,
+            cancellationToken);
+
+        var results = new List<IncomingFamilyInvitationDto>();
+        foreach (var subscription in subscriptions)
+        {
+            var owner = await GetUserAsync(subscription.OwnerUserId);
+            results.AddRange(subscription.Invitations
+                .Where(invitation =>
+                    invitation.Status == FamilyInvitationStatus.Pending
+                    && invitation.ExpiresAtUtc > now
+                    && InvitationTargetsUser(invitation, user, NormalizeUserEmail(user)))
+                .Select(invitation => MapIncomingInvitation(subscription, invitation, owner)));
+        }
+
+        return results
+            .OrderByDescending(value => value.CreatedAtUtc)
+            .ToList();
+    }
+
     public async Task<CreateFamilyInvitationResponse> CreateInvitationAsync(
         Guid userId,
         CreateFamilyInvitationRequest request,
@@ -246,6 +277,19 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         if (pendingCount >= MaxPendingInvitations)
         {
             throw new ConflictException("Has alcanzado el límite temporal de invitaciones pendientes.");
+        }
+
+        var memberLimit = GetMemberLimit(subscription.PlanName);
+        var acceptedCount = CountAcceptedInvitedMembers(subscription);
+        if (acceptedCount >= memberLimit)
+        {
+            throw new ConflictException("El plan ya alcanzó su límite de personas.");
+        }
+
+        if (acceptedCount + pendingCount >= memberLimit)
+        {
+            throw new ConflictException(
+                "Todos los espacios disponibles ya están ocupados o reservados por invitaciones pendientes.");
         }
 
         var target = await ResolveTargetAsync(request);
@@ -544,7 +588,7 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         var acceptedRelationships = await _monitoringRepository.CountAcceptedByMonitorAsync(
             subscription.OwnerUserId,
             cancellationToken);
-        if (acceptedRelationships >= GetMemberLimit(subscription.PlanName))
+        if (acceptedRelationships >= GetMonitoringLimit(subscription.PlanName))
         {
             throw new ConflictException(
                 "La invitación también crea una relación de monitoreo y la red ya alcanzó el límite del plan.");
@@ -745,6 +789,9 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             ? FamilyMembershipRole.Owner
             : membership?.Role ?? throw new NotFoundException("Membresía no encontrada.");
         var accepted = CountAcceptedInvitedMembers(subscription);
+        var pending = subscription.Invitations.Count(value =>
+            value.Status == FamilyInvitationStatus.Pending
+            && value.ExpiresAtUtc > DateTime.UtcNow);
         var limit = GetMemberLimit(subscription.PlanName);
 
         return new FamilySubscriptionSummaryDto
@@ -758,7 +805,7 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             OwnerName = owner.Nombre,
             AcceptedMembers = accepted,
             InvitedMemberLimit = limit,
-            AvailableMemberSlots = Math.Max(0, limit - accepted),
+            AvailableMemberSlots = Math.Max(0, limit - accepted - pending),
             VehicleLimitPerUser = GetVehicleLimit(subscription.PlanName),
             PendingAdjustment = subscription.PendingAdjustment,
             PendingPlanName = string.IsNullOrWhiteSpace(subscription.PendingPlanName)
@@ -1040,6 +1087,27 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         };
     }
 
+    private static IncomingFamilyInvitationDto MapIncomingInvitation(
+        FamilySubscription subscription,
+        FamilyInvitation invitation,
+        Usuario owner)
+    {
+        return new IncomingFamilyInvitationDto
+        {
+            PublicInvitationId = invitation.PublicInvitationId,
+            TargetUsername = invitation.TargetUsername,
+            TargetPublicProfileId = invitation.TargetPublicProfileId,
+            TargetEmail = invitation.TargetEmailNormalized,
+            Status = invitation.Status,
+            CreatedAtUtc = invitation.CreatedAtUtc,
+            ExpiresAtUtc = invitation.ExpiresAtUtc,
+            OwnerPublicProfileId = owner.PublicProfileId,
+            OwnerUsername = owner.Username,
+            OwnerName = owner.Nombre,
+            PlanName = PlanNamePolicy.ToPublicName(subscription.PlanName)
+        };
+    }
+
     private static FamilyInvitationDto MapInvitation(FamilyInvitation invitation)
     {
         return new FamilyInvitationDto
@@ -1075,6 +1143,17 @@ public class FamilySubscriptionService : IFamilySubscriptionService
     }
 
     public static int GetMemberLimit(string planName)
+    {
+        return NormalizePlanName(planName) switch
+        {
+            "Free" => 1,
+            "Basic" => 2,
+            "Premium" => 5,
+            _ => 1
+        };
+    }
+
+    public static int GetMonitoringLimit(string planName)
     {
         return NormalizePlanName(planName) switch
         {

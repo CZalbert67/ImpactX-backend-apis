@@ -271,7 +271,7 @@ Pruebas **faltantes** (por dominio):
 |---|---|
 | Identidad | Normalización de email; username único e insensitive; cambio de username y reserva de históricos; `PublicProfileId` única e inmutable; login por username; no exponer `Id` interno en ningún DTO. |
 | Vehículos | CRUD; cuota 1/3/∞ por usuario activo según plan; principal único; baja lógica; no exponer `Id`; asociación a viaje. |
-| Suscripción familiar | Propietario/integrante; cupos 1/3/6 (propietario no consume); invitación + canje por código con hash, un solo uso y expiración; activación atómica de membresía + relación; `leave`/`remove` libera cupo; reducción con «pendiente de ajuste». |
+| Suscripción familiar | Propietario/integrante; cupos invitados 1/2/5 (capacidad total 2/3/6, propietario incluido); invitación + canje por código con hash, un solo uso y expiración; activación atómica de membresía + relación; `leave`/`remove` libera cupo; reducción con «pendiente de ajuste». |
 | Mensajes rápidos | Máx 10 plantillas personalizadas; máx 160 caracteres; sistema no modificable; envío solo con relación aceptada/vigente/no-bloqueada y permiso; copia inmutable; contexto ruta/incidente; leído/no leído + contador; 403 para no autorizados; rate limiting. |
 | Capacidad de cliente | La web **no** inicia/pausa/reanuda/finaliza viajes ni envía telemetría/sensores (403); móvil respaldo sí; wearable sí. |
 | Relaciones | Estados `Pending/Accepted/Rejected/Revoked/Blocked/Expired`; consentimiento; sin duplicados; cupo por plan; preinvitaciones. |
@@ -489,7 +489,7 @@ declarar completo; los P1 son necesarios para el lanzamiento web.
    (Free 1 / Estándar 3 / Premium 1-∞ restringido contra abuso), baja lógica,
    principal, asociación a viaje y sin primary key expuesta (P0).
 5. **Suscripción familiar**: propietario + integrantes (membresía separada),
-   cupos 1/3/6 (el propietario no consume), invitación interna + código manual
+   cupos invitados 1/2/5 (capacidad total 2/3/6, propietario incluido), invitación interna + código manual
    con hash, un solo uso, expiración, cuerpo JSON seguro, nunca URL/login,
    activación atómica, join/leave/accept/reject/remove, y reducción con
    «pendiente de ajuste» (P0).

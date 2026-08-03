@@ -244,9 +244,9 @@ jobs:
             --dump-header "$header_file" \
             --connect-timeout 2 --max-time 5 \
             "http://127.0.0.1:5055/api/v1/meta/contract" > "$contract_file"
-          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['apiVersion']=='v1'; assert d['contractVersion']=='2026.08.02'; assert d['status']=='frozen'; assert any(r['path']=='/api/v1/auth/login' and r['method']=='POST' for r in d['routes']); print('OK')" "$contract_file"
+          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['apiVersion']=='v1'; assert d['contractVersion']=='2026.08.03'; assert d['status']=='frozen'; assert any(r['path']=='/api/v1/auth/login' and r['method']=='POST' for r in d['routes']); print('OK')" "$contract_file"
           grep -qi '^X-ImpactX-Api-Version: v1' "$header_file"
-          grep -qi '^X-ImpactX-Contract-Version: 2026.08.02' "$header_file"
+          grep -qi '^X-ImpactX-Contract-Version: 2026.08.03' "$header_file"
           echo "/api/v1/meta/contract OK"
 
           # Validate Swagger returns 404 in CI

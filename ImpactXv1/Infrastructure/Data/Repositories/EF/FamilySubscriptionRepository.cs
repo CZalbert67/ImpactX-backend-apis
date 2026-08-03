@@ -77,6 +77,29 @@ public class FamilySubscriptionRepository : IFamilySubscriptionRepository
                 cancellationToken);
     }
 
+    public async Task<IReadOnlyList<FamilySubscription>> GetPendingInvitationsForTargetAsync(
+        Guid userId,
+        string username,
+        string publicProfileId,
+        string emailNormalized,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.FamilySubscriptions
+            .Where(subscription =>
+                (subscription.Status == FamilySubscriptionStatus.Active
+                    || subscription.Status == FamilySubscriptionStatus.PastDue)
+                && subscription.Invitations.Any(invitation =>
+                    invitation.Status == FamilyInvitationStatus.Pending
+                    && invitation.ExpiresAtUtc > utcNow
+                    && (invitation.TargetUserId == userId
+                        || invitation.TargetUsername == username
+                        || invitation.TargetPublicProfileId == publicProfileId
+                        || invitation.TargetEmailNormalized == emailNormalized)))
+            .OrderByDescending(subscription => subscription.UpdatedAtUtc)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task AddAsync(
         FamilySubscription subscription,
         CancellationToken cancellationToken = default)

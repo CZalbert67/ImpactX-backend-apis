@@ -151,7 +151,7 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         var planName = await _familySubscriptionService.GetEffectivePlanNameAsync(
             relationship.MonitorUserId,
             cancellationToken);
-        var limit = FamilySubscriptionService.GetMemberLimit(planName);
+        var limit = FamilySubscriptionService.GetMonitoringLimit(planName);
         var accepted = await _repository.CountAcceptedByMonitorAsync(
             relationship.MonitorUserId,
             cancellationToken);

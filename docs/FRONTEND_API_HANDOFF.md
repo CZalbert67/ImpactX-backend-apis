@@ -3,7 +3,7 @@
 ## Contrato congelado
 
 - Base canónica: `/api/v1`
-- Versión: `2026.08.02`
+- Versión: `2026.08.03`
 - OpenAPI: `/openapi/v1.json`
 - Contrato JSON para clientes: `/api/v1/meta/contract`
 - Capacidades por cliente: `/api/v1/meta/clients/web`, `/mobile`, `/wearable`
@@ -12,7 +12,7 @@ Cada respuesta expone:
 
 ```text
 X-ImpactX-Api-Version: v1
-X-ImpactX-Contract-Version: 2026.08.02
+X-ImpactX-Contract-Version: 2026.08.03
 X-Correlation-Id: <id>
 ```
 
@@ -57,7 +57,7 @@ El siguiente cursor se devuelve en `X-Continuation-Token`. Nunca debe generarse 
 | Perfil | `GET/PUT /api/v1/profile`, `/preferences`, `/driver`, `/medical`, `/onboarding` |
 | Vehículos | `GET/POST /api/v1/vehicles`, `GET/PUT/DELETE /api/v1/vehicles/{publicVehicleId}`, `PATCH .../primary` |
 | Plan | `GET /api/v1/plans`, `GET /api/v1/subscriptions/effective`, `POST .../activate`, `renew`, `cancel` |
-| Familia | `/api/v1/family-subscriptions/*` |
+| Familia | `/api/v1/family-subscriptions/*`, incluida `GET .../invitations/incoming` |
 | Contactos | `/api/v1/contacts/*` |
 | Monitoreo | `/api/v1/monitoring-relationships/*` |
 | Viajes | `GET /api/v1/trips`, `GET /api/v1/trips/active`, `GET /api/v1/trips/{id}/telemetry` |
@@ -76,4 +76,4 @@ El móvil puede vincular y desvincular el Galaxy Watch 8, sincronizar operacione
 
 ## Integración recomendada
 
-Genera tipos TypeScript desde `/openapi/v1.json` y conserva el JSON de `/api/v1/meta/contract` como comprobación de versión al arrancar. Si `contractVersion` no coincide con `2026.08.02`, bloquea funciones de escritura hasta revisar el contrato.
+Genera tipos TypeScript desde `/openapi/v1.json` y conserva el JSON de `/api/v1/meta/contract` como comprobación de versión al arrancar. Si `contractVersion` no coincide con `2026.08.03`, bloquea funciones de escritura hasta revisar el contrato.
