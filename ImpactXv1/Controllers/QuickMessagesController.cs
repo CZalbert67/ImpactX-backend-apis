@@ -99,6 +99,19 @@ public class QuickMessagesController : ControllerBase
         return Ok(new { unreadCount = count });
     }
 
+    [HttpPatch("conversations/{otherPublicProfileId}/read")]
+    [EnableRateLimiting("monitor-invitation-action")]
+    public async Task<IActionResult> MarkConversationRead(
+        string otherPublicProfileId,
+        CancellationToken cancellationToken)
+    {
+        var marked = await _service.MarkConversationReadAsync(
+            GetUserId(),
+            otherPublicProfileId,
+            cancellationToken);
+        return Ok(new { marked });
+    }
+
     [HttpPatch("{publicMessageId}/read")]
     [EnableRateLimiting("monitor-invitation-action")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

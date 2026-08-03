@@ -39,7 +39,10 @@ public class CosmosFamilySubscriptionRepository : IFamilySubscriptionRepository
             "SELECT TOP 1 * FROM c WHERE (c.status = 'Active' OR c.status = 'PastDue') AND " +
             "(c.ownerUserId = @userId OR EXISTS(" +
             "SELECT VALUE m FROM m IN c.memberships " +
-            "WHERE m.userId = @userId AND m.status = 'Active')) " +
+            "WHERE m.userId = @userId AND m.status = 'Active') OR EXISTS(" +
+            "SELECT VALUE i FROM i IN c.invitations " +
+            "WHERE i.targetUserId = @userId " +
+            "AND (i.status = 'Accepted' OR i.status = 'Consumed'))) " +
             "ORDER BY c.updatedAtUtc DESC")
             .WithParameter("@userId", userId.ToString());
 

@@ -47,40 +47,74 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
     }
 
     public async Task<CreateMonitoringInvitationResponse> CreateInvitationAsync(
-        Guid monitorUserId,
+        Guid currentUserId,
         CreateMonitoringInvitationRequest request,
         CancellationToken cancellationToken = default)
     {
-        var monitor = await GetUserAsync(monitorUserId);
+        var currentUser = await GetUserAsync(currentUserId);
         var target = await ResolveTargetAsync(request);
-        if (target.User?.Id == monitorUserId)
+        if (target.User?.Id == currentUserId)
         {
             throw new ConflictException("No puedes crear una relación de monitoreo contigo mismo.");
         }
 
-        if (target.User is not null)
+        var direction = request.Direction == MonitoringRequestDirection.MonitoredRequestsMonitor
+            ? MonitoringRequestDirection.MonitoredRequestsMonitor
+            : MonitoringRequestDirection.MonitorInvitesMonitored;
+        Usuario monitor;
+        Usuario? monitored;
+
+        if (direction == MonitoringRequestDirection.MonitoredRequestsMonitor)
+        {
+            monitor = target.User
+                ?? throw new NotFoundException(
+                    "Para solicitar un monitor, la persona debe tener una cuenta ImpactX.");
+            monitored = currentUser;
+        }
+        else
+        {
+            monitor = currentUser;
+            monitored = target.User;
+        }
+
+        if (monitored is not null)
         {
             if (await _repository.ExistsBlockedAsync(
-                    monitorUserId,
-                    target.User.Id,
+                    monitor.Id,
+                    monitored.Id,
                     cancellationToken))
             {
                 throw new ForbiddenException("No se puede invitar a esta persona.");
             }
 
             if (await _repository.ExistsActiveOrPendingAsync(
-                    monitorUserId,
-                    target.User.Id,
+                    monitor.Id,
+                    monitored.Id,
                     cancellationToken))
             {
-                throw new ConflictException("Ya existe una relación activa o pendiente con este usuario.");
+                throw new ConflictException(
+                    "Ya existe una relación activa o pendiente con este usuario.");
+            }
+
+            var acceptedMonitors = await _repository.CountAcceptedForMonitoredAsync(
+                monitored.Id,
+                cancellationToken);
+            var planName = await _familySubscriptionService.GetEffectivePlanNameAsync(
+                monitored.Id,
+                cancellationToken);
+            if (acceptedMonitors >= FamilySubscriptionService.GetMonitoringLimit(planName))
+            {
+                throw new ConflictException(
+                    "La persona monitoreada ya alcanzó el límite de monitores de su plan.");
             }
         }
-
-        await EnsureNoDuplicatePendingTargetAsync(
-            monitorUserId,
-            target,
-            cancellationToken);
+        else
+        {
+            await EnsureNoDuplicatePendingTargetAsync(
+                monitor.Id,
+                target,
+                cancellationToken);
+        }
 
         var manualCode = FamilyPublicIdGenerator.GenerateManualCode();
         var now = DateTime.UtcNow;
@@ -88,12 +122,16 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         {
             Id = Guid.NewGuid(),
             PublicRelationshipId = MonitoringPublicIdGenerator.GenerateRelationshipId(),
-            MonitorUserId = monitorUserId,
-            MonitoredUserId = target.User?.Id,
-            InitiatedByUserId = monitorUserId,
-            Direction = MonitoringRequestDirection.MonitorInvitesMonitored,
+            MonitorUserId = monitor.Id,
+            MonitoredUserId = monitored?.Id,
+            InitiatedByUserId = currentUserId,
+            Direction = direction,
             Status = MonitoringRelationshipStatus.Pending,
-            TargetEmailNormalized = target.EmailNormalized,
+            TargetEmailNormalized = target.User is null
+                ? target.EmailNormalized
+                : string.IsNullOrWhiteSpace(target.User.CorreoNormalizado)
+                    ? EmailNormalizer.Normalize(target.User.Correo)
+                    : target.User.CorreoNormalizado,
             TargetPublicProfileId = target.User?.PublicProfileId,
             TargetUsername = target.User?.Username,
             InvitationCodeHash = InvitationCodeHasher.Hash(manualCode),
@@ -143,55 +181,79 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
             request.PublicRelationshipId,
             request.Code,
             cancellationToken);
-        var monitoredUser = await GetUserAsync(userId);
-        ValidateTarget(relationship, monitoredUser);
+        var acceptingUser = await GetUserAsync(userId);
+        ValidateTarget(relationship, acceptingUser);
         EnsurePending(relationship);
 
-        if (relationship.MonitorUserId == userId)
+        Guid monitorUserId;
+        Guid monitoredUserId;
+        if (relationship.Direction == MonitoringRequestDirection.MonitoredRequestsMonitor)
         {
-            throw new ConflictException("No puedes aceptar una relación de monitoreo contigo mismo.");
+            if (relationship.MonitorUserId != userId
+                || !relationship.MonitoredUserId.HasValue)
+            {
+                throw new ForbiddenException(
+                    "Esta solicitud de monitoreo no está dirigida a este usuario.");
+            }
+
+            monitorUserId = userId;
+            monitoredUserId = relationship.MonitoredUserId.Value;
+        }
+        else
+        {
+            if (relationship.MonitorUserId == userId)
+            {
+                throw new ConflictException(
+                    "No puedes aceptar una relación de monitoreo contigo mismo.");
+            }
+
+            monitorUserId = relationship.MonitorUserId;
+            monitoredUserId = userId;
+            relationship.MonitoredUserId = userId;
         }
 
         if (await _repository.ExistsBlockedAsync(
-                relationship.MonitorUserId,
-                userId,
+                monitorUserId,
+                monitoredUserId,
                 cancellationToken))
         {
-            throw new ForbiddenException("No se puede aceptar esta relación de monitoreo.");
+            throw new ForbiddenException(
+                "No se puede aceptar esta relación de monitoreo.");
         }
 
         var existingRelationships = await _repository.GetForUserAsync(
-            relationship.MonitorUserId,
+            monitorUserId,
             cancellationToken);
         var duplicate = existingRelationships.Any(value =>
             value.Id != relationship.Id
-            && value.MonitorUserId == relationship.MonitorUserId
-            && value.MonitoredUserId == userId
+            && value.MonitorUserId == monitorUserId
+            && value.MonitoredUserId == monitoredUserId
             && (value.Status == MonitoringRelationshipStatus.Pending
                 || value.Status == MonitoringRelationshipStatus.Accepted));
         if (duplicate)
         {
-            throw new ConflictException("Ya existe una relación activa o pendiente con este usuario.");
+            throw new ConflictException(
+                "Ya existe una relación activa o pendiente con este usuario.");
         }
 
         var planName = await _familySubscriptionService.GetEffectivePlanNameAsync(
-            relationship.MonitorUserId,
+            monitoredUserId,
             cancellationToken);
         var limit = FamilySubscriptionService.GetMonitoringLimit(planName);
-        var accepted = await _repository.CountAcceptedByMonitorAsync(
-            relationship.MonitorUserId,
+        var accepted = await _repository.CountAcceptedForMonitoredAsync(
+            monitoredUserId,
             cancellationToken);
         if (accepted >= limit)
         {
-            throw new ConflictException("La red de monitoreo ya alcanzó el límite del plan.");
+            throw new ConflictException(
+                "La red de monitoreo de esta persona ya alcanzó el límite del plan.");
         }
 
-        relationship.MonitoredUserId = userId;
-        relationship.TargetEmailNormalized = string.IsNullOrWhiteSpace(monitoredUser.CorreoNormalizado)
-            ? EmailNormalizer.Normalize(monitoredUser.Correo)
-            : monitoredUser.CorreoNormalizado;
-        relationship.TargetPublicProfileId = monitoredUser.PublicProfileId;
-        relationship.TargetUsername = monitoredUser.Username;
+        relationship.TargetEmailNormalized = string.IsNullOrWhiteSpace(acceptingUser.CorreoNormalizado)
+            ? EmailNormalizer.Normalize(acceptingUser.Correo)
+            : acceptingUser.CorreoNormalizado;
+        relationship.TargetPublicProfileId = acceptingUser.PublicProfileId;
+        relationship.TargetUsername = acceptingUser.Username;
         relationship.Status = MonitoringRelationshipStatus.Accepted;
         relationship.AcceptedAtUtc = DateTime.UtcNow;
         relationship.UpdatedAtUtc = DateTime.UtcNow;

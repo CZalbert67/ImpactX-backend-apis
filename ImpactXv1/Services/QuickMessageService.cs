@@ -261,6 +261,32 @@ public class QuickMessageService : IQuickMessageService
         await _repository.UpdateMessageAsync(message, cancellationToken);
     }
 
+    public async Task<int> MarkConversationReadAsync(
+        Guid userId,
+        string otherPublicProfileId,
+        CancellationToken cancellationToken = default)
+    {
+        var otherId = RequirePublicId(
+            otherPublicProfileId,
+            "Conversación no encontrada.");
+        var other = await _usuarioRepository.GetByPublicProfileIdAsync(otherId)
+            ?? throw new NotFoundException("Conversación no encontrada.");
+        if (other.Id == userId)
+        {
+            throw new BadRequestException("Conversación no válida.");
+        }
+
+        await _monitoringService.GetAcceptedBetweenAsync(
+            userId,
+            other.Id,
+            cancellationToken);
+        return await _repository.MarkConversationReadAsync(
+            userId,
+            other.Id,
+            DateTime.UtcNow,
+            cancellationToken);
+    }
+
     private async Task<string> ResolveTemplateTextAsync(
         Guid userId,
         string publicTemplateId,

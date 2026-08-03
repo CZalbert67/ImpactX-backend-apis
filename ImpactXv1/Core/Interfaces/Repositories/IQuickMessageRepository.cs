@@ -43,6 +43,12 @@ public interface IQuickMessageRepository
         Guid recipientUserId,
         CancellationToken cancellationToken = default);
 
+    Task<int> MarkConversationReadAsync(
+        Guid recipientUserId,
+        Guid senderUserId,
+        DateTime readAtUtc,
+        CancellationToken cancellationToken = default);
+
     Task UpdateMessageAsync(
         QuickMessage message,
         CancellationToken cancellationToken = default);

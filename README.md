@@ -7,7 +7,7 @@ Backend unificado para los clientes web, móvil y Samsung Galaxy Watch 8 de Impa
 - API canónica: `/api/v1/*`
 - OpenAPI: `/openapi/v1.json`
 - Contrato consumible por frontend: `/api/v1/meta/contract`
-- Versión congelada: `2026.08.03`
+- Versión congelada: `2026.08.04`
 - Clientes JWT soportados: `web`, `mobile`, `wearable`
 
 Las rutas legacy `/api/*` se conservan temporalmente para compatibilidad y devuelven headers de deprecación. El frontend nuevo debe usar únicamente `/api/v1/*`.

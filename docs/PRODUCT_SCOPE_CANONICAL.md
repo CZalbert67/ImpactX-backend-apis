@@ -1136,7 +1136,7 @@ El documento debe:
 
 ## Cierre V9 — contrato definitivo para clientes
 
-- El contrato API V1 queda congelado con versión `2026.08.03`.
+- El contrato API V1 queda congelado con versión `2026.08.04`.
 - `/api/v1/meta/contract` enumera el contrato efectivo y
   `/api/v1/meta/clients/{client}` publica capacidades de web, móvil y wearable.
 - OpenAPI V1 documenta el cliente permitido en operaciones restringidas.
