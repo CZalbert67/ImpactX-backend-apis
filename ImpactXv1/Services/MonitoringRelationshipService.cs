@@ -186,7 +186,7 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         EnsurePending(relationship);
 
         Guid monitorUserId;
-        Guid monitoredUserId;
+        Guid acceptingUserId;
         if (relationship.Direction == MonitoringRequestDirection.MonitoredRequestsMonitor)
         {
             if (relationship.MonitorUserId != userId
@@ -197,7 +197,7 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
             }
 
             monitorUserId = userId;
-            monitoredUserId = relationship.MonitoredUserId.Value;
+            acceptingUserId = relationship.MonitoredUserId.Value;
         }
         else
         {
@@ -208,13 +208,13 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
             }
 
             monitorUserId = relationship.MonitorUserId;
-            monitoredUserId = userId;
+            acceptingUserId = userId;
             relationship.MonitoredUserId = userId;
         }
 
         if (await _repository.ExistsBlockedAsync(
                 monitorUserId,
-                monitoredUserId,
+                acceptingUserId,
                 cancellationToken))
         {
             throw new ForbiddenException(
@@ -227,7 +227,7 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         var duplicate = existingRelationships.Any(value =>
             value.Id != relationship.Id
             && value.MonitorUserId == monitorUserId
-            && value.MonitoredUserId == monitoredUserId
+            && value.MonitoredUserId == acceptingUserId
             && (value.Status == MonitoringRelationshipStatus.Pending
                 || value.Status == MonitoringRelationshipStatus.Accepted));
         if (duplicate)
@@ -237,11 +237,11 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         }
 
         var planName = await _familySubscriptionService.GetEffectivePlanNameAsync(
-            monitoredUserId,
+            acceptingUserId,
             cancellationToken);
         var limit = FamilySubscriptionService.GetMonitoringLimit(planName);
         var accepted = await _repository.CountAcceptedForMonitoredAsync(
-            monitoredUserId,
+            acceptingUserId,
             cancellationToken);
         if (accepted >= limit)
         {
@@ -269,7 +269,7 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
                 Id = Guid.NewGuid(),
                 UsuarioId = relationship.InitiatedByUserId,
                 Titulo = "Invitación aceptada",
-                Mensaje = $"El usuario @{monitoredUser.Username} ha aceptado tu invitación.",
+                Mensaje = $"El usuario @{acceptingUser.Username} ha aceptado tu invitación.",
                 Tipo = "Accepted",
                 PublicRelationshipId = relationship.PublicRelationshipId,
                 CreadoEn = DateTime.UtcNow

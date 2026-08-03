@@ -76,8 +76,8 @@ public sealed class RelationshipDirectionAndConversationContractTests
             .GetFromJsonAsync<List<MonitoringRelationshipDto>>(
                 "/api/v1/monitoring-relationships");
         Assert.NotNull(memberRelationships);
-        var relationship = Assert.Single(memberRelationships!.Where(value =>
-            value.Status.ToString() == "Accepted"));
+        var relationship = Assert.Single(memberRelationships!, value =>
+            value.Status.ToString() == "Accepted");
         Assert.Equal(member.PublicProfileId, relationship.MonitorPublicProfileId);
         Assert.Equal(owner.PublicProfileId, relationship.MonitoredPublicProfileId);
 
