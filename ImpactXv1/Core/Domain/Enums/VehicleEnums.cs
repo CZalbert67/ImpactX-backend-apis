@@ -9,7 +9,10 @@ public enum TipoVehiculo
     Automovil,
     Suv,
     Camioneta,
-    Van
+    Van,
+    Camion,
+    Autobus,
+    Deportivo
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -18,5 +21,7 @@ public enum UsoPrincipalVehiculo
 {
     Ciudad,
     Carretera,
-    Mixto
+    Mixto,
+    TodoTerreno,
+    Comercial
 }

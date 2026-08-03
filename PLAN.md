@@ -68,13 +68,13 @@ public class Usuario
 ```csharp
 public class PerfilConduccion
 {
-    public string? TipoVehiculo { get; set; }
+    public string? TipoVehiculo { get; set; }    // Validado contra el catálogo de TipoVehiculo (case-insensitive)
     public string? Marca { get; set; }
     public string? Modelo { get; set; }
     public int? Anio { get; set; }
     public string? Color { get; set; }
     public string? Placa { get; set; }
-    public string? Uso { get; set; }              // "Diario", "Mixto", "Esporádico"
+    public string? Uso { get; set; }              // Validado contra el catálogo de UsoPrincipalVehiculo (case-insensitive)
     public string? VelocidadPromedioLabel { get; set; } // "65 km/h"
 }
 ```

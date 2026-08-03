@@ -1,6 +1,7 @@
+using ImpactX.Core.Domain;
+using ImpactX.Core.Domain.Enums;
 using ImpactX.Core.Exceptions;
 using Moq;
-using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
@@ -240,13 +241,63 @@ public class UserServiceTests
             Anio = 2021,
             Color = "Negro",
             Placa = "XYZ-789",
-            Uso = "Personal",
+            Uso = "Ciudad",
         });
 
         Assert.Equal("SUV", result.TipoVehiculo);
         Assert.Equal("Honda", result.Marca);
         Assert.Equal("Negro", result.Color);
         _usuarioRepo.Verify(r => r.UpdateAsync(usuario), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateDriverProfileAsync_InvalidTipoVehiculo_ThrowsBadRequest()
+    {
+        var usuarioId = Guid.NewGuid();
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(new Usuario { Id = usuarioId });
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            _userService.UpdateDriverProfileAsync(usuarioId, new UpdateDriverProfileRequest
+            {
+                TipoVehiculo = "Sedan",
+            }));
+
+        _usuarioRepo.Verify(r => r.UpdateAsync(It.IsAny<Usuario>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateDriverProfileAsync_InvalidUso_ThrowsBadRequest()
+    {
+        var usuarioId = Guid.NewGuid();
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(new Usuario { Id = usuarioId });
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            _userService.UpdateDriverProfileAsync(usuarioId, new UpdateDriverProfileRequest
+            {
+                Uso = "Personal",
+            }));
+
+        _usuarioRepo.Verify(r => r.UpdateAsync(It.IsAny<Usuario>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateDriverProfileAsync_AcceptsAllCatalogTipoVehiculos()
+    {
+        var usuarioId = Guid.NewGuid();
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(new Usuario { Id = usuarioId });
+
+        var catalog = Enum.GetNames<TipoVehiculo>();
+        foreach (var tipo in catalog)
+        {
+            var result = await _userService.UpdateDriverProfileAsync(usuarioId, new UpdateDriverProfileRequest
+            {
+                TipoVehiculo = tipo,
+            });
+
+            Assert.Equal(tipo, result.TipoVehiculo);
+        }
+
+        _usuarioRepo.Verify(r => r.UpdateAsync(It.IsAny<Usuario>()), Times.Exactly(catalog.Length));
     }
 
     [Fact]

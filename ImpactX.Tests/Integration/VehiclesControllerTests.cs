@@ -47,10 +47,10 @@ public class VehiclesControllerTests : IClassFixture<CustomWebApplicationFactory
         var catalog = await response.Content.ReadFromJsonAsync<VehicleTypeCatalogDto>();
         Assert.NotNull(catalog);
         Assert.Equal(
-            new[] { "Automovil", "Suv", "Camioneta", "Van" },
+            new[] { "Automovil", "Suv", "Camioneta", "Van", "Camion", "Autobus", "Deportivo" },
             catalog!.TipoVehiculo);
         Assert.Equal(
-            new[] { "Ciudad", "Carretera", "Mixto" },
+            new[] { "Ciudad", "Carretera", "Mixto", "TodoTerreno", "Comercial" },
             catalog.UsoPrincipal);
     }
 

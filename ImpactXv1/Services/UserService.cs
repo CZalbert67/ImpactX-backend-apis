@@ -1,4 +1,5 @@
 using ImpactX.Core.Domain;
+using ImpactX.Core.Domain.Enums;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Identity;
 using ImpactX.Core.Interfaces.Repositories;
@@ -112,7 +113,10 @@ public class UserService : IUserService
         usuario.PerfilConduccion ??= new PerfilConduccion();
 
         if (request.TipoVehiculo is not null)
+        {
+            ValidateAgainstCatalog<TipoVehiculo>(request.TipoVehiculo, "TipoVehiculo");
             usuario.PerfilConduccion.TipoVehiculo = request.TipoVehiculo;
+        }
         if (request.Marca is not null)
             usuario.PerfilConduccion.Marca = request.Marca;
         if (request.Modelo is not null)
@@ -124,7 +128,10 @@ public class UserService : IUserService
         if (request.Placa is not null)
             usuario.PerfilConduccion.Placa = request.Placa;
         if (request.Uso is not null)
+        {
+            ValidateAgainstCatalog<UsoPrincipalVehiculo>(request.Uso, "Uso");
             usuario.PerfilConduccion.Uso = request.Uso;
+        }
         if (request.VelocidadPromedioLabel is not null)
             usuario.PerfilConduccion.VelocidadPromedioLabel = request.VelocidadPromedioLabel;
 
@@ -535,6 +542,18 @@ public class UserService : IUserService
             Uso = p.Uso,
             VelocidadPromedioLabel = p.VelocidadPromedioLabel,
         };
+    }
+
+    private static void ValidateAgainstCatalog<TEnum>(string value, string fieldName)
+        where TEnum : struct, Enum
+    {
+        var valid = Array.Exists(
+            Enum.GetNames<TEnum>(),
+            name => string.Equals(name, value, StringComparison.OrdinalIgnoreCase));
+        if (!valid)
+        {
+            throw new BadRequestException($"El valor de '{fieldName}' no es válido.");
+        }
     }
 
     private static MedicalProfileDto? MapToMedicalProfileDto(FichaMedica? m)
