@@ -4,6 +4,7 @@ using ImpactX.Core.Exceptions;
 using ImpactX.Core.Identity;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
+using ImpactX.Core.Notifications;
 using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Models.DTOs.Monitoring;
@@ -18,32 +19,44 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
     private readonly IUsuarioRepository _usuarioRepository;
     private readonly IFamilySubscriptionService _familySubscriptionService;
     private readonly INotificacionRepository _notificacionRepository;
+    private readonly INotificationService? _notificationService;
 
     public MonitoringRelationshipService(
         IMonitoringRelationshipRepository repository,
         IUsuarioRepository usuarioRepository,
         IFamilySubscriptionService familySubscriptionService,
-        INotificacionRepository notificacionRepository)
+        INotificacionRepository notificacionRepository,
+        INotificationService? notificationService = null)
     {
         _repository = repository;
         _usuarioRepository = usuarioRepository;
         _familySubscriptionService = familySubscriptionService;
         _notificacionRepository = notificacionRepository;
+        _notificationService = notificationService;
     }
 
     public async Task<IReadOnlyList<MonitoringRelationshipDto>> GetRelationshipsAsync(
         Guid userId,
         CancellationToken cancellationToken = default)
     {
+        var unified = await _familySubscriptionService.GetUnifiedRelationshipsAsync(
+            userId,
+            cancellationToken);
         var relationships = await _repository.GetForUserAsync(userId, cancellationToken);
-        var result = new List<MonitoringRelationshipDto>(relationships.Count);
+        var result = new List<MonitoringRelationshipDto>(unified.Count + relationships.Count);
+        result.AddRange(unified);
         foreach (var relationship in relationships)
         {
             await ExpirePendingInvitationIfNeededAsync(relationship, cancellationToken);
             result.Add(await MapAsync(relationship));
         }
 
-        return result;
+        return result
+            .GroupBy(value => value.PublicRelationshipId, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .OrderBy(value => value.MonitoredName)
+            .ThenBy(value => value.MonitorName)
+            .ToList();
     }
 
     public async Task<CreateMonitoringInvitationResponse> CreateInvitationAsync(
@@ -142,6 +155,22 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         };
 
         await _repository.AddAsync(relationship, cancellationToken);
+        if (target.User is not null)
+        {
+            await NotifySafelyAsync(
+                target.User.Id,
+                "Invitación de monitoreo",
+                $"@{currentUser.Username} te envió una invitación de monitoreo.",
+                "Invitation",
+                "MonitoringInvitationReceived",
+                relationship.PublicRelationshipId,
+                relationship.PublicRelationshipId,
+                "MonitoringRelationship",
+                $"/app/monitoring/{relationship.PublicRelationshipId}",
+                $"monitoring-invitation:{relationship.PublicRelationshipId}:recipient:{target.User.Id}",
+                cancellationToken);
+        }
+
         return new CreateMonitoringInvitationResponse
         {
             Relationship = await MapAsync(relationship, monitor),
@@ -239,24 +268,18 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         relationship.MedicalConsentGrantedAtUtc = null;
         await _repository.UpdateAsync(relationship, cancellationToken);
 
-        try
-        {
-            var notif = new Notificacion
-            {
-                Id = Guid.NewGuid(),
-                UsuarioId = relationship.InitiatedByUserId,
-                Titulo = "Invitación aceptada",
-                Mensaje = $"El usuario @{acceptingUser.Username} ha aceptado tu invitación.",
-                Tipo = "Accepted",
-                PublicRelationshipId = relationship.PublicRelationshipId,
-                CreadoEn = DateTime.UtcNow
-            };
-            await _notificacionRepository.AddAsync(notif);
-        }
-        catch (Exception)
-        {
-            // Non-blocking notification fail
-        }
+        await NotifySafelyAsync(
+            relationship.InitiatedByUserId,
+            "Invitación aceptada",
+            $"@{acceptingUser.Username} aceptó tu invitación de monitoreo.",
+            "Invitation",
+            "MonitoringInvitationAccepted",
+            relationship.PublicRelationshipId,
+            relationship.PublicRelationshipId,
+            "MonitoringRelationship",
+            $"/app/monitoring/{relationship.PublicRelationshipId}",
+            $"monitoring-accepted:{relationship.PublicRelationshipId}:recipient:{relationship.InitiatedByUserId}",
+            cancellationToken);
     }
 
     public async Task RejectAsync(
@@ -276,6 +299,18 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         relationship.UpdatedAtUtc = DateTime.UtcNow;
         relationship.InvitationCodeHash = string.Empty;
         await _repository.UpdateAsync(relationship, cancellationToken);
+        await NotifySafelyAsync(
+            relationship.InitiatedByUserId,
+            "Invitación rechazada",
+            $"@{user.Username} rechazó tu invitación de monitoreo.",
+            "Invitation",
+            "MonitoringInvitationRejected",
+            relationship.PublicRelationshipId,
+            relationship.PublicRelationshipId,
+            "MonitoringRelationship",
+            $"/app/monitoring/{relationship.PublicRelationshipId}",
+            $"monitoring-rejected:{relationship.PublicRelationshipId}:recipient:{relationship.InitiatedByUserId}",
+            cancellationToken);
     }
 
     public async Task BlockAsync(
@@ -283,6 +318,16 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         string publicRelationshipId,
         CancellationToken cancellationToken = default)
     {
+        var unified = await _familySubscriptionService.TryGetUnifiedRelationshipAsync(
+            monitoredUserId,
+            publicRelationshipId,
+            cancellationToken);
+        if (unified is not null)
+        {
+            throw new ConflictException(
+                "La relación pertenece al grupo activo. Ajusta sus permisos o abandona/elimina al integrante del grupo.");
+        }
+
         var relationship = await _repository.GetByPublicIdAsync(
             publicRelationshipId,
             cancellationToken)
@@ -310,6 +355,18 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         };
         relationship.MedicalConsentGrantedAtUtc = null;
         await _repository.UpdateAsync(relationship, cancellationToken);
+        await NotifySafelyAsync(
+            relationship.MonitorUserId,
+            "Relación de monitoreo bloqueada",
+            "La persona monitoreada bloqueó la relación.",
+            "Monitoring",
+            "MonitoringRelationshipBlocked",
+            relationship.PublicRelationshipId,
+            relationship.PublicRelationshipId,
+            "MonitoringRelationship",
+            "/app/monitoring",
+            $"monitoring-blocked:{relationship.PublicRelationshipId}:recipient:{relationship.MonitorUserId}",
+            cancellationToken);
     }
 
     public async Task RevokeAsync(
@@ -317,6 +374,16 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         string publicRelationshipId,
         CancellationToken cancellationToken = default)
     {
+        var unified = await _familySubscriptionService.TryGetUnifiedRelationshipAsync(
+            userId,
+            publicRelationshipId,
+            cancellationToken);
+        if (unified is not null)
+        {
+            throw new ConflictException(
+                "La relación pertenece al grupo activo. Ajusta sus permisos o abandona/elimina al integrante del grupo.");
+        }
+
         var relationship = await _repository.GetByPublicIdAsync(
             publicRelationshipId,
             cancellationToken)
@@ -335,6 +402,24 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         relationship.UpdatedAtUtc = DateTime.UtcNow;
         relationship.InvitationCodeHash = string.Empty;
         await _repository.UpdateAsync(relationship, cancellationToken);
+        var recipientId = relationship.MonitorUserId == userId
+            ? relationship.MonitoredUserId
+            : relationship.MonitorUserId;
+        if (recipientId.HasValue)
+        {
+            await NotifySafelyAsync(
+                recipientId.Value,
+                "Relación de monitoreo revocada",
+                "La relación de monitoreo fue revocada.",
+                "Monitoring",
+                "MonitoringRelationshipRevoked",
+                relationship.PublicRelationshipId,
+                relationship.PublicRelationshipId,
+                "MonitoringRelationship",
+                "/app/monitoring",
+                $"monitoring-revoked:{relationship.PublicRelationshipId}:recipient:{recipientId.Value}",
+                cancellationToken);
+        }
     }
 
     public async Task<MonitoringRelationshipDto> UpdatePermissionsAsync(
@@ -343,6 +428,16 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         UpdateMonitoringPermissionsRequest request,
         CancellationToken cancellationToken = default)
     {
+        var unified = await _familySubscriptionService.TryUpdateUnifiedPermissionsAsync(
+            userId,
+            publicRelationshipId,
+            request,
+            cancellationToken);
+        if (unified is not null)
+        {
+            return unified;
+        }
+
         var relationship = await _repository.GetByPublicIdAsync(
             publicRelationshipId,
             cancellationToken)
@@ -379,6 +474,18 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
             : null;
         relationship.UpdatedAtUtc = DateTime.UtcNow;
         await _repository.UpdateAsync(relationship, cancellationToken);
+        await NotifySafelyAsync(
+            relationship.MonitorUserId,
+            "Permisos de monitoreo actualizados",
+            "La persona monitoreada actualizó los permisos de la relación.",
+            "Monitoring",
+            "MonitoringPermissionsUpdated",
+            relationship.PublicRelationshipId,
+            relationship.PublicRelationshipId,
+            "MonitoringRelationship",
+            $"/app/monitoring/{relationship.PublicRelationshipId}",
+            $"monitoring-permissions:{relationship.PublicRelationshipId}:{relationship.UpdatedAtUtc:O}",
+            cancellationToken);
         return await MapAsync(relationship);
     }
 
@@ -388,6 +495,16 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         MonitoringResourcePermission permission,
         CancellationToken cancellationToken = default)
     {
+        var unifiedUserId = await _familySubscriptionService.TryResolveUnifiedAuthorizedUserIdAsync(
+            monitorUserId,
+            publicRelationshipId,
+            permission,
+            cancellationToken);
+        if (unifiedUserId.HasValue)
+        {
+            return unifiedUserId.Value;
+        }
+
         var relationship = await _repository.GetByPublicIdAsync(
             publicRelationshipId,
             cancellationToken)
@@ -421,6 +538,32 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         string publicRelationshipId,
         CancellationToken cancellationToken = default)
     {
+        var unified = await _familySubscriptionService.TryGetUnifiedRelationshipAsync(
+            monitorUserId,
+            publicRelationshipId,
+            cancellationToken);
+        if (unified is not null)
+        {
+            if (!string.Equals(
+                    unified.MonitorPublicProfileId,
+                    (await GetUserAsync(monitorUserId)).PublicProfileId,
+                    StringComparison.Ordinal))
+            {
+                throw new NotFoundException("Relación de monitoreo no encontrada.");
+            }
+
+            if (!unified.Permissions.ViewMedicalProfile
+                || string.IsNullOrWhiteSpace(unified.MonitoredPublicProfileId))
+            {
+                throw new ForbiddenException("No existe consentimiento para consultar la ficha médica.");
+            }
+
+            var monitoredUser = await _usuarioRepository.GetByPublicProfileIdAsync(
+                unified.MonitoredPublicProfileId)
+                ?? throw new NotFoundException("Usuario monitoreado no encontrado.");
+            return MapMedicalProfile(monitoredUser);
+        }
+
         var relationship = await _repository.GetByPublicIdAsync(
             publicRelationshipId,
             cancellationToken)
@@ -439,15 +582,7 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         }
 
         var monitored = await GetUserAsync(relationship.MonitoredUserId.Value);
-        var medical = monitored.FichaMedica;
-        return new MedicalProfileDto
-        {
-            TipoSangre = medical?.TipoSangre,
-            Alergias = medical?.Alergias,
-            Condiciones = medical?.Condiciones,
-            Medicamentos = medical?.Medicamentos,
-            Nota = medical?.Nota
-        };
+        return MapMedicalProfile(monitored);
     }
 
     public async Task<bool> CanMessageAsync(
@@ -455,6 +590,14 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         Guid recipientUserId,
         CancellationToken cancellationToken = default)
     {
+        if (await _familySubscriptionService.CanUnifiedMembersMessageAsync(
+                senderUserId,
+                recipientUserId,
+                cancellationToken))
+        {
+            return true;
+        }
+
         var relationships = await _repository.GetForUserAsync(senderUserId, cancellationToken);
         return relationships.Any(relationship =>
             CanMessageBetween(relationship, senderUserId, recipientUserId));
@@ -465,6 +608,15 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
         Guid secondUserId,
         CancellationToken cancellationToken = default)
     {
+        var unified = await _familySubscriptionService.TryGetUnifiedRelationshipBetweenAsync(
+            firstUserId,
+            secondUserId,
+            cancellationToken);
+        if (unified is not null)
+        {
+            return unified;
+        }
+
         var relationships = await _repository.GetForUserAsync(firstUserId, cancellationToken);
         var relationship = relationships.FirstOrDefault(value =>
             IsAcceptedBetween(value, firstUserId, secondUserId))
@@ -631,6 +783,86 @@ public class MonitoringRelationshipService : IMonitoringRelationshipService
             SendMessages = permissions.SendMessages,
             ViewTelemetry = permissions.ViewTelemetry,
             ReceiveNotifications = permissions.ReceiveNotifications
+        };
+    }
+
+    private async Task NotifySafelyAsync(
+        Guid recipientUserId,
+        string title,
+        string message,
+        string type,
+        string eventName,
+        string? publicRelationshipId,
+        string? entityId,
+        string? referenceType,
+        string? deepLink,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (_notificationService is not null)
+        {
+            try
+            {
+                await _notificationService.CreateAndDispatchAsync(
+                    new AppNotificationCommand(
+                        recipientUserId,
+                        title,
+                        message,
+                        type,
+                        eventName,
+                        publicRelationshipId,
+                        entityId,
+                        referenceType,
+                        deepLink,
+                        idempotencyKey),
+                    cancellationToken);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // La relación principal no debe fallar por el canal de notificaciones.
+            }
+        }
+
+        try
+        {
+            await _notificacionRepository.AddAsync(new Notificacion
+            {
+                Id = Guid.NewGuid(),
+                UsuarioId = recipientUserId,
+                Titulo = title,
+                Mensaje = message,
+                Tipo = type,
+                Evento = eventName,
+                PublicRelationshipId = publicRelationshipId,
+                EntityId = entityId,
+                ReferenciaId = entityId,
+                ReferenciaTipo = referenceType,
+                DeepLink = deepLink,
+                ClaveIdempotencia = idempotencyKey,
+                CreadoEn = DateTime.UtcNow
+            });
+        }
+        catch
+        {
+            // Fallback interno no bloqueante.
+        }
+    }
+
+    private static MedicalProfileDto MapMedicalProfile(Usuario user)
+    {
+        var medical = user.FichaMedica;
+        return new MedicalProfileDto
+        {
+            TipoSangre = medical?.TipoSangre,
+            Alergias = medical?.Alergias,
+            Condiciones = medical?.Condiciones,
+            Medicamentos = medical?.Medicamentos,
+            Nota = medical?.Nota
         };
     }
 

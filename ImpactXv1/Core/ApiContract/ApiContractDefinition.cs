@@ -3,7 +3,7 @@ namespace ImpactX.Core.ApiContract;
 public static class ApiContractDefinition
 {
     public const string ApiVersion = "v1";
-    public const string ContractVersion = "2026.08.04";
+    public const string ContractVersion = "2026.08.05";
     public const string ContractStatus = "frozen";
     public const string LegacySunsetHttpDate = "Tue, 02 Feb 2027 00:00:00 GMT";
     public const string LegacySunsetUtc = "2027-02-02T00:00:00Z";

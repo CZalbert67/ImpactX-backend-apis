@@ -20,6 +20,18 @@ public sealed class FamilyPlanCapacityContractTests
     [InlineData("Free", 1)]
     [InlineData("Standard", 3)]
     [InlineData("Basic", 3)]
+    [InlineData("Premium", int.MaxValue)]
+    public void VehicleLimit_IsGrantedPerIndividualMember(
+        string planName,
+        int expectedVehicleLimit)
+    {
+        Assert.Equal(expectedVehicleLimit, FamilySubscriptionService.GetVehicleLimit(planName));
+    }
+
+    [Theory]
+    [InlineData("Free", 1)]
+    [InlineData("Standard", 3)]
+    [InlineData("Basic", 3)]
     [InlineData("Premium", 6)]
     public void MonitoringLimit_RemainsIndependentFromFamilyCapacity(
         string planName,

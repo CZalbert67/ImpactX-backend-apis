@@ -1,8 +1,9 @@
+using ImpactX.Core.Notifications;
 using ImpactX.Core.Domain;
+using ImpactX.Core.Domain.Enums;
 using ImpactX.Core.Exceptions;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Interfaces.Services;
-using ImpactX.Core.Notifications;
 using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using Microsoft.Extensions.Logging;
@@ -16,6 +17,7 @@ public class NotificationService : INotificationService
     private readonly IDispositivoRepository _dispositivoRepository;
     private readonly IMonitoringRelationshipRepository _monitoringRelationshipRepository;
     private readonly IPushNotificationGateway _pushGateway;
+    private readonly IFamilySubscriptionRepository? _familySubscriptionRepository;
     private readonly ILogger<NotificationService> _logger;
 
     public NotificationService(
@@ -24,7 +26,8 @@ public class NotificationService : INotificationService
         IDispositivoRepository dispositivoRepository,
         IMonitoringRelationshipRepository monitoringRelationshipRepository,
         IPushNotificationGateway pushGateway,
-        ILogger<NotificationService> logger)
+        ILogger<NotificationService> logger,
+        IFamilySubscriptionRepository? familySubscriptionRepository = null)
     {
         _notificacionRepository = notificacionRepository;
         _usuarioRepository = usuarioRepository;
@@ -32,6 +35,7 @@ public class NotificationService : INotificationService
         _monitoringRelationshipRepository = monitoringRelationshipRepository;
         _pushGateway = pushGateway;
         _logger = logger;
+        _familySubscriptionRepository = familySubscriptionRepository;
     }
 
     public async Task<List<NotificacionDto>> GetNotificationsAsync(Guid usuarioId)
@@ -127,6 +131,91 @@ public class NotificationService : INotificationService
             tokens.Count, usuarioId);
     }
 
+    public async Task<NotificacionDto> CreateAndDispatchAsync(
+        AppNotificationCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command.RecipientUserId == Guid.Empty)
+            throw new ArgumentException("El destinatario de la notificación es obligatorio.", nameof(command));
+
+        if (!string.IsNullOrWhiteSpace(command.IdempotencyKey))
+        {
+            var existing = await _notificacionRepository.GetByIdempotencyKeyAsync(
+                command.IdempotencyKey,
+                command.RecipientUserId,
+                cancellationToken);
+            if (existing is not null)
+                return MapToDto(existing);
+        }
+
+        var notification = new Notificacion
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = command.RecipientUserId,
+            Titulo = command.Title,
+            Mensaje = command.Message,
+            Tipo = command.Type,
+            Evento = command.Event,
+            ReferenciaId = command.EntityId,
+            ReferenciaTipo = command.ReferenceType,
+            EntityId = command.EntityId,
+            DeepLink = command.DeepLink,
+            PublicRelationshipId = command.PublicRelationshipId,
+            Canal = "Internal+Push",
+            EstadoEnvio = "Pendiente",
+            Intentos = 0,
+            CreadoEn = DateTime.UtcNow,
+            ClaveIdempotencia = command.IdempotencyKey
+        };
+
+        await _notificacionRepository.AddAsync(notification);
+        var unreadCount = await _notificacionRepository.CountUnreadByUserAsync(command.RecipientUserId);
+        var payload = new Dictionary<string, string>(command.Data ?? new Dictionary<string, string>())
+        {
+            ["notificationId"] = notification.Id.ToString(),
+            ["type"] = command.Type,
+            ["event"] = command.Event,
+            ["unreadCount"] = unreadCount.ToString(),
+            ["contractVersion"] = ImpactX.Core.ApiContract.ApiContractDefinition.ContractVersion
+        };
+        AddIfPresent(payload, "publicRelationshipId", command.PublicRelationshipId);
+        AddIfPresent(payload, "entityId", command.EntityId);
+        AddIfPresent(payload, "deepLink", command.DeepLink);
+
+        try
+        {
+            var recipient = await _usuarioRepository.GetByIdAsync(command.RecipientUserId);
+            var tokens = recipient is null ? new List<string>() : await ResolvePushTokensAsync(recipient);
+            notification.Intentos = 1;
+            notification.UltimoIntentoEn = DateTime.UtcNow;
+            if (tokens.Count == 0)
+            {
+                notification.EstadoEnvio = "SinToken";
+            }
+            else
+            {
+                var result = await SendToTokensAsync(tokens, command.Title, command.Message, payload, cancellationToken);
+                notification.EstadoEnvio = result.Status;
+                if (result.Success)
+                    notification.EnviadoEn = DateTime.UtcNow;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            notification.Intentos++;
+            notification.UltimoIntentoEn = DateTime.UtcNow;
+            notification.EstadoEnvio = "Fallido";
+            _logger.LogWarning(ex, "No se pudo enviar push para la notificación {NotificationId}", notification.Id);
+        }
+
+        await _notificacionRepository.UpdateAsync(notification);
+        return MapToDto(notification);
+    }
+
     public async Task<IReadOnlyList<NotificationDispatchResult>> NotifyAlertMonitorsAsync(
         Alerta alerta,
         CancellationToken cancellationToken = default)
@@ -191,16 +280,99 @@ public class NotificationService : INotificationService
         Guid monitoredUserId,
         CancellationToken cancellationToken)
     {
-        var relationships = await _monitoringRelationshipRepository
+        var groupRecipients = new List<(MonitoringRelationship Relationship, int Priority)>();
+        if (_familySubscriptionRepository is not null)
+        {
+            var group = await _familySubscriptionRepository.GetActiveByUserAsync(
+                monitoredUserId,
+                cancellationToken);
+            if (group is not null)
+            {
+                var activeIds = group.Memberships
+                    .Where(value => value.Status == FamilyMembershipStatus.Active)
+                    .Select(value => value.UserId)
+                    .Append(group.OwnerUserId)
+                    .Distinct()
+                    .ToHashSet();
+                groupRecipients.AddRange(group.AccessPolicies
+                    .Where(value => value.SubjectUserId == monitoredUserId
+                        && activeIds.Contains(value.ViewerUserId)
+                        && value.Permissions.ReceiveCriticalAlerts
+                        && value.Permissions.ReceiveNotifications)
+                    .Select(value => (new MonitoringRelationship
+                    {
+                        Id = value.Id,
+                        PublicRelationshipId = value.PublicRelationshipId,
+                        MonitorUserId = value.ViewerUserId,
+                        MonitoredUserId = value.SubjectUserId,
+                        InitiatedByUserId = group.OwnerUserId,
+                        Direction = MonitoringRequestDirection.MonitoredRequestsMonitor,
+                        Status = MonitoringRelationshipStatus.Accepted,
+                        Permissions = value.Permissions,
+                        MedicalConsentGrantedAtUtc = value.MedicalConsentGrantedAtUtc,
+                        RequestedAtUtc = value.CreatedAtUtc,
+                        AcceptedAtUtc = value.CreatedAtUtc,
+                        ExpiresAtUtc = DateTime.MaxValue,
+                        UpdatedAtUtc = value.UpdatedAtUtc
+                    }, value.SosPriority ?? int.MaxValue)));
+
+                // Compatibilidad de migración: los grupos creados antes del contrato 2026.08.05
+                // pueden no tener todavía políticas materializadas. Solo se generan destinatarios
+                // predeterminados para pares inexistentes; una política explícita que desactive
+                // alertas siempre se respeta.
+                var configuredViewers = group.AccessPolicies
+                    .Where(value => value.SubjectUserId == monitoredUserId)
+                    .Select(value => value.ViewerUserId)
+                    .ToHashSet();
+                foreach (var viewerUserId in activeIds.Where(value =>
+                             value != monitoredUserId && !configuredViewers.Contains(value)))
+                {
+                    groupRecipients.Add((new MonitoringRelationship
+                    {
+                        Id = Guid.NewGuid(),
+                        PublicRelationshipId = $"GRP-{group.PublicSubscriptionId}-{viewerUserId:N}",
+                        MonitorUserId = viewerUserId,
+                        MonitoredUserId = monitoredUserId,
+                        InitiatedByUserId = group.OwnerUserId,
+                        Direction = MonitoringRequestDirection.MonitoredRequestsMonitor,
+                        Status = MonitoringRelationshipStatus.Accepted,
+                        Permissions = new MonitoringPermissions
+                        {
+                            ViewRoutes = false,
+                            ViewLocation = false,
+                            ViewEmergencyLocation = true,
+                            ViewIncidents = true,
+                            ReceiveCriticalAlerts = true,
+                            ViewMedicalProfile = false,
+                            SendMessages = true,
+                            ViewTelemetry = false,
+                            ReceiveNotifications = true
+                        },
+                        RequestedAtUtc = group.CreatedAtUtc,
+                        AcceptedAtUtc = group.CreatedAtUtc,
+                        ExpiresAtUtc = DateTime.MaxValue,
+                        UpdatedAtUtc = group.UpdatedAtUtc
+                    }, int.MaxValue));
+                }
+            }
+        }
+
+        var groupUserIds = groupRecipients
+            .Select(value => value.Relationship.MonitorUserId)
+            .ToHashSet();
+        var legacy = await _monitoringRelationshipRepository
             .GetAcceptedForMonitoredUserAsync(monitoredUserId, cancellationToken);
 
-        return relationships
-            .GroupBy(relationship => relationship.MonitorUserId)
-            .Select(group => group
-                .OrderByDescending(value => value.UpdatedAtUtc)
-                .First())
-            .Where(relationship => relationship.Permissions.ReceiveCriticalAlerts
-                && relationship.Permissions.ReceiveNotifications)
+        return groupRecipients
+            .OrderBy(value => value.Priority)
+            .ThenBy(value => value.Relationship.AcceptedAtUtc)
+            .Select(value => value.Relationship)
+            .Concat(legacy
+                .Where(value => !groupUserIds.Contains(value.MonitorUserId))
+                .GroupBy(value => value.MonitorUserId)
+                .Select(group => group.OrderByDescending(value => value.UpdatedAtUtc).First())
+                .Where(value => value.Permissions.ReceiveCriticalAlerts
+                    && value.Permissions.ReceiveNotifications))
             .ToList();
     }
 
@@ -281,11 +453,12 @@ public class NotificationService : INotificationService
             idempotencyKey,
             "Pendiente",
             recipientUserId);
+        var pushData = await EnrichAlertDataAsync(data, history, relationship);
         var gatewayResult = await SendToTokensAsync(
             tokens,
             title,
             message,
-            data,
+            pushData,
             cancellationToken);
         await UpdateHistoryAfterDispatchAsync(history, gatewayResult);
 
@@ -377,11 +550,12 @@ public class NotificationService : INotificationService
 
         existing.Intentos++;
         existing.UltimoIntentoEn = DateTime.UtcNow;
+        var pushData = await EnrichAlertDataAsync(data, existing, relationship);
         var gatewayResult = await SendToTokensAsync(
             tokens,
             title,
             message,
-            data,
+            pushData,
             cancellationToken);
         existing.EstadoEnvio = gatewayResult.Status;
         if (gatewayResult.Success)
@@ -426,7 +600,10 @@ public class NotificationService : INotificationService
             CreadoEn = DateTime.UtcNow,
             UltimoIntentoEn = DateTime.UtcNow,
             ClaveIdempotencia = idempotencyKey,
-            PublicRelationshipId = relationship.PublicRelationshipId
+            PublicRelationshipId = relationship.PublicRelationshipId,
+            Evento = alerta.Tipo == "SOS" ? "WearableSosTriggered" : "CriticalAlertCreated",
+            EntityId = alerta.Id.ToString(),
+            DeepLink = $"/app/alerts?alertId={alerta.Id}"
         };
 
         if (dispatchStatus == "Enviado")
@@ -521,13 +698,41 @@ public class NotificationService : INotificationService
 
         var data = new Dictionary<string, string>
         {
+            ["type"] = "Alert",
+            ["event"] = alerta.Tipo == "SOS" ? "WearableSosTriggered" : "CriticalAlertCreated",
+            ["entityId"] = alerta.Id.ToString(),
             ["alertId"] = alerta.Id.ToString(),
             ["alertType"] = alerta.Tipo,
             ["severity"] = alerta.Severidad,
+            ["deepLink"] = $"/app/alerts?alertId={alerta.Id}",
+            ["contractVersion"] = ImpactX.Core.ApiContract.ApiContractDefinition.ContractVersion,
             ["createdAt"] = alerta.CreadoEn.ToString("O"),
         };
 
         return (title, message, data);
+    }
+
+    private async Task<Dictionary<string, string>> EnrichAlertDataAsync(
+        IReadOnlyDictionary<string, string> source,
+        Notificacion notification,
+        MonitoringRelationship relationship)
+    {
+        var result = new Dictionary<string, string>(source)
+        {
+            ["notificationId"] = notification.Id.ToString(),
+            ["unreadCount"] = (await _notificacionRepository.CountUnreadByUserAsync(notification.UsuarioId)).ToString(),
+            ["publicRelationshipId"] = relationship.PublicRelationshipId
+        };
+        return result;
+    }
+
+    private static void AddIfPresent(
+        IDictionary<string, string> data,
+        string key,
+        string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+            data[key] = value;
     }
 
     private static string BuildIdempotencyKey(Guid alertaId, Guid recipientUserId)
@@ -544,6 +749,9 @@ public class NotificationService : INotificationService
         ReferenciaId = n.ReferenciaId,
         ReferenciaTipo = n.ReferenciaTipo,
         PublicRelationshipId = n.PublicRelationshipId,
+        Evento = n.Evento,
+        DeepLink = n.DeepLink,
+        EntityId = n.EntityId,
         Leida = n.Leida,
         LeidaEn = n.LeidaEn,
         CreadoEn = n.CreadoEn,

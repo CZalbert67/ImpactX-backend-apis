@@ -22,7 +22,7 @@ public class ApiContractMetadataTests : IClassFixture<CustomWebApplicationFactor
         var root = json.RootElement;
 
         Assert.Equal("v1", root.GetProperty("apiVersion").GetString());
-        Assert.Equal("2026.08.04", root.GetProperty("contractVersion").GetString());
+        Assert.Equal("2026.08.05", root.GetProperty("contractVersion").GetString());
         Assert.Equal("frozen", root.GetProperty("status").GetString());
 
         var routes = root.GetProperty("routes")
@@ -56,7 +56,7 @@ public class ApiContractMetadataTests : IClassFixture<CustomWebApplicationFactor
             .ToArray();
 
         Assert.Contains(capability, capabilities);
-        Assert.Equal("2026.08.04", json.RootElement.GetProperty("contractVersion").GetString());
+        Assert.Equal("2026.08.05", json.RootElement.GetProperty("contractVersion").GetString());
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public class ApiContractMetadataTests : IClassFixture<CustomWebApplicationFactor
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("v1", response.Headers.GetValues("X-ImpactX-Api-Version").Single());
-        Assert.Equal("2026.08.04", response.Headers.GetValues("X-ImpactX-Contract-Version").Single());
+        Assert.Equal("2026.08.05", response.Headers.GetValues("X-ImpactX-Contract-Version").Single());
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public class ApiContractMetadataTests : IClassFixture<CustomWebApplicationFactor
         var content = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("Contrato congelado 2026.08.04", content, StringComparison.Ordinal);
+        Assert.Contains("Contrato congelado 2026.08.05", content, StringComparison.Ordinal);
         Assert.Contains("Clientes permitidos:", content, StringComparison.Ordinal);
     }
 }

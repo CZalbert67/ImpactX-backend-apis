@@ -42,7 +42,10 @@ public class CosmosFamilySubscriptionRepository : IFamilySubscriptionRepository
             "WHERE m.userId = @userId AND m.status = 'Active') OR EXISTS(" +
             "SELECT VALUE i FROM i IN c.invitations " +
             "WHERE i.targetUserId = @userId " +
-            "AND (i.status = 'Accepted' OR i.status = 'Consumed'))) " +
+            "AND (i.status = 'Accepted' OR i.status = 'Consumed')) " +
+            "AND NOT EXISTS(SELECT VALUE ended FROM ended IN c.memberships " +
+            "WHERE ended.userId = @userId AND (ended.status = 'Left' " +
+            "OR ended.status = 'Removed' OR ended.status = 'Expired'))) " +
             "ORDER BY c.updatedAtUtc DESC")
             .WithParameter("@userId", userId.ToString());
 

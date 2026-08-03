@@ -308,6 +308,9 @@ public class ApplicationDbContext : DbContext
             entity.Property(n => n.Canal).HasMaxLength(20);
             entity.Property(n => n.EstadoEnvio).HasMaxLength(30);
             entity.Property(n => n.ClaveIdempotencia).HasMaxLength(300);
+            entity.Property(n => n.Evento).HasMaxLength(80);
+            entity.Property(n => n.DeepLink).HasMaxLength(300);
+            entity.Property(n => n.EntityId).HasMaxLength(100);
             entity.HasIndex(n => n.UsuarioId);
             entity.HasIndex(n => n.ClaveIdempotencia).IsUnique();
         });
@@ -343,6 +346,8 @@ public class ApplicationDbContext : DbContext
                 .HasMaxLength(30)
                 .IsRequired();
             entity.Property(subscription => subscription.PendingPlanName)
+                .HasMaxLength(30);
+            entity.Property(subscription => subscription.SuspendedForPublicSubscriptionId)
                 .HasMaxLength(30);
             entity.Property(subscription => subscription.Status)
                 .HasConversion<string>()
@@ -391,6 +396,19 @@ public class ApplicationDbContext : DbContext
                     .IsRequired();
                 invitation.HasIndex(value => value.PublicInvitationId).IsUnique();
                 invitation.HasIndex(value => value.CodeHash);
+            });
+
+            entity.OwnsMany(subscription => subscription.AccessPolicies, access =>
+            {
+                access.WithOwner().HasForeignKey("FamilySubscriptionId");
+                access.HasKey(value => value.Id);
+                access.Property(value => value.Id).ValueGeneratedNever();
+                access.Property(value => value.PublicRelationshipId)
+                    .HasMaxLength(40)
+                    .IsRequired();
+                access.OwnsOne(value => value.Permissions);
+                access.HasIndex(value => value.PublicRelationshipId).IsUnique();
+                access.HasIndex(value => new { value.SubjectUserId, value.ViewerUserId }).IsUnique();
             });
 
             entity.OwnsMany(subscription => subscription.Payments, payment =>

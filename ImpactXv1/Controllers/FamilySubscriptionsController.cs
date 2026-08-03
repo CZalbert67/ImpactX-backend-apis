@@ -87,6 +87,26 @@ public class FamilySubscriptionsController : ControllerBase
         return NoContent();
     }
 
+
+    [HttpGet("members/access")]
+    public async Task<IActionResult> GetMemberAccess(CancellationToken cancellationToken)
+    {
+        return Ok(await _service.GetMemberAccessAsync(GetUserId(), cancellationToken));
+    }
+
+    [HttpPut("members/{targetPublicProfileId}/access")]
+    public async Task<IActionResult> UpdateMemberAccess(
+        string targetPublicProfileId,
+        [FromBody] UpdateFamilyMemberAccessRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _service.UpdateMemberAccessAsync(
+            GetUserId(),
+            targetPublicProfileId,
+            request,
+            cancellationToken));
+    }
+
     [HttpGet("invitations")]
     public async Task<IActionResult> GetInvitations(CancellationToken cancellationToken)
     {
@@ -133,6 +153,20 @@ public class FamilySubscriptionsController : ControllerBase
         CancellationToken cancellationToken)
     {
         await _service.RejectInvitationAsync(GetUserId(), publicInvitationId, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpDelete("invitations/{publicInvitationId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RevokeInvitation(
+        string publicInvitationId,
+        CancellationToken cancellationToken)
+    {
+        await _service.RevokeInvitationAsync(
+            GetUserId(),
+            publicInvitationId,
+            cancellationToken);
         return NoContent();
     }
 

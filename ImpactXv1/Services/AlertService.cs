@@ -31,6 +31,15 @@ public class AlertService : IAlertService
 
     public async Task<AlertStatusDto> DetectAsync(Guid usuarioId, DetectAlertRequest request)
     {
+        if (request.ClientEventId.HasValue)
+        {
+            var existing = await _alertaRepository.GetBySourceTelemetryEventIdAsync(
+                usuarioId,
+                request.ClientEventId.Value);
+            if (existing is not null)
+                return MapToDto(existing);
+        }
+
         var alerta = new Alerta
         {
             UsuarioId = usuarioId,
@@ -45,6 +54,7 @@ public class AlertService : IAlertService
             FrecuenciaCardiaca = request.FrecuenciaCardiaca.ToString("F0"),
             Modo = "auto",
             ViajeId = request.ViajeId,
+            SourceTelemetryEventId = request.ClientEventId,
             CreadoEn = DateTime.UtcNow,
             Timeline = [[DateTime.UtcNow.ToString("O"), $"Impacto detectado: {request.Severidad}"]],
         };
@@ -59,6 +69,21 @@ public class AlertService : IAlertService
 
     public async Task<AlertStatusDto> SendSosAsync(Guid usuarioId, SosRequest request)
     {
+        if (request.ClientEventId.HasValue)
+        {
+            var existing = await _alertaRepository.GetBySourceTelemetryEventIdAsync(
+                usuarioId,
+                request.ClientEventId.Value);
+            if (existing is not null)
+            {
+                _logger.LogInformation(
+                    "Reintento SOS idempotente detectado para usuario {UsuarioId}, evento {ClientEventId}",
+                    usuarioId,
+                    request.ClientEventId);
+                return MapToDto(existing);
+            }
+        }
+
         var alerta = new Alerta
         {
             UsuarioId = usuarioId,
@@ -74,6 +99,7 @@ public class AlertService : IAlertService
             Canal = request.Canal,
             Modo = request.Modo,
             ViajeId = request.ViajeId,
+            SourceTelemetryEventId = request.ClientEventId,
             CreadoEn = DateTime.UtcNow,
             EnviadaEn = DateTime.UtcNow,
             Timeline = [[DateTime.UtcNow.ToString("O"), $"SOS {request.Modo}: {request.Severidad}"]],

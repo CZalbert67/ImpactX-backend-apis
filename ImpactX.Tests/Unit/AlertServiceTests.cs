@@ -93,6 +93,46 @@ public class AlertServiceTests
     }
 
     [Fact]
+    public async Task SendSosAsync_RepeatedClientEventId_ReturnsExistingWithoutDuplicating()
+    {
+        var usuarioId = Guid.NewGuid();
+        var clientEventId = Guid.NewGuid();
+        var existing = new Alerta
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = usuarioId,
+            Tipo = "SOS",
+            Severidad = "severe",
+            Estado = "Enviada",
+            SourceTelemetryEventId = clientEventId,
+            CreadoEn = DateTime.UtcNow,
+            EnviadaEn = DateTime.UtcNow
+        };
+        _alertaRepo
+            .Setup(repository => repository.GetBySourceTelemetryEventIdAsync(
+                usuarioId,
+                clientEventId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+
+        var result = await _alertService.SendSosAsync(usuarioId, new SosRequest
+        {
+            ClientEventId = clientEventId,
+            Lat = 19.43,
+            Lng = -99.13
+        });
+
+        Assert.Equal(existing.Id, result.Id);
+        Assert.Equal(clientEventId, result.SourceTelemetryEventId);
+        _alertaRepo.Verify(repository => repository.AddAsync(It.IsAny<Alerta>()), Times.Never);
+        _notificationService.Verify(
+            service => service.NotifyAlertMonitorsAsync(
+                It.IsAny<Alerta>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task SendSosAsync_WithImmediateMode_SetsBypass()
     {
         var usuarioId = Guid.NewGuid();

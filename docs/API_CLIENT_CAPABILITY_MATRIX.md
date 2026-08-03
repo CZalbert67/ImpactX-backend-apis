@@ -9,7 +9,7 @@
 - Un JWT sin claim `client` no obtiene capacidades de escritura específicas.
 - El wearable es el único cliente que controla el ciclo de vida de viajes y escribe telemetría.
 - Web y móvil pueden consultar viajes, historial y telemetría.
-- Familia, monitoreo y contacto de emergencia son relaciones independientes.
+- Plan, monitoreo, privacidad y contactos SOS se consolidan en un grupo; la prioridad SOS no crea otra relación.
 
 ## Matriz resumida
 
@@ -18,10 +18,10 @@
 | Auth y sesiones | R/W | R/W | R/W limitada | Crear cuenta solo web/móvil; cada token incluye `client` firmado. |
 | Perfil y onboarding | R/W | R/W | — | Propietario de la cuenta. |
 | Ficha médica | R/W | R/W | — | Monitor solo con consentimiento explícito. |
-| Planes y familia | R/W | R/W | — | Solo propietario paga/administra; miembro puede salir. |
+| Plan y grupo | R/W | R/W | — | Solo el titular administra; cada miembro puede salir y conserva una cuota individual. |
 | Vehículos | R/W | R/W | R selección | Cuota individual por plan. |
-| Monitoreo y permisos | R/W | R/W | — | Relación aceptada, vigente y no bloqueada. |
-| Contactos internos | R/W | R/W | — | Deben ser usuarios ImpactX aceptados. |
+| Privacidad y monitoreo | R/W | R/W | — | Políticas direccionales entre integrantes del mismo grupo. |
+| Contactos SOS | R/W | R/W | — | Prioridades entre integrantes; no conceden permisos adicionales. |
 | Mensajes rápidos | R/W | R/W | — | Sin texto libre; relación con permiso. |
 | Viajes: listar/activo/detalle | R | R | R | Solo recursos propios o relación autorizada. |
 | Viajes: iniciar/pausar/reanudar/finalizar | — | — | W | Exclusivo Galaxy Watch 8. |
@@ -64,49 +64,39 @@ Los documentos históricos pueden conservar `controlClient` y
 `mobileFallbackUsed`. Para viajes nuevos, `controlClient=wearable`,
 `mobileFallbackUsed=false` y `fallbackReason=null`.
 
-## Contactos internos de emergencia
+## Grupo unificado, privacidad, SOS y mensajes rápidos
 
 | Método y ruta | Web | Mobile | Wearable | Autenticación | Regla |
 |---|---:|---:|---:|---:|---|
-| `GET /api/v1/contacts` | R | R | — | Sí | Lista relaciones propias, entrantes y preinvitaciones dirigidas al correo de la cuenta. |
-| `GET /api/v1/contacts/{id}` | R | R | — | Sí | Solo propietario o destinatario; `id` es `PublicContactId`. |
-| `POST /api/v1/contacts/invitations` | W | W | — | Sí | Exactamente username, PublicProfileId o email; devuelve el código manual una sola vez. |
-| `POST /api/v1/contacts/invitations/accept` | W | W | — | Sí | Solo el destinatario; body con `publicContactId` o `code`, nunca query string. |
-| `POST /api/v1/contacts/invitations/reject` | W | W | — | Sí | Rechazo explícito e invalidación del código. |
-| `PATCH /api/v1/contacts/{id}` | W | W | — | Sí | Solo propietario; parentesco y prioridad. |
-| `PATCH /api/v1/contacts/{id}/primary` | W | W | — | Sí | Solo relaciones `Accepted`; un principal por propietario. |
-| `POST /api/v1/contacts/{id}/block` | W | W | — | Sí | Participante; impide nuevas invitaciones entre las cuentas. |
-| `DELETE /api/v1/contacts/{id}` | W | W | — | Sí | Revocación lógica por cualquiera de las partes. |
-| `GET /api/v1/contacts/sync` | R | R | — | Sí | Snapshot para sincronización; no expone teléfono, ids internos ni hashes. |
+| `GET /api/v1/family-subscriptions/current` | R | R | — | Sí | Devuelve el mismo grupo al titular y a todos los miembros activos. |
+| `POST /api/v1/family-subscriptions/invitations` | W | W | — | Sí | Solo titular; una sola invitación integra al usuario al grupo. |
+| `DELETE /api/v1/family-subscriptions/invitations/{id}` | W | W | — | Sí | Solo titular; revoca una invitación pendiente y libera el espacio. |
+| `POST /api/v1/family-subscriptions/invitations/{id}/accept` | W | W | — | Sí | Suspende un Gratuito personal vacío y activa la membresía compartida. |
+| `POST /api/v1/family-subscriptions/leave` | W | W | — | Sí | Solo miembro; reactiva o crea su plan Gratuito personal. |
+| `GET /api/v1/family-subscriptions/members/access` | R | R | — | Sí | Políticas que el usuario propietario de datos concede a cada integrante. |
+| `PUT /api/v1/family-subscriptions/members/{publicProfileId}/access` | W | W | — | Sí | Privacidad por persona, consentimiento médico y prioridad SOS. |
+| `GET /api/v1/monitoring-relationships` | R | R | — | Sí | Proyección compatible de las políticas del grupo y relaciones legacy aceptadas. |
+| `GET /api/v1/quick-messages/recipients` | R | R | — | Sí | Integrantes o relaciones aceptadas con `sendMessages=true`. |
+| `POST /api/v1/quick-messages/send` | W | W | — | Sí | Sin texto libre; genera historial y notificación interna/push. |
+| `PATCH /api/v1/quick-messages/conversations/{publicProfileId}/read` | W | W | — | Sí | Marca todos los mensajes entrantes de la conversación. |
 
-La ruta legacy `/api/contacts` conserva temporalmente el CRUD histórico de
-nombre/teléfono, pero esos documentos son `LegacyUnverified`, quedan fuera de
-OpenAPI V1 y no se consideran contactos operativos.
+Reglas del grupo:
 
-## Monitoreo, permisos y mensajes rápidos
+- Gratuito: 2 personas totales y 1 vehículo por usuario.
+- Estándar: 3 personas totales y 3 vehículos por usuario.
+- Premium: 6 personas totales y sin límite comercial fijo de vehículos por usuario.
+- Solo el titular invita, elimina miembros y administra el plan.
+- Todos los integrantes quedan conectados, pero cada propietario de datos decide qué comparte con cada persona.
+- La ficha médica exige consentimiento explícito.
+- SOS es una prioridad sobre un integrante existente: 1 contacto en Gratuito, 2 en Estándar y 5 en Premium.
 
-| Método y ruta | Web | Mobile | Wearable | Autenticación | Regla |
-|---|---:|---:|---:|---:|---|
-| `GET /api/v1/monitoring-relationships` | R | R | — | Sí | Fuente canónica de relaciones propias; las invitaciones pendientes vencidas pasan a `Expired`. |
-| `POST /api/v1/monitoring-relationships/invitations` | W | W | — | Sí | Invitación de siete días; código manual de un solo uso almacenado como hash. |
-| `POST /api/v1/monitoring-relationships/invitations/accept` | W | W | — | Sí | Solo destinatario; cupo por plan del monitor. |
-| `POST /api/v1/monitoring-relationships/invitations/reject` | W | W | — | Sí | Solo destinatario; invalida el código. |
-| `PATCH /api/v1/monitoring-relationships/{id}/permissions` | W | W | — | Sí | Solo la persona monitoreada concede permisos; ficha médica exige consentimiento explícito. |
-| `POST /api/v1/monitoring-relationships/{id}/block` | W | W | — | Sí | Bloquea la relación y elimina todos los permisos. |
-| `DELETE /api/v1/monitoring-relationships/{id}` | W | W | — | Sí | Revocación lógica por cualquiera de los participantes. |
-| `GET /api/v1/quick-messages/recipients` | R | R | — | Sí | Solo participantes de relaciones `Accepted` con `sendMessages=true`. |
-| `GET /api/v1/quick-messages/templates` | R | R | — | Sí | Ocho plantillas del sistema y máximo diez personalizadas activas. |
-| `POST /api/v1/quick-messages/send` | W | W | — | Sí | Sin texto libre; usa snapshot inmutable de una plantilla aprobada. |
-| `GET /api/v1/quick-messages/history` | R | R | — | Sí | Historial propio, opcionalmente filtrado por perfil público. |
-| `PATCH /api/v1/quick-messages/{id}/read` | W | W | — | Sí | Solo el destinatario. |
-| `GET /api/v1/permissions` | R | R | — | Sí | Estado de permisos técnicos por plataforma. |
-| `PUT /api/v1/permissions/mobile` | — | W | — | Sí | Solo un token `client=mobile`. |
-| `PUT /api/v1/permissions/web` | W | — | — | Sí | Solo un token `client=web`. |
+Las rutas V1 antiguas de `/api/v1/contacts/*` y creación manual de
+`/api/v1/monitoring-relationships/invitations` permanecen temporalmente para
+clientes anteriores. La web V1.4 no las utiliza para crear nuevas relaciones.
 
-Las alertas se despachan exclusivamente a relaciones canónicas `Accepted`
-que tengan simultáneamente `receiveCriticalAlerts=true` y
-`receiveNotifications=true`. El contenedor legacy `Monitores` deja de ser
-fuente de destinatarios para Firebase.
+Las alertas se despachan primero por prioridad SOS y después al resto de
+integrantes autorizados con `receiveCriticalAlerts=true` y
+`receiveNotifications=true`. El historial interno se persiste antes del push.
 
 ## Galaxy Watch 8 y telemetría V2
 
@@ -172,6 +162,6 @@ campos `impactCandidate`, `detectionLabel`, `severityLabel`, `ruleVersion`,
 | `GET /api/v1/meta/clients/mobile` | R | R | R | No | Capacidades del JWT móvil. |
 | `GET /api/v1/meta/clients/wearable` | R | R | R | No | Capacidades del JWT wearable. |
 
-Versión del contrato: `2026.08.04`. Todas las respuestas incluyen headers de
+Versión del contrato: `2026.08.05`. Todas las respuestas incluyen headers de
 versión. Las rutas legacy permanecen únicamente para transición y tienen sunset
 el `2027-02-02T00:00:00Z`.

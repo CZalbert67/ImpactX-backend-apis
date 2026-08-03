@@ -40,10 +40,15 @@ public class FamilySubscriptionRepository : IFamilySubscriptionRepository
                         || subscription.Memberships.Any(membership =>
                             membership.UserId == userId
                             && membership.Status == FamilyMembershipStatus.Active)
-                        || subscription.Invitations.Any(invitation =>
-                            invitation.TargetUserId == userId
-                            && (invitation.Status == FamilyInvitationStatus.Accepted
-                                || invitation.Status == FamilyInvitationStatus.Consumed))),
+                        || (subscription.Invitations.Any(invitation =>
+                                invitation.TargetUserId == userId
+                                && (invitation.Status == FamilyInvitationStatus.Accepted
+                                    || invitation.Status == FamilyInvitationStatus.Consumed))
+                            && !subscription.Memberships.Any(membership =>
+                                membership.UserId == userId
+                                && (membership.Status == FamilyMembershipStatus.Left
+                                    || membership.Status == FamilyMembershipStatus.Removed
+                                    || membership.Status == FamilyMembershipStatus.Expired)))),
                 cancellationToken);
     }
 
@@ -128,6 +133,7 @@ public class FamilySubscriptionRepository : IFamilySubscriptionRepository
         tracked ??= await _context.FamilySubscriptions
             .Include(value => value.Memberships)
             .Include(value => value.Invitations)
+            .Include(value => value.AccessPolicies)
             .Include(value => value.Payments)
             .SingleOrDefaultAsync(value => value.Id == subscription.Id, cancellationToken);
 
@@ -146,6 +152,16 @@ public class FamilySubscriptionRepository : IFamilySubscriptionRepository
             tracked.Invitations,
             subscription.Invitations,
             value => value.Id);
+        SynchronizeOwnedCollection(
+            tracked.AccessPolicies,
+            subscription.AccessPolicies,
+            value => value.Id);
+        foreach (var incomingAccess in subscription.AccessPolicies)
+        {
+            var trackedAccess = tracked.AccessPolicies.FirstOrDefault(value => value.Id == incomingAccess.Id);
+            if (trackedAccess is not null)
+                _context.Entry(trackedAccess.Permissions).CurrentValues.SetValues(incomingAccess.Permissions);
+        }
         SynchronizeOwnedCollection(
             tracked.Payments,
             subscription.Payments,

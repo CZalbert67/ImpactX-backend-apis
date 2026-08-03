@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using ImpactX.Core.Domain.Enums;
+using ImpactX.Models.DTOs.Monitoring;
 
 namespace ImpactX.Models.DTOs.FamilySubscriptions;
 
@@ -26,7 +27,7 @@ public class CreateFamilyInvitationRequest
     [EmailAddress, MaxLength(256)]
     public string? Email { get; set; }
 
-    public bool CreateMonitoringRelationship { get; set; } = true;
+    public bool CreateMonitoringRelationship { get; set; }
 }
 
 public class RedeemFamilyInvitationRequest
@@ -58,6 +59,10 @@ public class FamilySubscriptionSummaryDto
     public DateTime? NextBillingAtUtc { get; set; }
     public DateTime? GraceEndsAtUtc { get; set; }
     public bool AutoRenew { get; set; }
+    public bool CanManagePlan { get; set; }
+    public bool CanInviteMembers { get; set; }
+    public bool CanLeaveGroup { get; set; }
+    public int SosContactLimit { get; set; }
     public SimulatedPaymentDto? LatestPayment { get; set; }
 }
 
@@ -105,4 +110,37 @@ public class SimulatedPaymentDto
     public decimal Amount { get; set; }
     public string Currency { get; set; } = string.Empty;
     public DateTime OccurredAtUtc { get; set; }
+}
+
+
+public class FamilyMemberAccessDto
+{
+    public string PublicRelationshipId { get; set; } = string.Empty;
+    public string PublicSubscriptionId { get; set; } = string.Empty;
+    public string SubjectPublicProfileId { get; set; } = string.Empty;
+    public string SubjectUsername { get; set; } = string.Empty;
+    public string SubjectName { get; set; } = string.Empty;
+    public string ViewerPublicProfileId { get; set; } = string.Empty;
+    public string ViewerUsername { get; set; } = string.Empty;
+    public string ViewerName { get; set; } = string.Empty;
+    public MonitoringPermissionsDto Permissions { get; set; } = new();
+    public bool MedicalConsentGranted { get; set; }
+    public int? SosPriority { get; set; }
+    public bool IsSosContact => SosPriority.HasValue;
+    public DateTime UpdatedAtUtc { get; set; }
+}
+
+public class UpdateFamilyMemberAccessRequest
+{
+    public bool ViewRoutes { get; set; }
+    public bool ViewLocation { get; set; }
+    public bool ViewEmergencyLocation { get; set; } = true;
+    public bool ViewIncidents { get; set; } = true;
+    public bool ReceiveCriticalAlerts { get; set; } = true;
+    public bool ViewMedicalProfile { get; set; }
+    public bool SendMessages { get; set; } = true;
+    public bool ViewTelemetry { get; set; }
+    public bool ReceiveNotifications { get; set; } = true;
+    public bool ConfirmMedicalConsent { get; set; }
+    public int? SosPriority { get; set; }
 }

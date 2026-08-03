@@ -10,6 +10,7 @@ public class DetectAlertRequest
     public double FrecuenciaCardiaca { get; set; }
     public string Severidad { get; set; } = "bump";
     public string? ViajeId { get; set; }
+    public Guid? ClientEventId { get; set; }
 }
 
 public class SosRequest
@@ -24,6 +25,7 @@ public class SosRequest
     public string? FrecuenciaCardiaca { get; set; }
     public string Modo { get; set; } = "manual";
     public string? ViajeId { get; set; }
+    public Guid? ClientEventId { get; set; }
 }
 
 public class CloseAlertRequest

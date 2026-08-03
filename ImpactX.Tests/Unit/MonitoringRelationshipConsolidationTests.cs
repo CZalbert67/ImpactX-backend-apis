@@ -68,6 +68,13 @@ public class MonitoringRelationshipConsolidationTests
 
     private MonitoringRelationshipService CreateService()
     {
+        _family
+            .Setup(value => value.GetUnifiedRelationshipsAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+                Array.Empty<ImpactX.Models.DTOs.Monitoring.MonitoringRelationshipDto>());
+
         return new MonitoringRelationshipService(
             _repository.Object,
             _users.Object,

@@ -4,7 +4,7 @@
 
 El backend dispone de contratos canónicos para web, móvil y Samsung Galaxy Watch 8. La API V1 incluye identidad, onboarding, perfil médico, vehículos, planes, suscripciones individuales y familiares, contactos de emergencia, monitoreo, mensajes rápidos, notificaciones, viajes, telemetría V2, motor inicial de impactos, alertas, incidentes, sincronización móvil offline, exportación y eliminación de cuenta.
 
-La versión de contrato queda congelada como `2026.08.04`. Los nuevos cambios que alteren rutas, cuerpos o respuestas deberán publicarse como una nueva versión y no modificar silenciosamente V1.
+La versión de contrato queda congelada como `2026.08.05`. Los nuevos cambios que alteren rutas, cuerpos o respuestas deberán publicarse como una nueva versión y no modificar silenciosamente V1.
 
 ## Garantías del cierre
 
