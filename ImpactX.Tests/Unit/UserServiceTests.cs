@@ -90,6 +90,39 @@ public class UserServiceTests
     }
 
     [Fact]
+    public async Task UpdateProfileAsync_OffensiveName_ThrowsBadRequest()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, Nombre = "Juan" };
+
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            _userService.UpdateProfileAsync(usuarioId, new UpdateUserProfileRequest
+            {
+                Nombre = "Juan puta Lopez",
+            }));
+
+        _usuarioRepo.Verify(r => r.UpdateAsync(It.IsAny<Usuario>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_CleanName_NormalizesWhitespace()
+    {
+        var usuarioId = Guid.NewGuid();
+        var usuario = new Usuario { Id = usuarioId, Nombre = "Old" };
+
+        _usuarioRepo.Setup(r => r.GetByIdAsync(usuarioId)).ReturnsAsync(usuario);
+
+        var result = await _userService.UpdateProfileAsync(usuarioId, new UpdateUserProfileRequest
+        {
+            Nombre = "  Pedro   García ",
+        });
+
+        Assert.Equal("Pedro García", result.Nombre);
+    }
+
+    [Fact]
     public async Task GetPreferencesAsync_WithPreferences_ReturnsDto()
     {
         var usuarioId = Guid.NewGuid();
