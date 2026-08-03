@@ -1,10 +1,9 @@
 using System.Security.Claims;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 using ImpactX.Core.Security;
-using Microsoft.AspNetCore.RateLimiting;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 namespace ImpactX.Controllers;
 
@@ -24,64 +23,56 @@ public class IncidentesController : ControllerBase
 
     [HttpGet]
     public async Task<IActionResult> GetIncidents([FromQuery] IncidentFilterRequest filter)
-    {
-        var usuarioId = GetUsuarioId();
-        var result = await _incidentService.GetIncidentsAsync(usuarioId, filter);
-        return Ok(result);
-    }
+        => Ok(await _incidentService.GetIncidentsAsync(GetUsuarioId(), filter));
+
+    [HttpGet("active")]
+    [ProducesResponseType(typeof(List<IncidenteListItemDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetActiveIncidents()
+        => Ok(await _incidentService.GetActiveIncidentsAsync(GetUsuarioId()));
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetIncidentDetail(Guid id)
-    {
-        var usuarioId = GetUsuarioId();
-        var result = await _incidentService.GetIncidentDetailAsync(usuarioId, id);
-        return Ok(result);
-    }
+        => Ok(await _incidentService.GetIncidentDetailAsync(GetUsuarioId(), id));
+
+    [HttpPost("{id:guid}/confirm-ok")]
+    [RequireClientCapability(ClientTypePolicy.Mobile)]
+    [ProducesResponseType(typeof(IncidentActionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ConfirmOk(Guid id)
+        => Ok(await _incidentService.ConfirmOkAsync(GetUsuarioId(), id));
+
+    [HttpPost("{id:guid}/close")]
+    [ProducesResponseType(typeof(IncidentActionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Close(Guid id, [FromBody] IncidentCloseRequest request)
+        => Ok(await _incidentService.CloseAsync(GetUsuarioId(), id, request));
 
     [HttpPatch("{id:guid}/mark-false-alarm")]
     public async Task<IActionResult> MarkFalseAlarm(Guid id, [FromBody] MarkFalseAlarmRequest request)
     {
-        var usuarioId = GetUsuarioId();
-        await _incidentService.MarkAsFalseAlarmAsync(usuarioId, id, request);
+        await _incidentService.MarkAsFalseAlarmAsync(GetUsuarioId(), id, request);
         return Ok(new { mensaje = "Incidente marcado como falsa alarma." });
     }
 
     [HttpPatch("{id:guid}/note")]
     public async Task<IActionResult> UpdateNote(Guid id, [FromBody] NoteRequest request)
     {
-        var usuarioId = GetUsuarioId();
-        await _incidentService.UpdateNoteAsync(usuarioId, id, request);
+        await _incidentService.UpdateNoteAsync(GetUsuarioId(), id, request);
         return Ok(new { mensaje = "Nota actualizada." });
     }
 
     [HttpGet("{id:guid}/map")]
     public async Task<IActionResult> GetMapData(Guid id)
-    {
-        var usuarioId = GetUsuarioId();
-        var result = await _incidentService.GetMapDataAsync(usuarioId, id);
-        return Ok(result);
-    }
+        => Ok(await _incidentService.GetMapDataAsync(GetUsuarioId(), id));
 
     [HttpGet("export")]
-    public async Task<IActionResult> Export([FromQuery] string formato = "pdf")
+    public async Task<IActionResult> Export([FromQuery] string formato = "csv")
     {
-        var usuarioId = GetUsuarioId();
-        var data = await _incidentService.ExportAsync(usuarioId, formato);
-
-        var contentType = formato.ToLower() == "csv"
-            ? "text/csv"
-            : "application/pdf";
-
-        var fileName = formato.ToLower() == "csv"
-            ? "incidentes.csv"
-            : "incidentes.txt";
-
-        return File(data, contentType, fileName);
+        var data = await _incidentService.ExportAsync(GetUsuarioId(), formato);
+        var csv = string.Equals(formato, "csv", StringComparison.OrdinalIgnoreCase);
+        return File(data, csv ? "text/csv" : "text/plain", csv ? "incidentes.csv" : "incidentes.txt");
     }
 
     private Guid GetUsuarioId()
-    {
-        var claim = User.FindFirst(ClaimTypes.NameIdentifier);
-        return Guid.Parse(claim!.Value);
-    }
+        => Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 }

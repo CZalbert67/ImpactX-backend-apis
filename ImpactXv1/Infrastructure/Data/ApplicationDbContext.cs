@@ -47,9 +47,14 @@ public class ApplicationDbContext : DbContext
             entity.Property(u => u.PasswordHash).HasMaxLength(500).IsRequired();
             entity.Property(u => u.PlanActivo).HasMaxLength(50);
             entity.Property(u => u.FcmToken).HasMaxLength(1000);
+            entity.Property(u => u.DeletionReason).HasMaxLength(500);
             entity.PrimitiveCollection(u => u.UsernamesAnteriores);
 
-            entity.OwnsOne(u => u.Onboarding);
+            entity.OwnsOne(u => u.Onboarding, onboarding =>
+            {
+                onboarding.Property(value => value.TermsVersion).HasMaxLength(40);
+                onboarding.Property(value => value.PrivacyNoticeVersion).HasMaxLength(40);
+            });
 
             entity.OwnsOne(u => u.PerfilConduccion, p =>
             {
@@ -83,6 +88,18 @@ public class ApplicationDbContext : DbContext
             {
                 s.Property(st => st.TwoFactorSecret).HasMaxLength(500);
             });
+
+            entity.Property(u => u.MobileSyncLastAcknowledgedCursor).HasMaxLength(128);
+            entity.Property(u => u.MobileSyncClientInstanceId).HasMaxLength(100);
+            entity.OwnsMany(u => u.MobileSyncReceipts, receipt =>
+            {
+                receipt.WithOwner().HasForeignKey("UsuarioId");
+                receipt.HasKey("UsuarioId", nameof(MobileSyncOperationReceipt.OperationId));
+                receipt.Property(value => value.OperationId).ValueGeneratedNever();
+                receipt.Property(value => value.Type).HasMaxLength(80).IsRequired();
+                receipt.Property(value => value.Result).HasMaxLength(30).IsRequired();
+                receipt.Property(value => value.Message).HasMaxLength(500);
+            });
         });
 
         modelBuilder.Entity<RefreshToken>(entity =>
@@ -115,6 +132,11 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<ContactoEmergencia>(entity =>
         {
             entity.HasKey(c => c.Id);
+            entity.Property(c => c.PublicContactId).HasMaxLength(40);
+            entity.Property(c => c.TargetEmailNormalized).HasMaxLength(256);
+            entity.Property(c => c.TargetPublicProfileId).HasMaxLength(64);
+            entity.Property(c => c.TargetUsername).HasMaxLength(50);
+            entity.Property(c => c.InvitationCodeHash).HasMaxLength(64);
             entity.Property(c => c.Nombre).HasMaxLength(200).IsRequired();
             entity.Property(c => c.Telefono).HasMaxLength(20).IsRequired();
             entity.Property(c => c.Parentesco).HasMaxLength(100);
@@ -123,6 +145,9 @@ public class ApplicationDbContext : DbContext
             entity.Property(c => c.Channel).HasMaxLength(50);
             entity.Property(c => c.Priority).HasMaxLength(50);
             entity.HasIndex(c => c.UsuarioId);
+            entity.HasIndex(c => c.PublicContactId).IsUnique();
+            entity.HasIndex(c => c.ContactUserId);
+            entity.HasIndex(c => c.InvitationCodeHash);
         });
 
         modelBuilder.Entity<Ruta>(entity =>
@@ -152,6 +177,18 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<ViajeTelemetry>(entity =>
         {
             entity.HasKey(t => t.Id);
+            entity.Property(t => t.WearableDeviceId).HasMaxLength(200);
+            entity.Property(t => t.WearableModel).HasMaxLength(200);
+            entity.Property(t => t.WearableAppVersion).HasMaxLength(80);
+            entity.Property(t => t.WearableOsVersion).HasMaxLength(80);
+            entity.Property(t => t.WearableFirmwareVersion).HasMaxLength(80);
+            entity.Property(t => t.VehiclePublicId).HasMaxLength(30);
+            entity.Property(t => t.CalidadSensor).HasMaxLength(20);
+            entity.Property(t => t.SensorFlagsCsv).HasMaxLength(1200);
+            entity.Property(t => t.DetectionLabel).HasMaxLength(100);
+            entity.Property(t => t.SeverityLabel).HasMaxLength(50);
+            entity.Property(t => t.RuleVersion).HasMaxLength(80);
+            entity.Property(t => t.ModelVersion).HasMaxLength(80);
             entity.HasIndex(t => t.ViajeId);
         });
 
@@ -179,6 +216,7 @@ public class ApplicationDbContext : DbContext
         {
             entity.HasKey(s => s.Id);
             entity.Property(s => s.Estado).HasMaxLength(20).IsRequired();
+            entity.Property(s => s.BillingCycle).HasMaxLength(20).IsRequired();
             entity.Property(s => s.MotivoCancelacion).HasMaxLength(500);
             entity.HasIndex(s => s.UsuarioId);
             entity.HasIndex(s => s.PlanId);
@@ -202,9 +240,18 @@ public class ApplicationDbContext : DbContext
             entity.Property(w => w.DispositivoId).HasMaxLength(200);
             entity.Property(w => w.Nombre).HasMaxLength(200);
             entity.Property(w => w.Modelo).HasMaxLength(200);
-            entity.Property(w => w.AppVersion).HasMaxLength(50);
-            entity.Property(w => w.PairingToken).HasMaxLength(200);
+            entity.Property(w => w.Fabricante).HasMaxLength(100);
+            entity.Property(w => w.Plataforma).HasMaxLength(100);
+            entity.Property(w => w.AppVersion).HasMaxLength(80);
+            entity.Property(w => w.VersionSistemaOperativo).HasMaxLength(80);
+            entity.Property(w => w.VersionFirmware).HasMaxLength(80);
+            entity.Property(w => w.CalidadSensores).HasMaxLength(20);
+            entity.Property(w => w.PairingToken).HasMaxLength(64);
             entity.Property(w => w.Estado).HasMaxLength(50);
+            entity.PrimitiveCollection(w => w.PermisosOtorgados);
+            entity.PrimitiveCollection(w => w.CapacidadesSensores);
+            entity.PrimitiveCollection(w => w.SensoresDisponibles);
+            entity.PrimitiveCollection(w => w.SensoresNoDisponibles);
             entity.HasIndex(w => w.UsuarioId);
             entity.HasIndex(w => w.PairingToken);
         });
@@ -223,22 +270,31 @@ public class ApplicationDbContext : DbContext
             entity.Property(a => a.Modo).HasMaxLength(20);
             entity.Property(a => a.Canal).HasMaxLength(50);
             entity.Property(a => a.ViajeId).HasMaxLength(100);
+            entity.Property(a => a.DetectionLabel).HasMaxLength(100);
+            entity.Property(a => a.RuleVersion).HasMaxLength(80);
             entity.Property(a => a.MetodoCierre).HasMaxLength(50);
             entity.HasIndex(a => a.UsuarioId);
+            entity.HasIndex(a => new { a.UsuarioId, a.SourceTelemetryEventId });
         });
 
         modelBuilder.Entity<Incidente>(entity =>
         {
             entity.HasKey(i => i.Id);
+            entity.Property(i => i.Tipo).HasMaxLength(50);
             entity.Property(i => i.Severidad).HasMaxLength(20);
+            entity.Property(i => i.Estado).HasMaxLength(20);
             entity.Property(i => i.Lugar).HasMaxLength(500);
             entity.Property(i => i.GForce).HasMaxLength(20);
             entity.Property(i => i.Decibeles).HasMaxLength(20);
             entity.Property(i => i.FrecuenciaCardiaca).HasMaxLength(20);
             entity.Property(i => i.Canal).HasMaxLength(50);
+            entity.Property(i => i.ViajeId).HasMaxLength(100);
+            entity.Property(i => i.DetectionLabel).HasMaxLength(100);
+            entity.Property(i => i.RuleVersion).HasMaxLength(80);
             entity.Property(i => i.MetodoCierre).HasMaxLength(50);
             entity.HasIndex(i => i.UsuarioId);
             entity.HasIndex(i => i.AlertaId);
+            entity.HasIndex(i => new { i.UsuarioId, i.Estado });
         });
 
         modelBuilder.Entity<Notificacion>(entity =>

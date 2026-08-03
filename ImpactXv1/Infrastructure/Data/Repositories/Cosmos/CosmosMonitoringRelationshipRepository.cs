@@ -80,6 +80,30 @@ public class CosmosMonitoringRelationshipRepository : IMonitoringRelationshipRep
         return response.FirstOrDefault();
     }
 
+    public async Task<IReadOnlyList<MonitoringRelationship>> GetAcceptedForMonitoredUserAsync(
+        Guid monitoredUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.monitoredUserId = @monitoredUserId " +
+            "AND c.status = 'Accepted'")
+            .WithParameter("@monitoredUserId", monitoredUserId.ToString());
+
+        var results = new List<MonitoringRelationship>();
+        using var iterator = _container.GetItemQueryIterator<MonitoringRelationship>(
+            query,
+            requestOptions: new QueryRequestOptions { MaxItemCount = 100 });
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+
+        return results
+            .OrderBy(value => value.AcceptedAtUtc)
+            .ToList();
+    }
+
     public async Task<bool> ExistsBlockedAsync(
         Guid monitorUserId,
         Guid monitoredUserId,

@@ -52,6 +52,9 @@ public class FamilySubscriptionSummaryDto
     public string? PendingPlanName { get; set; }
     public DateTime PeriodStartUtc { get; set; }
     public DateTime PeriodEndUtc { get; set; }
+    public DateTime? NextBillingAtUtc { get; set; }
+    public DateTime? GraceEndsAtUtc { get; set; }
+    public bool AutoRenew { get; set; }
     public SimulatedPaymentDto? LatestPayment { get; set; }
 }
 

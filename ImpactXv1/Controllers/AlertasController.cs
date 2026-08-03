@@ -23,8 +23,9 @@ public class AlertasController : ControllerBase
     }
 
     [HttpPost("detect")]
-    [RequireClientCapability(ClientTypePolicy.Mobile, ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable)]
     [EnableRateLimiting("alert-detect")]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Detect([FromBody] DetectAlertRequest request)
     {
         var usuarioId = GetUsuarioId();

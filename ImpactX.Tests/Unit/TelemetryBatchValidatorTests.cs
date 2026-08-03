@@ -212,7 +212,7 @@ public class TelemetryBatchValidatorTests
         // los campos): cada evento serializa ≈ 190 bytes
         // ({"eventId":"<36>","timestamp":"<27>","lat":..,"lng":..,"velocidad":..,
         // "altitud":..,"heading":..}) → ≈ 19 KB + wrapper "{"eventos":[...]}".
-        // 32 KB de TelemetryIngestionLimits.MaxBodyBytes dejan margen para
+        // MaxBodyBytes deja margen para
         // cabeceras/whitespace del cliente.
         var eventos = Enumerable.Range(0, TelemetryIngestionLimits.MaxEventsPerBatch)
             .Select(i => new TelemetryEventRequest

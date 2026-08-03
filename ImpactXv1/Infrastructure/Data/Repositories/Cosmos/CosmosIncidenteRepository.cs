@@ -48,6 +48,27 @@ public class CosmosIncidenteRepository : IIncidenteRepository
         }
     }
 
+    public async Task<Incidente?> GetByAlertIdAsync(Guid usuarioId, Guid alertaId)
+    {
+        var query = new QueryDefinition(
+            "SELECT TOP 1 * FROM c WHERE c.usuarioId = @usuarioId AND c.alertaId = @alertaId")
+            .WithParameter("@usuarioId", usuarioId.ToString())
+            .WithParameter("@alertaId", alertaId.ToString());
+
+        using var iterator = _container.GetItemQueryIterator<Incidente>(query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 1
+            });
+        if (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync();
+            return response.FirstOrDefault();
+        }
+        return null;
+    }
+
     public async Task<List<Incidente>> GetByUserAsync(Guid usuarioId)
     {
         var query = new QueryDefinition(

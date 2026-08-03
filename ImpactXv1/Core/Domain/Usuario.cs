@@ -96,4 +96,36 @@ public class Usuario
     [JsonProperty("settings")]
     [JsonPropertyName("settings")]
     public SettingsUsuario? Settings { get; set; }
+
+    [JsonProperty("mobileSyncRevision")]
+    [JsonPropertyName("mobileSyncRevision")]
+    public long MobileSyncRevision { get; set; }
+
+    [JsonProperty("mobileSyncLastAcknowledgedCursor")]
+    [JsonPropertyName("mobileSyncLastAcknowledgedCursor")]
+    public string? MobileSyncLastAcknowledgedCursor { get; set; }
+
+    [JsonProperty("mobileSyncLastAckAtUtc")]
+    [JsonPropertyName("mobileSyncLastAckAtUtc")]
+    public DateTime? MobileSyncLastAckAtUtc { get; set; }
+
+    [JsonProperty("mobileSyncClientInstanceId")]
+    [JsonPropertyName("mobileSyncClientInstanceId")]
+    public string? MobileSyncClientInstanceId { get; set; }
+
+    [JsonProperty("mobileSyncReceipts")]
+    [JsonPropertyName("mobileSyncReceipts")]
+    public List<MobileSyncOperationReceipt> MobileSyncReceipts { get; set; } = [];
+
+    [JsonProperty("deletedAtUtc")]
+    [JsonPropertyName("deletedAtUtc")]
+    public DateTime? DeletedAtUtc { get; set; }
+
+    [JsonProperty("dataAnonymizedAtUtc")]
+    [JsonPropertyName("dataAnonymizedAtUtc")]
+    public DateTime? DataAnonymizedAtUtc { get; set; }
+
+    [JsonProperty("deletionReason")]
+    [JsonPropertyName("deletionReason")]
+    public string? DeletionReason { get; set; }
 }

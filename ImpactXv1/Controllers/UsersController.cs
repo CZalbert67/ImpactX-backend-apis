@@ -132,6 +132,15 @@ public class UsersController : ControllerBase
         return Ok(results);
     }
 
+    [HttpPost("me/onboarding/legal-acceptance")]
+    [HttpPost("/api/v1/profile/onboarding/legal-acceptance")]
+    public async Task<IActionResult> AcceptLegalDocuments([FromBody] AcceptLegalDocumentsRequest request)
+    {
+        var usuarioId = GetUsuarioId();
+        var onboarding = await _userService.AcceptLegalDocumentsAsync(usuarioId, request);
+        return Ok(onboarding);
+    }
+
     [HttpGet("me/username")]
     [HttpGet("/api/v1/profile/username")]
     public async Task<IActionResult> GetUsername()

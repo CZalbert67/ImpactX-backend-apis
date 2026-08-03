@@ -66,4 +66,8 @@ public interface IFamilySubscriptionService
     Task<string> GetEffectivePlanNameAsync(
         Guid userId,
         CancellationToken cancellationToken = default);
+
+    Task<int> ProcessLifecycleAsync(
+        DateTime utcNow,
+        CancellationToken cancellationToken = default);
 }

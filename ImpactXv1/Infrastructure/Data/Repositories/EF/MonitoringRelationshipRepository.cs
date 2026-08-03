@@ -54,6 +54,17 @@ public class MonitoringRelationshipRepository : IMonitoringRelationshipRepositor
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<MonitoringRelationship>> GetAcceptedForMonitoredUserAsync(
+        Guid monitoredUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.MonitoringRelationships
+            .Where(relationship => relationship.MonitoredUserId == monitoredUserId
+                && relationship.Status == MonitoringRelationshipStatus.Accepted)
+            .OrderBy(relationship => relationship.AcceptedAtUtc)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<bool> ExistsBlockedAsync(
         Guid monitorUserId,
         Guid monitoredUserId,

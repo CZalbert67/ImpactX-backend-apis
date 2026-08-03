@@ -26,7 +26,7 @@ public class DevicesControllerTests : IClassFixture<CustomWebApplicationFactory>
             password = "Password123!"
         });
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
-        return result!.Token;
+        return result!.Token!;
     }
 
     private void SetBearer(string token)

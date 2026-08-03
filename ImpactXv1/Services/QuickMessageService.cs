@@ -47,6 +47,28 @@ public class QuickMessageService : IQuickMessageService
             .ToList();
     }
 
+    public async Task<IReadOnlyList<QuickMessageRecipientDto>> GetRecipientsAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var currentUser = await GetUserAsync(userId);
+        var relationships = await _monitoringService.GetRelationshipsAsync(
+            userId,
+            cancellationToken);
+
+        return relationships
+            .Where(relationship => relationship.Status == ImpactX.Core.Domain.Enums.MonitoringRelationshipStatus.Accepted
+                && relationship.Permissions.SendMessages)
+            .Select(relationship => MapRecipient(currentUser, relationship))
+            .Where(recipient => recipient is not null)
+            .Cast<QuickMessageRecipientDto>()
+            .GroupBy(recipient => recipient.RecipientPublicProfileId, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .OrderBy(recipient => recipient.RecipientName)
+            .ThenBy(recipient => recipient.RecipientUsername)
+            .ToList();
+    }
+
     public async Task<QuickMessageTemplateDto> CreateTemplateAsync(
         Guid userId,
         UpsertQuickMessageTemplateRequest request,
@@ -253,6 +275,40 @@ public class QuickMessageService : IQuickMessageService
         var user = await GetUserAsync(userId);
         cache[userId] = user;
         return user;
+    }
+
+    private static QuickMessageRecipientDto? MapRecipient(
+        Usuario currentUser,
+        ImpactX.Models.DTOs.Monitoring.MonitoringRelationshipDto relationship)
+    {
+        var isMonitor = string.Equals(
+            relationship.MonitorPublicProfileId,
+            currentUser.PublicProfileId,
+            StringComparison.Ordinal);
+
+        var publicProfileId = isMonitor
+            ? relationship.MonitoredPublicProfileId
+            : relationship.MonitorPublicProfileId;
+        var username = isMonitor
+            ? relationship.MonitoredUsername
+            : relationship.MonitorUsername;
+        var name = isMonitor
+            ? relationship.MonitoredName
+            : relationship.MonitorName;
+
+        if (string.IsNullOrWhiteSpace(publicProfileId)
+            || string.Equals(publicProfileId, currentUser.PublicProfileId, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return new QuickMessageRecipientDto
+        {
+            PublicRelationshipId = relationship.PublicRelationshipId,
+            RecipientPublicProfileId = publicProfileId,
+            RecipientUsername = username ?? string.Empty,
+            RecipientName = name ?? string.Empty
+        };
     }
 
     private static string ValidateText(string? text)

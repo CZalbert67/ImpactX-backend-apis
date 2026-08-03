@@ -50,6 +50,33 @@ public class AlertaRepository : IAlertaRepository
             .FirstOrDefaultAsync();
     }
 
+    public async Task<Alerta?> GetBySourceTelemetryEventIdAsync(
+        Guid usuarioId,
+        Guid sourceTelemetryEventId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.Alertas
+            .FirstOrDefaultAsync(
+                a => a.UsuarioId == usuarioId
+                    && a.SourceTelemetryEventId == sourceTelemetryEventId,
+                cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Alerta>> GetPendingDueAsync(
+        DateTime utcNow,
+        int maxCount,
+        CancellationToken cancellationToken = default)
+    {
+        var take = Math.Clamp(maxCount, 1, 500);
+        return await _context.Alertas
+            .Where(a => a.Estado == "Pendiente"
+                && a.AutoSendAtUtc != null
+                && a.AutoSendAtUtc <= utcNow)
+            .OrderBy(a => a.AutoSendAtUtc)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<List<Alerta>> GetPendingByUserAsync(Guid usuarioId)
     {
         return await _context.Alertas

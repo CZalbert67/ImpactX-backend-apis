@@ -34,8 +34,10 @@ public class WearableServiceTests
             Id = Guid.NewGuid(),
             UsuarioId = usuarioId,
             DispositivoId = "DEV-001",
-            Nombre = "Apple Watch",
-            Modelo = "Series 9",
+            Nombre = "Galaxy Watch 8",
+            Modelo = "Galaxy Watch 8",
+            Fabricante = "Samsung",
+            Plataforma = "WearOS",
             Estado = "Vinculado",
         };
 
@@ -45,7 +47,7 @@ public class WearableServiceTests
 
         Assert.NotNull(result);
         Assert.Equal("DEV-001", result!.DispositivoId);
-        Assert.Equal("Apple Watch", result.Nombre);
+        Assert.Equal("Galaxy Watch 8", result.Nombre);
     }
 
     [Fact]
@@ -74,8 +76,10 @@ public class WearableServiceTests
         var result = await _wearableService.PairAsync(usuarioId, new PairWearableRequest
         {
             DispositivoId = "DEV-001",
-            Nombre = "Apple Watch",
-            Modelo = "Series 9",
+            Nombre = "Galaxy Watch 8",
+            Modelo = "Galaxy Watch 8",
+            Fabricante = "Samsung",
+            Plataforma = "WearOS",
         });
 
         Assert.NotNull(result.Token);
@@ -99,8 +103,10 @@ public class WearableServiceTests
             _wearableService.PairAsync(usuarioId, new PairWearableRequest
             {
                 DispositivoId = "DEV-002",
-                Nombre = "Test",
-                Modelo = "Test",
+                Nombre = "Galaxy Watch 8",
+                Modelo = "Galaxy Watch 8",
+                Fabricante = "Samsung",
+                Plataforma = "WearOS",
             }));
     }
 
@@ -121,8 +127,10 @@ public class WearableServiceTests
             _wearableService.PairAsync(usuarioId, new PairWearableRequest
             {
                 DispositivoId = "DEV-001",
-                Nombre = "Test",
-                Modelo = "Test",
+                Nombre = "Galaxy Watch 8",
+                Modelo = "Galaxy Watch 8",
+                Fabricante = "Samsung",
+                Plataforma = "WearOS",
             }));
     }
 
@@ -255,19 +263,20 @@ public class WearableServiceTests
     }
 
     [Fact]
-    public async Task UpdateBatteryAsync_ClampsValue()
+    public async Task UpdateBatteryAsync_OutOfRange_ThrowsBadRequest()
     {
         var usuarioId = Guid.NewGuid();
         var wearable = new Wearable { UsuarioId = usuarioId, Estado = "Vinculado" };
 
         _wearableRepo.Setup(r => r.GetByUsuarioIdAsync(usuarioId)).ReturnsAsync(wearable);
 
-        var result = await _wearableService.UpdateBatteryAsync(usuarioId, new BatteryUpdateRequest
-        {
-            Nivel = 150
-        });
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            _wearableService.UpdateBatteryAsync(usuarioId, new BatteryUpdateRequest
+            {
+                Nivel = 150
+            }));
 
-        Assert.Equal(100, result.NivelBateria);
+        _wearableRepo.Verify(r => r.UpdateAsync(It.IsAny<Wearable>()), Times.Never);
     }
 
     [Fact]
@@ -279,6 +288,10 @@ public class WearableServiceTests
             UsuarioId = usuarioId,
             Estado = "Vinculado",
             NivelBateria = 85,
+            Modelo = "Galaxy Watch 8",
+            Fabricante = "Samsung",
+            Plataforma = "WearOS",
+            CapacidadesSensores = ["accelerometer", "gyroscope", "gps", "heart_rate", "hrv", "spo2"],
         };
 
         _wearableRepo.Setup(r => r.GetByUsuarioIdAsync(usuarioId)).ReturnsAsync(wearable);
@@ -301,6 +314,7 @@ public class WearableServiceTests
         var result = await _wearableService.CalibrateAsync(usuarioId, new CalibrationRequest
         {
             Acelerometro = true,
+            Giroscopio = true,
             Gps = true,
         });
 

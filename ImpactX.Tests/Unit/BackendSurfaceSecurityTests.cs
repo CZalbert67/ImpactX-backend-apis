@@ -5,6 +5,7 @@ using ImpactX.Core.Domain;
 using ImpactX.Core.QuickMessages;
 using ImpactX.Core.Security;
 using ImpactX.Infrastructure.Security;
+using ImpactX.Models.DTOs;
 using ImpactX.Models.DTOs.FamilySubscriptions;
 using ImpactX.Models.DTOs.Monitoring;
 using ImpactX.Models.DTOs.QuickMessages;
@@ -59,8 +60,10 @@ public class BackendSurfaceSecurityTests
             typeof(FamilyMemberDto),
             typeof(FamilyInvitationDto),
             typeof(MonitoringRelationshipDto),
+            typeof(EmergencyContactDto),
             typeof(QuickMessageTemplateDto),
-            typeof(QuickMessageDto)
+            typeof(QuickMessageDto),
+            typeof(QuickMessageRecipientDto)
         };
 
         foreach (var type in dtoTypes)
@@ -83,7 +86,15 @@ public class BackendSurfaceSecurityTests
     [InlineData(typeof(TripsController), "IngestTelemetry")]
     [InlineData(typeof(AlertasController), "Detect")]
     [InlineData(typeof(AlertasController), "SendSos")]
+    [InlineData(typeof(WearableController), "Pair")]
+    [InlineData(typeof(WearableController), "PairConfirm")]
     [InlineData(typeof(WearableController), "Sync")]
+    [InlineData(typeof(WearableController), "Calibrate")]
+    [InlineData(typeof(WearableController), "Unlink")]
+    [InlineData(typeof(WearableController), "UpdatePermissions")]
+    [InlineData(typeof(WearableController), "UpdateBattery")]
+    [InlineData(typeof(WearableController), "Heartbeat")]
+    [InlineData(typeof(WearableController), "ReportSensorDiagnostics")]
     [Trait("Category", "Security")]
     public void SensitiveWrites_RequireExplicitClientCapability(Type controller, string methodName)
     {

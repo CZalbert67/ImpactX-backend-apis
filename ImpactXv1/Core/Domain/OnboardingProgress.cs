@@ -33,9 +33,33 @@ public class OnboardingProgress
     [JsonPropertyName("medicalProfileStatus")]
     public MedicalProfileOnboardingStatus MedicalProfileStatus { get; set; } = MedicalProfileOnboardingStatus.Pending;
 
+    [JsonProperty("registrationContractVersion")]
+    [JsonPropertyName("registrationContractVersion")]
+    public int RegistrationContractVersion { get; set; } = ImpactX.Core.Identity.RegistrationContract.LegacyVersion;
+
+    [JsonProperty("termsAccepted")]
+    [JsonPropertyName("termsAccepted")]
+    public bool TermsAccepted { get; set; }
+
+    [JsonProperty("termsVersion")]
+    [JsonPropertyName("termsVersion")]
+    public string? TermsVersion { get; set; }
+
+    [JsonProperty("termsAcceptedAtUtc")]
+    [JsonPropertyName("termsAcceptedAtUtc")]
+    public DateTime? TermsAcceptedAtUtc { get; set; }
+
     [JsonProperty("privacyAccepted")]
     [JsonPropertyName("privacyAccepted")]
     public bool PrivacyAccepted { get; set; }
+
+    [JsonProperty("privacyNoticeVersion")]
+    [JsonPropertyName("privacyNoticeVersion")]
+    public string? PrivacyNoticeVersion { get; set; }
+
+    [JsonProperty("privacyAcceptedAtUtc")]
+    [JsonPropertyName("privacyAcceptedAtUtc")]
+    public DateTime? PrivacyAcceptedAtUtc { get; set; }
 
     [JsonProperty("locationIncidentConsent")]
     [JsonPropertyName("locationIncidentConsent")]

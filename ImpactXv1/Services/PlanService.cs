@@ -1,5 +1,7 @@
 using ImpactX.Core.Domain;
+using ImpactX.Core.Domain.Enums;
 using ImpactX.Core.Exceptions;
+using ImpactX.Core.Identity;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
@@ -8,17 +10,20 @@ namespace ImpactX.Services;
 
 public class PlanService : IPlanService
 {
+    private static readonly TimeSpan GracePeriod = TimeSpan.FromDays(3);
     private readonly IPlanRepository _planRepository;
     private readonly ISuscripcionRepository _suscripcionRepository;
     private readonly IPagoRepository _pagoRepository;
     private readonly IUsuarioRepository _usuarioRepository;
+    private readonly IFamilySubscriptionRepository? _familyRepository;
 
-    private static readonly Dictionary<string, int> PlanOrder = new()
+    private static readonly Dictionary<string, int> PlanOrder = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Free"] = 0,
+        [PlanNamePolicy.Free] = 0,
         ["Trial"] = 0,
-        ["Basic"] = 1,
-        ["Premium"] = 2,
+        [PlanNamePolicy.LegacyBasic] = 1,
+        [PlanNamePolicy.Standard] = 1,
+        [PlanNamePolicy.Premium] = 2,
         ["Enterprise"] = 3,
     };
 
@@ -27,11 +32,22 @@ public class PlanService : IPlanService
         ISuscripcionRepository suscripcionRepository,
         IPagoRepository pagoRepository,
         IUsuarioRepository usuarioRepository)
+        : this(planRepository, suscripcionRepository, pagoRepository, usuarioRepository, null)
+    {
+    }
+
+    public PlanService(
+        IPlanRepository planRepository,
+        ISuscripcionRepository suscripcionRepository,
+        IPagoRepository pagoRepository,
+        IUsuarioRepository usuarioRepository,
+        IFamilySubscriptionRepository? familyRepository)
     {
         _planRepository = planRepository;
         _suscripcionRepository = suscripcionRepository;
         _pagoRepository = pagoRepository;
         _usuarioRepository = usuarioRepository;
+        _familyRepository = familyRepository;
     }
 
     public async Task<List<PlanDto>> GetAllPlansAsync()
@@ -42,35 +58,80 @@ public class PlanService : IPlanService
 
     public async Task<SuscripcionDto?> GetCurrentSubscriptionAsync(Guid usuarioId)
     {
-        var suscripcion = await _suscripcionRepository.GetActiveByUserAsync(usuarioId);
-        if (suscripcion is null) return null;
+        var subscription = await GetCurrentAsync(usuarioId);
+        if (subscription is null)
+            return null;
 
-        var plan = await _planRepository.GetByIdAsync(suscripcion.PlanId);
-        return MapToSuscripcionDto(suscripcion, plan);
+        if (await ApplyLifecycleAsync(subscription, DateTime.UtcNow))
+        {
+            subscription = await GetCurrentAsync(usuarioId);
+            if (subscription is null)
+                return null;
+        }
+
+        var plan = await _planRepository.GetByIdAsync(subscription.PlanId);
+        return MapToSuscripcionDto(subscription, plan);
+    }
+
+    public async Task<EffectiveSubscriptionDto> GetEffectiveSubscriptionAsync(
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        if (_familyRepository is not null)
+        {
+            var family = await _familyRepository.GetActiveByUserAsync(usuarioId, cancellationToken);
+            if (family is not null && TryResolveFamilyEntitlement(family, DateTime.UtcNow, out var familyState, out var graceEndsAtUtc))
+            {
+                var publicName = PlanNamePolicy.ToPublicName(family.PlanName);
+                return BuildEffective(
+                    publicName,
+                    family.OwnerUserId == usuarioId ? "FamilyOwner" : "FamilyMember",
+                    familyState,
+                    family.OwnerUserId == usuarioId,
+                    family.PeriodEndUtc,
+                    graceEndsAtUtc);
+            }
+        }
+
+        var current = await GetCurrentSubscriptionAsync(usuarioId);
+        if (current is not null)
+        {
+            return BuildEffective(
+                current.PlanNombre,
+                "Individual",
+                current.Estado,
+                true,
+                current.Fin,
+                current.GraceEndsAtUtc);
+        }
+
+        return BuildEffective(PlanNamePolicy.Free, "Free", "Activa", true, null, null);
     }
 
     public async Task<List<SuscripcionDto>> GetSubscriptionHistoryAsync(Guid usuarioId)
     {
-        var historial = await _suscripcionRepository.GetHistoryByUserAsync(usuarioId);
+        var history = await _suscripcionRepository.GetHistoryByUserAsync(usuarioId);
         var dtos = new List<SuscripcionDto>();
-        foreach (var s in historial)
+        foreach (var subscription in history)
         {
-            var plan = await _planRepository.GetByIdAsync(s.PlanId);
-            dtos.Add(MapToSuscripcionDto(s, plan));
+            var plan = await _planRepository.GetByIdAsync(subscription.PlanId);
+            dtos.Add(MapToSuscripcionDto(subscription, plan));
         }
         return dtos;
     }
 
-    public async Task<PagedResult<SuscripcionDto>> GetSubscriptionHistoryPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    public async Task<PagedResult<SuscripcionDto>> GetSubscriptionHistoryPagedAsync(
+        Guid usuarioId,
+        int? pageSize,
+        string? continuationToken)
     {
         var size = PaginationValidator.Resolve(pageSize, continuationToken);
         var page = await _suscripcionRepository.GetHistoryByUserPagedAsync(usuarioId, size, continuationToken);
-
         var dtos = new List<SuscripcionDto>();
-        foreach (var s in page.Items)
+        foreach (var subscription in page.Items)
         {
-            var plan = await _planRepository.GetByIdAsync(s.PlanId);
-            dtos.Add(MapToSuscripcionDto(s, plan));
+            var plan = await _planRepository.GetByIdAsync(subscription.PlanId);
+            dtos.Add(MapToSuscripcionDto(subscription, plan));
         }
 
         return new PagedResult<SuscripcionDto>
@@ -84,78 +145,149 @@ public class PlanService : IPlanService
 
     public async Task<SuscripcionDto> ChangePlanAsync(Guid usuarioId, ChangePlanRequest request)
     {
-        var plan = await _planRepository.GetByNameAsync(request.PlanNombre);
-        if (plan is null)
-            throw new BadRequestException("Plan no encontrado.");
+        var result = await ActivateAsync(usuarioId, request);
+        return result.Subscription;
+    }
 
-        var current = await _suscripcionRepository.GetActiveByUserAsync(usuarioId);
+    public async Task<SubscriptionPaymentResultDto> ActivateAsync(
+        Guid usuarioId,
+        ChangePlanRequest request)
+    {
+        if (_familyRepository is not null)
+        {
+            var family = await _familyRepository.GetActiveByUserAsync(usuarioId);
+            if (family is not null
+                && TryResolveFamilyEntitlement(family, DateTime.UtcNow, out _, out _))
+            {
+                throw new ConflictException(
+                    "Ya recibes beneficios mediante una suscripción familiar; no necesitas activar un plan individual.");
+            }
+        }
 
+        var storageName = PlanNamePolicy.ToStorageName(request.PlanNombre);
+        if (storageName == PlanNamePolicy.Free)
+            throw new BadRequestException("El plan Free no requiere activación ni pago.");
+
+        var plan = await _planRepository.GetByNameAsync(storageName)
+            ?? throw new BadRequestException("Plan no encontrado.");
+        var billingCycle = NormalizeBillingCycle(request.BillingCycle);
+        var current = await GetCurrentAsync(usuarioId);
         if (current is not null)
         {
             var currentPlan = await _planRepository.GetByIdAsync(current.PlanId);
-            var currentOrder = currentPlan is not null
-                ? PlanOrder.GetValueOrDefault(currentPlan.Nombre, 0) : 0;
+            var currentOrder = PlanOrder.GetValueOrDefault(currentPlan?.Nombre ?? PlanNamePolicy.Free, 0);
             var newOrder = PlanOrder.GetValueOrDefault(plan.Nombre, 0);
-
-            if (newOrder <= currentOrder)
-                throw new ConflictException(
-                    "Solo puedes cambiar a un plan superior.");
+            if (newOrder <= currentOrder && current.Estado is "Activa" or "Grace")
+                throw new ConflictException("Solo puedes activar un plan superior; usa renovación para conservar el actual.");
         }
 
         var now = DateTime.UtcNow;
-        var suscripcion = new Suscripcion
+        if (current is not null)
+        {
+            current.Estado = "Reemplazada";
+            current.CanceladaEn = now;
+            current.MotivoCancelacion = $"Cambio a {PlanNamePolicy.ToPublicName(plan.Nombre)}";
+            current.AutoRenew = false;
+            current.GraceEndsAtUtc = null;
+            current.UpdatedAtUtc = now;
+            await _suscripcionRepository.UpdateAsync(current);
+        }
+
+        var subscription = new Suscripcion
         {
             UsuarioId = usuarioId,
             PlanId = plan.Id,
             Estado = "Activa",
             Inicio = now,
-            Fin = now.AddMonths(1),
+            Fin = AddBillingPeriod(now, billingCycle),
+            NextBillingAtUtc = AddBillingPeriod(now, billingCycle),
+            BillingCycle = billingCycle,
+            AutoRenew = true,
+            UpdatedAtUtc = now
         };
+        await _suscripcionRepository.AddAsync(subscription);
 
-        await _suscripcionRepository.AddAsync(suscripcion);
+        var payment = CreatePayment(usuarioId, subscription, plan, billingCycle, request.MetodoPago, now);
+        await _pagoRepository.AddAsync(payment);
+        subscription.LastPaymentId = payment.Id;
+        await _suscripcionRepository.UpdateAsync(subscription);
+        await SetUserPlanAsync(usuarioId, plan.Nombre);
 
-        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
-        if (usuario is not null)
+        return new SubscriptionPaymentResultDto
         {
-            usuario.PlanActivo = plan.Nombre;
-            await _usuarioRepository.UpdateAsync(usuario);
-        }
+            Subscription = MapToSuscripcionDto(subscription, plan),
+            Payment = MapToPagoDto(payment)
+        };
+    }
 
-        return MapToSuscripcionDto(suscripcion, plan);
+    public async Task<SubscriptionPaymentResultDto> RenewAsync(
+        Guid usuarioId,
+        RenewSubscriptionRequest request)
+    {
+        var subscription = await GetCurrentAsync(usuarioId)
+            ?? throw new ConflictException("No tienes una suscripción renovable.");
+        var plan = await _planRepository.GetByIdAsync(subscription.PlanId)
+            ?? throw new BadRequestException("El plan asociado ya no existe.");
+        if (PlanNamePolicy.ToStorageName(plan.Nombre) == PlanNamePolicy.Free)
+            throw new ConflictException("El plan Free no requiere renovación.");
+
+        var now = DateTime.UtcNow;
+        var billingCycle = NormalizeBillingCycle(subscription.BillingCycle);
+        var baseDate = subscription.Fin is not null && subscription.Fin > now
+            ? subscription.Fin.Value
+            : now;
+        subscription.Estado = "Activa";
+        subscription.Fin = AddBillingPeriod(baseDate, billingCycle);
+        subscription.NextBillingAtUtc = subscription.Fin;
+        subscription.GraceEndsAtUtc = null;
+        subscription.CanceladaEn = null;
+        subscription.MotivoCancelacion = null;
+        subscription.UpdatedAtUtc = now;
+
+        var payment = CreatePayment(usuarioId, subscription, plan, billingCycle, request.MetodoPago, now);
+        await _pagoRepository.AddAsync(payment);
+        subscription.LastPaymentId = payment.Id;
+        await _suscripcionRepository.UpdateAsync(subscription);
+        await SetUserPlanAsync(usuarioId, plan.Nombre);
+
+        return new SubscriptionPaymentResultDto
+        {
+            Subscription = MapToSuscripcionDto(subscription, plan),
+            Payment = MapToPagoDto(payment)
+        };
     }
 
     public async Task<SuscripcionDto> CancelSubscriptionAsync(
-        Guid usuarioId, CancelSubscriptionRequest? request)
+        Guid usuarioId,
+        CancelSubscriptionRequest? request)
     {
-        var suscripcion = await _suscripcionRepository.GetActiveByUserAsync(usuarioId);
-        if (suscripcion is null)
-            throw new ConflictException("No tienes una suscripción activa.");
+        var subscription = await GetCurrentAsync(usuarioId)
+            ?? throw new ConflictException("No tienes una suscripción activa.");
+        var plan = await _planRepository.GetByIdAsync(subscription.PlanId);
+        if (PlanNamePolicy.ToStorageName(plan?.Nombre) == PlanNamePolicy.Free)
+            throw new ConflictException("El plan Free no se puede cancelar.");
 
-        suscripcion.Estado = "Cancelada";
-        suscripcion.CanceladaEn = DateTime.UtcNow;
-        suscripcion.MotivoCancelacion = request?.Motivo;
-
-        await _suscripcionRepository.UpdateAsync(suscripcion);
-
-        var plan = await _planRepository.GetByIdAsync(suscripcion.PlanId);
-
-        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
-        if (usuario is not null)
-        {
-            usuario.PlanActivo = "Free";
-            await _usuarioRepository.UpdateAsync(usuario);
-        }
-
-        return MapToSuscripcionDto(suscripcion, plan);
+        subscription.Estado = "Cancelada";
+        subscription.CanceladaEn = DateTime.UtcNow;
+        subscription.MotivoCancelacion = request?.Motivo;
+        subscription.AutoRenew = false;
+        subscription.GraceEndsAtUtc = null;
+        subscription.UpdatedAtUtc = DateTime.UtcNow;
+        await _suscripcionRepository.UpdateAsync(subscription);
+        await SetUserPlanAsync(usuarioId, PlanNamePolicy.Free);
+        return MapToSuscripcionDto(subscription, plan);
     }
 
     public async Task<List<PagoDto>> GetPaymentsAsync(Guid usuarioId)
     {
-        var pagos = await _pagoRepository.GetByUserAsync(usuarioId);
-        return pagos.Select(MapToPagoDto).ToList();
+        var payments = await _pagoRepository.GetByUserAsync(usuarioId);
+        return payments.Select(MapToPagoDto).ToList();
     }
 
-    public async Task<PagedResult<PagoDto>> GetPaymentsPagedAsync(Guid usuarioId, int? pageSize, string? continuationToken)
+    public async Task<PagedResult<PagoDto>> GetPaymentsPagedAsync(
+        Guid usuarioId,
+        int? pageSize,
+        string? continuationToken)
     {
         var size = PaginationValidator.Resolve(pageSize, continuationToken);
         var page = await _pagoRepository.GetByUserPagedAsync(usuarioId, size, continuationToken);
@@ -170,68 +302,225 @@ public class PlanService : IPlanService
 
     public async Task<PagoDto?> GetPaymentReceiptAsync(Guid id, Guid usuarioId)
     {
-        // Point-read por (usuarioId, id): sin cross-partition; un pago de otro
-        // usuario o inexistente resuelve a null sin revelar existencia.
-        var pago = await _pagoRepository.GetByIdAsync(usuarioId, id);
-        return pago is null || pago.UsuarioId != usuarioId ? null : MapToPagoDto(pago);
+        var payment = await _pagoRepository.GetByIdAsync(usuarioId, id);
+        return payment is null || payment.UsuarioId != usuarioId ? null : MapToPagoDto(payment);
     }
 
-    public async Task<int> ExpireSubscriptionsAsync()
-    {
-        // Proceso completo incremental: el repositorio pagina y procesa cada
-        // suscripción expirada sin acumular todo el conjunto en memoria.
-        var expired = await _suscripcionRepository.ExpireAllAsync(async (s, ct) =>
-        {
-            s.Estado = "Expirada";
-            await _suscripcionRepository.UpdateAsync(s);
+    public Task<int> ExpireSubscriptionsAsync()
+        => ProcessLifecycleAsync(DateTime.UtcNow);
 
-            var usuario = await _usuarioRepository.GetByIdAsync(s.UsuarioId);
-            if (usuario is not null)
+    public async Task<int> ProcessLifecycleAsync(
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+    {
+        return await _suscripcionRepository.ProcessLifecycleAsync(
+            utcNow,
+            async (subscription, ct) =>
             {
-                usuario.PlanActivo = "Free";
-                await _usuarioRepository.UpdateAsync(usuario);
-            }
-        });
-        return expired;
+                await ApplyLifecycleAsync(subscription, utcNow);
+            },
+            cancellationToken);
     }
 
-    private static PlanDto MapToPlanDto(Plan p) => new()
+    private async Task<Suscripcion?> GetCurrentAsync(Guid userId)
     {
-        Id = p.Id,
-        Nombre = p.Nombre,
-        PrecioMensual = p.PrecioMensual,
-        PrecioAnual = p.PrecioAnual,
-        MaxContactos = p.MaxContactos,
-        MaxMonitores = p.MaxMonitores,
-        HistorialMapa = p.HistorialMapa,
-        ExportacionDatos = p.ExportacionDatos,
-        SoportePrioritario = p.SoportePrioritario,
-        DuracionTrialDias = p.DuracionTrialDias,
+        return await _suscripcionRepository.GetCurrentByUserAsync(userId)
+            ?? await _suscripcionRepository.GetActiveByUserAsync(userId);
+    }
+
+    private async Task<bool> ApplyLifecycleAsync(Suscripcion subscription, DateTime utcNow)
+    {
+        if (subscription.Estado is "Activa" or "Trial"
+            && subscription.Fin is not null
+            && subscription.Fin <= utcNow)
+        {
+            var plan = await _planRepository.GetByIdAsync(subscription.PlanId);
+            if (PlanNamePolicy.ToStorageName(plan?.Nombre) == PlanNamePolicy.Free)
+                return false;
+
+            subscription.Estado = "Grace";
+            subscription.GraceEndsAtUtc = subscription.Fin.Value.Add(GracePeriod);
+            subscription.UpdatedAtUtc = utcNow;
+            await _suscripcionRepository.UpdateAsync(subscription);
+            return true;
+        }
+
+        if (subscription.Estado == "Grace"
+            && subscription.GraceEndsAtUtc is not null
+            && subscription.GraceEndsAtUtc <= utcNow)
+        {
+            subscription.Estado = "Expirada";
+            subscription.UpdatedAtUtc = utcNow;
+            await _suscripcionRepository.UpdateAsync(subscription);
+            await SetUserPlanAsync(subscription.UsuarioId, PlanNamePolicy.Free);
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task SetUserPlanAsync(Guid userId, string planName)
+    {
+        var user = await _usuarioRepository.GetByIdAsync(userId);
+        if (user is null)
+            return;
+        user.PlanActivo = PlanNamePolicy.ToPublicName(planName);
+        await _usuarioRepository.UpdateAsync(user);
+    }
+
+    private static Pago CreatePayment(
+        Guid userId,
+        Suscripcion subscription,
+        Plan plan,
+        string billingCycle,
+        string? paymentMethod,
+        DateTime now)
+    {
+        return new Pago
+        {
+            UsuarioId = userId,
+            SuscripcionId = subscription.Id,
+            Monto = billingCycle == "Annual" ? plan.PrecioAnual : plan.PrecioMensual,
+            Moneda = "MXN",
+            MetodoPago = string.IsNullOrWhiteSpace(paymentMethod) ? "Simulated" : paymentMethod.Trim(),
+            Estado = "Completado",
+            FechaPago = now,
+            Referencia = $"SIM-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..32]
+        };
+    }
+
+    private static string NormalizeBillingCycle(string? value)
+    {
+        if (string.Equals(value, "Annual", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "Anual", StringComparison.OrdinalIgnoreCase))
+            return "Annual";
+        if (string.IsNullOrWhiteSpace(value)
+            || string.Equals(value, "Monthly", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "Mensual", StringComparison.OrdinalIgnoreCase))
+            return "Monthly";
+        throw new BadRequestException("BillingCycle debe ser Monthly o Annual.");
+    }
+
+    private static DateTime AddBillingPeriod(DateTime value, string billingCycle)
+        => billingCycle == "Annual" ? value.AddYears(1) : value.AddMonths(1);
+
+    private static bool TryResolveFamilyEntitlement(
+        FamilySubscription family,
+        DateTime utcNow,
+        out string state,
+        out DateTime? graceEndsAtUtc)
+    {
+        state = "Activa";
+        graceEndsAtUtc = family.GraceEndsAtUtc;
+
+        if (family.Status == FamilySubscriptionStatus.Active)
+        {
+            if (family.PeriodEndUtc > utcNow)
+                return true;
+
+            graceEndsAtUtc = family.PeriodEndUtc.Add(GracePeriod);
+            if (graceEndsAtUtc > utcNow)
+            {
+                state = "Grace";
+                return true;
+            }
+
+            return false;
+        }
+
+        if (family.Status == FamilySubscriptionStatus.PastDue
+            && family.GraceEndsAtUtc is not null
+            && family.GraceEndsAtUtc > utcNow)
+        {
+            state = "Grace";
+            return true;
+        }
+
+        return false;
+    }
+
+    private static EffectiveSubscriptionDto BuildEffective(
+        string planName,
+        string source,
+        string state,
+        bool isOwner,
+        DateTime? validUntil,
+        DateTime? graceEnds)
+    {
+        var publicName = PlanNamePolicy.ToPublicName(planName);
+        return new EffectiveSubscriptionDto
+        {
+            PlanNombre = publicName,
+            Source = source,
+            Estado = state,
+            IsOwner = isOwner,
+            ValidUntilUtc = validUntil,
+            GraceEndsAtUtc = graceEnds,
+            VehicleLimit = publicName switch
+            {
+                PlanNamePolicy.Standard => 3,
+                PlanNamePolicy.Premium => -1,
+                _ => 1
+            },
+            InvitedMemberLimit = publicName switch
+            {
+                PlanNamePolicy.Standard => 3,
+                PlanNamePolicy.Premium => 6,
+                _ => 1
+            },
+            MonitoringLimit = publicName switch
+            {
+                PlanNamePolicy.Standard => 3,
+                PlanNamePolicy.Premium => 6,
+                _ => 1
+            },
+            MapHistoryEnabled = publicName == PlanNamePolicy.Premium,
+            ExportEnabled = publicName == PlanNamePolicy.Premium
+        };
+    }
+
+    private static PlanDto MapToPlanDto(Plan plan) => new()
+    {
+        Id = plan.Id,
+        Nombre = PlanNamePolicy.ToPublicName(plan.Nombre),
+        PrecioMensual = plan.PrecioMensual,
+        PrecioAnual = plan.PrecioAnual,
+        MaxContactos = plan.MaxContactos,
+        MaxMonitores = plan.MaxMonitores,
+        HistorialMapa = plan.HistorialMapa,
+        ExportacionDatos = plan.ExportacionDatos,
+        SoportePrioritario = plan.SoportePrioritario,
+        DuracionTrialDias = plan.DuracionTrialDias,
     };
 
-    private static SuscripcionDto MapToSuscripcionDto(Suscripcion s, Plan? p) => new()
+    private static SuscripcionDto MapToSuscripcionDto(Suscripcion subscription, Plan? plan) => new()
     {
-        Id = s.Id,
-        PlanId = s.PlanId,
-        PlanNombre = p?.Nombre ?? "Desconocido",
-        Estado = s.Estado,
-        Inicio = s.Inicio,
-        Fin = s.Fin,
-        TrialFin = s.TrialFin,
-        CanceladaEn = s.CanceladaEn,
-        MotivoCancelacion = s.MotivoCancelacion,
+        Id = subscription.Id,
+        PlanId = subscription.PlanId,
+        PlanNombre = PlanNamePolicy.ToPublicName(plan?.Nombre),
+        Estado = subscription.Estado,
+        Inicio = subscription.Inicio,
+        Fin = subscription.Fin,
+        TrialFin = subscription.TrialFin,
+        GraceEndsAtUtc = subscription.GraceEndsAtUtc,
+        NextBillingAtUtc = subscription.NextBillingAtUtc,
+        BillingCycle = subscription.BillingCycle,
+        AutoRenew = subscription.AutoRenew,
+        LastPaymentId = subscription.LastPaymentId,
+        CanceladaEn = subscription.CanceladaEn,
+        MotivoCancelacion = subscription.MotivoCancelacion,
     };
 
-    private static PagoDto MapToPagoDto(Pago p) => new()
+    private static PagoDto MapToPagoDto(Pago payment) => new()
     {
-        Id = p.Id,
-        SuscripcionId = p.SuscripcionId,
-        Monto = p.Monto,
-        Moneda = p.Moneda,
-        MetodoPago = p.MetodoPago,
-        Estado = p.Estado,
-        FechaPago = p.FechaPago,
-        Referencia = p.Referencia,
-        ComprobanteUrl = p.ComprobanteUrl,
+        Id = payment.Id,
+        SuscripcionId = payment.SuscripcionId,
+        Monto = payment.Monto,
+        Moneda = payment.Moneda,
+        MetodoPago = payment.MetodoPago,
+        Estado = payment.Estado,
+        FechaPago = payment.FechaPago,
+        Referencia = payment.Referencia,
+        ComprobanteUrl = payment.ComprobanteUrl,
     };
 }

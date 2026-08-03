@@ -5,8 +5,20 @@ namespace ImpactX.Core.Identity;
 
 public static class UsernamePolicy
 {
+    private static readonly HashSet<string> Reserved = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "impactx", "admin", "support", "soporte", "root", "system",
+        "contact", "contacto", "privacy", "privacidad", "staff", "test"
+    };
+
     public const int MinLength = 3;
     public const int MaxLength = 30;
+
+    public static bool IsReserved(string? username)
+    {
+        var normalized = Normalize(username);
+        return normalized is not null && Reserved.Contains(normalized);
+    }
 
     public static string? Normalize(string? input)
     {

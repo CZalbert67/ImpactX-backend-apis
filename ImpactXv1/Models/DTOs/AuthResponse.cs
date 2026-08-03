@@ -20,4 +20,5 @@ public class UsuarioDto
     public string Correo { get; set; } = string.Empty;
     public string? Telefono { get; set; }
     public string? PlanActivo { get; set; }
+    public OnboardingDto? Onboarding { get; set; }
 }

@@ -34,7 +34,8 @@ public class FamilySubscriptionRepository : IFamilySubscriptionRepository
         return _context.FamilySubscriptions
             .OrderByDescending(subscription => subscription.UpdatedAtUtc)
             .FirstOrDefaultAsync(
-                subscription => subscription.Status == FamilySubscriptionStatus.Active
+                subscription => (subscription.Status == FamilySubscriptionStatus.Active
+                        || subscription.Status == FamilySubscriptionStatus.PastDue)
                     && (subscription.OwnerUserId == userId
                         || subscription.Memberships.Any(membership =>
                             membership.UserId == userId
@@ -124,6 +125,27 @@ public class FamilySubscriptionRepository : IFamilySubscriptionRepository
             value => value.Id);
 
         await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<int> ProcessLifecycleAsync(
+        DateTime utcNow,
+        Func<FamilySubscription, CancellationToken, Task> process,
+        CancellationToken cancellationToken = default)
+    {
+        var candidates = await _context.FamilySubscriptions
+            .Where(subscription =>
+                (subscription.Status == FamilySubscriptionStatus.Active
+                    && subscription.PeriodEndUtc <= utcNow)
+                || (subscription.Status == FamilySubscriptionStatus.PastDue
+                    && subscription.GraceEndsAtUtc != null
+                    && subscription.GraceEndsAtUtc <= utcNow))
+            .OrderBy(subscription => subscription.PeriodEndUtc)
+            .ToListAsync(cancellationToken);
+
+        foreach (var subscription in candidates)
+            await process(subscription, cancellationToken);
+
+        return candidates.Count;
     }
 
     private void SynchronizeOwnedCollection<T>(

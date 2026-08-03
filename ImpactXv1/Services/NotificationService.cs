@@ -6,7 +6,6 @@ using ImpactX.Core.Notifications;
 using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 using Microsoft.Extensions.Logging;
-using Monitor = ImpactX.Core.Domain.Monitor;
 
 namespace ImpactX.Services;
 
@@ -15,7 +14,7 @@ public class NotificationService : INotificationService
     private readonly INotificacionRepository _notificacionRepository;
     private readonly IUsuarioRepository _usuarioRepository;
     private readonly IDispositivoRepository _dispositivoRepository;
-    private readonly IMonitorRepository _monitorRepository;
+    private readonly IMonitoringRelationshipRepository _monitoringRelationshipRepository;
     private readonly IPushNotificationGateway _pushGateway;
     private readonly ILogger<NotificationService> _logger;
 
@@ -23,14 +22,14 @@ public class NotificationService : INotificationService
         INotificacionRepository notificacionRepository,
         IUsuarioRepository usuarioRepository,
         IDispositivoRepository dispositivoRepository,
-        IMonitorRepository monitorRepository,
+        IMonitoringRelationshipRepository monitoringRelationshipRepository,
         IPushNotificationGateway pushGateway,
         ILogger<NotificationService> logger)
     {
         _notificacionRepository = notificacionRepository;
         _usuarioRepository = usuarioRepository;
         _dispositivoRepository = dispositivoRepository;
-        _monitorRepository = monitorRepository;
+        _monitoringRelationshipRepository = monitoringRelationshipRepository;
         _pushGateway = pushGateway;
         _logger = logger;
     }
@@ -132,20 +131,26 @@ public class NotificationService : INotificationService
         Alerta alerta,
         CancellationToken cancellationToken = default)
     {
-        var results = new List<NotificationDispatchResult>();
-        var monitores = await _monitorRepository.GetActiveByUserAsync(alerta.UsuarioId);
-
-        if (monitores.Count == 0)
+        var relationships = await GetAlertRecipientsAsync(alerta.UsuarioId, cancellationToken);
+        if (relationships.Count == 0)
         {
-            _logger.LogInformation("Alerta {AlertaId}: no hay monitores activos para notificar", alerta.Id);
-            return results;
+            _logger.LogInformation(
+                "Alerta {AlertaId}: no hay relaciones de monitoreo autorizadas para notificar",
+                alerta.Id);
+            return [];
         }
 
+        var results = new List<NotificationDispatchResult>(relationships.Count);
         var (title, message, data) = BuildAlertPayload(alerta);
-
-        foreach (var monitor in monitores)
+        foreach (var relationship in relationships)
         {
-            var result = await DispatchToMonitorAsync(monitor, alerta, title, message, data, cancellationToken);
+            var result = await DispatchToMonitorAsync(
+                relationship,
+                alerta,
+                title,
+                message,
+                data,
+                cancellationToken);
             results.Add(result);
         }
 
@@ -156,81 +161,132 @@ public class NotificationService : INotificationService
         Alerta alerta,
         CancellationToken cancellationToken = default)
     {
-        var results = new List<NotificationDispatchResult>();
-        var monitores = await _monitorRepository.GetActiveByUserAsync(alerta.UsuarioId);
-
-        if (monitores.Count == 0)
+        var relationships = await GetAlertRecipientsAsync(alerta.UsuarioId, cancellationToken);
+        if (relationships.Count == 0)
         {
-            _logger.LogInformation("Alerta {AlertaId}: no hay monitores activos para reintentar", alerta.Id);
-            return results;
+            _logger.LogInformation(
+                "Alerta {AlertaId}: no hay relaciones de monitoreo autorizadas para reintentar",
+                alerta.Id);
+            return [];
         }
 
+        var results = new List<NotificationDispatchResult>(relationships.Count);
         var (title, message, data) = BuildAlertPayload(alerta);
-
-        foreach (var monitor in monitores)
+        foreach (var relationship in relationships)
         {
-            var result = await RetryForMonitorAsync(monitor, alerta, title, message, data, cancellationToken);
+            var result = await RetryForMonitorAsync(
+                relationship,
+                alerta,
+                title,
+                message,
+                data,
+                cancellationToken);
             results.Add(result);
         }
 
         return results;
     }
 
-    private Guid? ResolveMonitorUserId(Monitor monitor)
+    private async Task<IReadOnlyList<MonitoringRelationship>> GetAlertRecipientsAsync(
+        Guid monitoredUserId,
+        CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrEmpty(monitor.ProfileId) && Guid.TryParse(monitor.ProfileId, out var uid))
-            return uid;
-        return null;
+        var relationships = await _monitoringRelationshipRepository
+            .GetAcceptedForMonitoredUserAsync(monitoredUserId, cancellationToken);
+
+        return relationships
+            .GroupBy(relationship => relationship.MonitorUserId)
+            .Select(group => group
+                .OrderByDescending(value => value.UpdatedAtUtc)
+                .First())
+            .Where(relationship => relationship.Permissions.ReceiveCriticalAlerts
+                && relationship.Permissions.ReceiveNotifications)
+            .ToList();
     }
 
     private async Task<NotificationDispatchResult> DispatchToMonitorAsync(
-        Monitor monitor,
+        MonitoringRelationship relationship,
         Alerta alerta,
         string title,
         string message,
         Dictionary<string, string> data,
         CancellationToken cancellationToken)
     {
-        var clave = BuildIdempotencyKey(alerta.Id, monitor.ProfileId);
-        var recipientUserId = ResolveMonitorUserId(monitor);
-
-        var existente = await _notificacionRepository.GetByIdempotencyKeyAsync(clave, recipientUserId, cancellationToken);
-        if (existente != null)
+        var recipientUserId = relationship.MonitorUserId;
+        var idempotencyKey = BuildIdempotencyKey(alerta.Id, recipientUserId);
+        var existing = await _notificacionRepository.GetByIdempotencyKeyAsync(
+            idempotencyKey,
+            recipientUserId,
+            cancellationToken);
+        if (existing is not null)
         {
-            if (existente.EstadoEnvio == "Enviado")
+            if (existing.EstadoEnvio == "Enviado")
             {
-                _logger.LogInformation("Alerta {AlertaId} ya notificada al monitor {MonitorId}. Omitiendo.", alerta.Id, monitor.Id);
-                return new NotificationDispatchResult(existente.Id, existente.UsuarioId, "DuplicadoOmitido", false);
+                _logger.LogInformation(
+                    "Alerta {AlertaId} ya notificada mediante relación {PublicRelationshipId}. Omitiendo.",
+                    alerta.Id,
+                    relationship.PublicRelationshipId);
+                return new NotificationDispatchResult(
+                    existing.Id,
+                    existing.UsuarioId,
+                    "DuplicadoOmitido",
+                    false);
             }
 
-            return await RetryExistingNotificationAsync(existente, monitor, alerta, title, message, data, cancellationToken);
+            return await RetryExistingNotificationAsync(
+                existing,
+                relationship,
+                title,
+                message,
+                data,
+                cancellationToken);
         }
 
-        var (usuarioVinculado, statusNoVinculado) = await ResolveMonitorUserAsync(monitor);
-        if (usuarioVinculado == null)
+        var recipient = await ResolveMonitorUserAsync(relationship);
+        if (recipient is null || !recipient.IsActive)
         {
-            _logger.LogInformation("Monitor {MonitorId} sin usuario vinculado. No se persiste historial.", monitor.Id);
-            return new NotificationDispatchResult(Guid.Empty, Guid.Empty, statusNoVinculado, false);
+            _logger.LogInformation(
+                "Relación {PublicRelationshipId} sin monitor activo vinculado. No se envía push.",
+                relationship.PublicRelationshipId);
+            return new NotificationDispatchResult(
+                Guid.Empty,
+                recipientUserId,
+                "DestinatarioNoVinculado",
+                false);
         }
 
-        if (!usuarioVinculado.IsActive)
-        {
-            _logger.LogInformation("Usuario {UsuarioId} (monitor {MonitorId}) está inactivo. No se envía push.", usuarioVinculado.Id, monitor.Id);
-            return new NotificationDispatchResult(Guid.Empty, usuarioVinculado.Id, "DestinatarioNoVinculado", false);
-        }
-
-        var tokens = await ResolvePushTokensAsync(usuarioVinculado);
+        var tokens = await ResolvePushTokensAsync(recipient);
         if (tokens.Count == 0)
         {
-            _logger.LogInformation("Usuario {UsuarioId} (monitor {MonitorId}) sin tokens FCM activos. SinToken.", usuarioVinculado.Id, monitor.Id);
-            var notificacion = await CreateHistoryRecordAsync(monitor, alerta, title, message, clave, "SinToken", usuarioVinculado.Id);
-            return new NotificationDispatchResult(notificacion.Id, notificacion.UsuarioId, "SinToken", false);
+            var notification = await CreateHistoryRecordAsync(
+                relationship,
+                alerta,
+                title,
+                message,
+                idempotencyKey,
+                "SinToken",
+                recipientUserId);
+            return new NotificationDispatchResult(
+                notification.Id,
+                notification.UsuarioId,
+                "SinToken",
+                false);
         }
 
-        var history = await CreateHistoryRecordAsync(monitor, alerta, title, message, clave, "Pendiente", usuarioVinculado.Id);
-
-        var gatewayResult = await SendToTokensAsync(tokens, title, message, data, cancellationToken);
-
+        var history = await CreateHistoryRecordAsync(
+            relationship,
+            alerta,
+            title,
+            message,
+            idempotencyKey,
+            "Pendiente",
+            recipientUserId);
+        var gatewayResult = await SendToTokensAsync(
+            tokens,
+            title,
+            message,
+            data,
+            cancellationToken);
         await UpdateHistoryAfterDispatchAsync(history, gatewayResult);
 
         return new NotificationDispatchResult(
@@ -241,117 +297,123 @@ public class NotificationService : INotificationService
     }
 
     private async Task<NotificationDispatchResult> RetryForMonitorAsync(
-        Monitor monitor,
+        MonitoringRelationship relationship,
         Alerta alerta,
         string title,
         string message,
         Dictionary<string, string> data,
         CancellationToken cancellationToken)
     {
-        var clave = BuildIdempotencyKey(alerta.Id, monitor.ProfileId);
-        var recipientUserId = ResolveMonitorUserId(monitor);
-
-        var existente = await _notificacionRepository.GetByIdempotencyKeyAsync(clave, recipientUserId, cancellationToken);
-        if (existente != null)
+        var recipientUserId = relationship.MonitorUserId;
+        var idempotencyKey = BuildIdempotencyKey(alerta.Id, recipientUserId);
+        var existing = await _notificacionRepository.GetByIdempotencyKeyAsync(
+            idempotencyKey,
+            recipientUserId,
+            cancellationToken);
+        if (existing is not null)
         {
-            if (existente.EstadoEnvio == "Enviado")
+            if (existing.EstadoEnvio == "Enviado")
             {
-                return new NotificationDispatchResult(existente.Id, existente.UsuarioId, "DuplicadoOmitido", false);
+                return new NotificationDispatchResult(
+                    existing.Id,
+                    existing.UsuarioId,
+                    "DuplicadoOmitido",
+                    false);
             }
 
-            return await RetryExistingNotificationAsync(existente, monitor, alerta, title, message, data, cancellationToken);
+            return await RetryExistingNotificationAsync(
+                existing,
+                relationship,
+                title,
+                message,
+                data,
+                cancellationToken);
         }
 
-        return await DispatchToMonitorAsync(monitor, alerta, title, message, data, cancellationToken);
+        return await DispatchToMonitorAsync(
+            relationship,
+            alerta,
+            title,
+            message,
+            data,
+            cancellationToken);
     }
 
     private async Task<NotificationDispatchResult> RetryExistingNotificationAsync(
-        Notificacion existente,
-        Monitor monitor,
-        Alerta alerta,
+        Notificacion existing,
+        MonitoringRelationship relationship,
         string title,
         string message,
         Dictionary<string, string> data,
         CancellationToken cancellationToken)
     {
-        var (usuarioVinculado, _) = await ResolveMonitorUserAsync(monitor);
-        if (usuarioVinculado == null || !usuarioVinculado.IsActive)
+        var recipient = await ResolveMonitorUserAsync(relationship);
+        if (recipient is null || !recipient.IsActive)
         {
-            existente.Intentos++;
-            existente.UltimoIntentoEn = DateTime.UtcNow;
-            existente.EstadoEnvio = "Fallido";
-            await _notificacionRepository.UpdateAsync(existente);
-            return new NotificationDispatchResult(existente.Id, existente.UsuarioId, existente.EstadoEnvio, false);
+            existing.Intentos++;
+            existing.UltimoIntentoEn = DateTime.UtcNow;
+            existing.EstadoEnvio = "Fallido";
+            await _notificacionRepository.UpdateAsync(existing);
+            return new NotificationDispatchResult(
+                existing.Id,
+                existing.UsuarioId,
+                existing.EstadoEnvio,
+                false);
         }
 
-        var tokens = await ResolvePushTokensAsync(usuarioVinculado);
+        var tokens = await ResolvePushTokensAsync(recipient);
         if (tokens.Count == 0)
         {
-            existente.Intentos++;
-            existente.UltimoIntentoEn = DateTime.UtcNow;
-            existente.EstadoEnvio = "Fallido";
-            await _notificacionRepository.UpdateAsync(existente);
-            return new NotificationDispatchResult(existente.Id, existente.UsuarioId, existente.EstadoEnvio, false);
+            existing.Intentos++;
+            existing.UltimoIntentoEn = DateTime.UtcNow;
+            existing.EstadoEnvio = "Fallido";
+            await _notificacionRepository.UpdateAsync(existing);
+            return new NotificationDispatchResult(
+                existing.Id,
+                existing.UsuarioId,
+                existing.EstadoEnvio,
+                false);
         }
 
-        existente.Intentos++;
-        existente.UltimoIntentoEn = DateTime.UtcNow;
-
-        var gatewayResult = await SendToTokensAsync(tokens, title, message, data, cancellationToken);
-
-        existente.EstadoEnvio = gatewayResult.Status;
+        existing.Intentos++;
+        existing.UltimoIntentoEn = DateTime.UtcNow;
+        var gatewayResult = await SendToTokensAsync(
+            tokens,
+            title,
+            message,
+            data,
+            cancellationToken);
+        existing.EstadoEnvio = gatewayResult.Status;
         if (gatewayResult.Success)
         {
-            existente.EnviadoEn = DateTime.UtcNow;
+            existing.EnviadoEn = DateTime.UtcNow;
         }
-        await _notificacionRepository.UpdateAsync(existente);
 
+        await _notificacionRepository.UpdateAsync(existing);
         return new NotificationDispatchResult(
-            existente.Id,
-            existente.UsuarioId,
+            existing.Id,
+            existing.UsuarioId,
             gatewayResult.Status,
             gatewayResult.Success);
     }
 
-    private async Task<(Usuario? usuario, string status)> ResolveMonitorUserAsync(Monitor monitor)
+    private Task<Usuario?> ResolveMonitorUserAsync(MonitoringRelationship relationship)
     {
-        if (string.IsNullOrEmpty(monitor.ProfileId))
-        {
-            return (null, "DestinatarioNoVinculado");
-        }
-
-        if (!Guid.TryParse(monitor.ProfileId, out var usuarioId))
-        {
-            return (null, "DestinatarioNoVinculado");
-        }
-
-        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
-        if (usuario == null)
-        {
-            return (null, "DestinatarioNoVinculado");
-        }
-
-        return (usuario, "Vinculado");
+        return _usuarioRepository.GetByIdAsync(relationship.MonitorUserId);
     }
 
     private async Task<Notificacion> CreateHistoryRecordAsync(
-        Monitor monitor,
+        MonitoringRelationship relationship,
         Alerta alerta,
         string title,
         string message,
-        string claveIdempotencia,
-        string estadoEnvio,
-        Guid? usuarioId = null)
+        string idempotencyKey,
+        string dispatchStatus,
+        Guid recipientUserId)
     {
-        if (usuarioId == null)
+        var notification = new Notificacion
         {
-            var (usuario, _) = await ResolveMonitorUserAsync(monitor);
-            usuarioId = usuario?.Id ?? throw new InvalidOperationException("No se puede crear historial sin destinatario válido.");
-        }
-
-        var notificacion = new Notificacion
-        {
-            UsuarioId = usuarioId.Value,
+            UsuarioId = recipientUserId,
             AlertaId = alerta.Id,
             Titulo = title,
             Mensaje = message,
@@ -359,33 +421,35 @@ public class NotificationService : INotificationService
             ReferenciaId = alerta.Id.ToString(),
             ReferenciaTipo = "Alerta",
             Canal = "Push",
-            EstadoEnvio = estadoEnvio,
+            EstadoEnvio = dispatchStatus,
             Intentos = 1,
             CreadoEn = DateTime.UtcNow,
             UltimoIntentoEn = DateTime.UtcNow,
-            ClaveIdempotencia = claveIdempotencia,
+            ClaveIdempotencia = idempotencyKey,
+            PublicRelationshipId = relationship.PublicRelationshipId
         };
 
-        if (estadoEnvio == "Enviado")
+        if (dispatchStatus == "Enviado")
         {
-            notificacion.EnviadoEn = DateTime.UtcNow;
+            notification.EnviadoEn = DateTime.UtcNow;
         }
 
-        await _notificacionRepository.AddAsync(notificacion);
-        return notificacion;
+        await _notificacionRepository.AddAsync(notification);
+        return notification;
     }
 
-    private async Task UpdateHistoryAfterDispatchAsync(Notificacion notificacion, PushGatewayResult gatewayResult)
+    private async Task UpdateHistoryAfterDispatchAsync(
+        Notificacion notification,
+        PushGatewayResult gatewayResult)
     {
-        notificacion.EstadoEnvio = gatewayResult.Status;
-        notificacion.UltimoIntentoEn = DateTime.UtcNow;
-
+        notification.EstadoEnvio = gatewayResult.Status;
+        notification.UltimoIntentoEn = DateTime.UtcNow;
         if (gatewayResult.Success)
         {
-            notificacion.EnviadoEn = DateTime.UtcNow;
+            notification.EnviadoEn = DateTime.UtcNow;
         }
 
-        await _notificacionRepository.UpdateAsync(notificacion);
+        await _notificacionRepository.UpdateAsync(notification);
     }
 
     private async Task<List<string>> ResolvePushTokensAsync(Usuario usuario)
@@ -466,9 +530,9 @@ public class NotificationService : INotificationService
         return (title, message, data);
     }
 
-    private static string BuildIdempotencyKey(Guid alertaId, string? usuarioId)
+    private static string BuildIdempotencyKey(Guid alertaId, Guid recipientUserId)
     {
-        return $"alert:{alertaId}:recipient:{usuarioId}:channel:push";
+        return $"alert:{alertaId}:recipient:{recipientUserId}:channel:push";
     }
 
     private static NotificacionDto MapToDto(Notificacion n) => new()
@@ -479,6 +543,7 @@ public class NotificationService : INotificationService
         Tipo = n.Tipo,
         ReferenciaId = n.ReferenciaId,
         ReferenciaTipo = n.ReferenciaTipo,
+        PublicRelationshipId = n.PublicRelationshipId,
         Leida = n.Leida,
         LeidaEn = n.LeidaEn,
         CreadoEn = n.CreadoEn,

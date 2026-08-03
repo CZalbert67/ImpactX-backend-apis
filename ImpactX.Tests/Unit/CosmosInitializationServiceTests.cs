@@ -25,8 +25,11 @@ public class CosmosInitializationServiceTests
         protected override Task InitializeAsync(CancellationToken cancellationToken)
         {
             InitializeCalls++;
-            return OnInitialize?.Invoke(cancellationToken) ?? Task.CompletedTask;
+            return OnInitialize?.Invoke(cancellationToken) ?? base.InitializeAsync(cancellationToken);
         }
+
+        public Task InvokeConfiguredInitializationAsync(CancellationToken cancellationToken = default)
+            => base.InitializeAsync(cancellationToken);
     }
 
     private static DatabaseInitializationOptions CreateOptions(bool enabled = true, int maxAttempts = 3)
@@ -207,4 +210,35 @@ public class CosmosInitializationServiceTests
         Assert.Equal(1, service.InitializeCalls);
         Assert.NotNull(state.FailureDescription);
     }
+
+    [Fact]
+    public async Task ValidateOnly_ValidatesSchemaWithoutEnsuringContainers()
+    {
+        var cosmosDb = new TestCosmosDbContext();
+        var state = new DatabaseInitializationState();
+        var options = CreateOptions();
+        options.Mode = DatabaseInitializationMode.ValidateOnly;
+        var service = new TestableInitializationService(cosmosDb, state, options);
+
+        await service.InvokeConfiguredInitializationAsync();
+
+        Assert.Equal(1, cosmosDb.ValidateCalls);
+        Assert.Equal(0, cosmosDb.EnsureCalls);
+    }
+
+    [Fact]
+    public async Task EnsureMode_EnsuresContainersAndDoesNotRunValidateOnly()
+    {
+        var cosmosDb = new TestCosmosDbContext();
+        var state = new DatabaseInitializationState();
+        var options = CreateOptions();
+        options.Mode = DatabaseInitializationMode.Ensure;
+        var service = new TestableInitializationService(cosmosDb, state, options);
+
+        await service.InvokeConfiguredInitializationAsync();
+
+        Assert.Equal(1, cosmosDb.EnsureCalls);
+        Assert.Equal(0, cosmosDb.ValidateCalls);
+    }
+
 }

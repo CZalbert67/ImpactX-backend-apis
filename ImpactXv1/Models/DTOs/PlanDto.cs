@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace ImpactX.Models.DTOs;
 
 public class PlanDto
@@ -23,9 +25,29 @@ public class SuscripcionDto
     public DateTime Inicio { get; set; }
     public DateTime? Fin { get; set; }
     public DateTime? TrialFin { get; set; }
+    public DateTime? GraceEndsAtUtc { get; set; }
+    public DateTime? NextBillingAtUtc { get; set; }
+    public string BillingCycle { get; set; } = "Monthly";
+    public bool AutoRenew { get; set; }
+    public Guid? LastPaymentId { get; set; }
     public DateTime? CanceladaEn { get; set; }
     public string? MotivoCancelacion { get; set; }
-    public bool IsActive => Estado == "Trial" || Estado == "Activa";
+    public bool IsActive => Estado is "Trial" or "Activa" or "Grace";
+}
+
+public sealed class EffectiveSubscriptionDto
+{
+    public string PlanNombre { get; set; } = "Free";
+    public string Source { get; set; } = "Free";
+    public string Estado { get; set; } = "Activa";
+    public bool IsOwner { get; set; }
+    public DateTime? ValidUntilUtc { get; set; }
+    public DateTime? GraceEndsAtUtc { get; set; }
+    public int VehicleLimit { get; set; } = 1;
+    public int InvitedMemberLimit { get; set; } = 1;
+    public int MonitoringLimit { get; set; } = 1;
+    public bool MapHistoryEnabled { get; set; }
+    public bool ExportEnabled { get; set; }
 }
 
 public class PagoDto
@@ -43,7 +65,21 @@ public class PagoDto
 
 public class ChangePlanRequest
 {
+    [Required]
     public string PlanNombre { get; set; } = string.Empty;
+    public string BillingCycle { get; set; } = "Monthly";
+    public string MetodoPago { get; set; } = "Simulated";
+}
+
+public sealed class RenewSubscriptionRequest
+{
+    public string MetodoPago { get; set; } = "Simulated";
+}
+
+public sealed class SubscriptionPaymentResultDto
+{
+    public SuscripcionDto Subscription { get; set; } = new();
+    public PagoDto Payment { get; set; } = new();
 }
 
 public class CancelSubscriptionRequest

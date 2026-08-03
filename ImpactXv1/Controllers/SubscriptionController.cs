@@ -1,10 +1,10 @@
 using System.Security.Claims;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 using ImpactX.Core.Pagination;
 using ImpactX.Core.Security;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 namespace ImpactX.Controllers;
 
@@ -25,42 +25,54 @@ public class SubscriptionController : ControllerBase
     [HttpGet("/api/v1/subscriptions")]
     public async Task<IActionResult> GetCurrentSubscription()
     {
-        var usuarioId = GetUsuarioId();
-        var suscripcion = await _planService.GetCurrentSubscriptionAsync(usuarioId);
-        if (suscripcion is null)
-            return Ok(new { estado = "Sin suscripción", plan = "Free" });
-        return Ok(suscripcion);
+        var subscription = await _planService.GetCurrentSubscriptionAsync(GetUsuarioId());
+        return subscription is null
+            ? Ok(new { estado = "Sin suscripción", plan = "Free" })
+            : Ok(subscription);
+    }
+
+    [HttpGet("effective")]
+    [HttpGet("/api/v1/subscriptions/effective")]
+    [ProducesResponseType(typeof(EffectiveSubscriptionDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetEffectiveSubscription(CancellationToken cancellationToken)
+    {
+        return Ok(await _planService.GetEffectiveSubscriptionAsync(GetUsuarioId(), cancellationToken));
     }
 
     [HttpGet("history")]
     [HttpGet("/api/v1/subscriptions/history")]
     public async Task<IActionResult> GetSubscriptionHistory(int? pageSize, string? continuationToken)
     {
-        var usuarioId = GetUsuarioId();
-        var page = await _planService.GetSubscriptionHistoryPagedAsync(usuarioId, pageSize, continuationToken);
+        var page = await _planService.GetSubscriptionHistoryPagedAsync(GetUsuarioId(), pageSize, continuationToken);
         PagedResultHttp.ApplyContinuationToken(Response, page);
         return Ok(page.Items);
     }
 
     [HttpPost("change-plan")]
     [HttpPost("/api/v1/subscriptions/change-plan")]
+    [ProducesResponseType(typeof(SuscripcionDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ChangePlan([FromBody] ChangePlanRequest request)
     {
-        try
-        {
-            var usuarioId = GetUsuarioId();
-            var result = await _planService.ChangePlanAsync(usuarioId, request);
-            return Ok(result);
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new { mensaje = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { mensaje = ex.Message });
-        }
+        return Ok(await _planService.ChangePlanAsync(GetUsuarioId(), request));
+    }
+
+    [HttpPost("activate")]
+    [HttpPost("/api/v1/subscriptions/activate")]
+    [ProducesResponseType(typeof(SubscriptionPaymentResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Activate([FromBody] ChangePlanRequest request)
+    {
+        return Ok(await _planService.ActivateAsync(GetUsuarioId(), request));
+    }
+
+    [HttpPost("renew")]
+    [HttpPost("/api/v1/subscriptions/renew")]
+    [ProducesResponseType(typeof(SubscriptionPaymentResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Renew([FromBody] RenewSubscriptionRequest request)
+    {
+        return Ok(await _planService.RenewAsync(GetUsuarioId(), request));
     }
 
     [HttpPost("cancel")]
@@ -68,24 +80,14 @@ public class SubscriptionController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> CancelSubscription([FromBody] CancelSubscriptionRequest? request)
     {
-        try
-        {
-            var usuarioId = GetUsuarioId();
-            var result = await _planService.CancelSubscriptionAsync(usuarioId, request);
-            return Ok(result);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { mensaje = ex.Message });
-        }
+        return Ok(await _planService.CancelSubscriptionAsync(GetUsuarioId(), request));
     }
 
     [HttpGet("payments")]
     [HttpGet("/api/v1/subscriptions/payments")]
     public async Task<IActionResult> GetPayments(int? pageSize, string? continuationToken)
     {
-        var usuarioId = GetUsuarioId();
-        var page = await _planService.GetPaymentsPagedAsync(usuarioId, pageSize, continuationToken);
+        var page = await _planService.GetPaymentsPagedAsync(GetUsuarioId(), pageSize, continuationToken);
         PagedResultHttp.ApplyContinuationToken(Response, page);
         return Ok(page.Items);
     }
@@ -95,24 +97,15 @@ public class SubscriptionController : ControllerBase
     [HttpGet("/api/v1/subscriptions/payments/{id:guid}/receipt")]
     public async Task<IActionResult> GetPaymentReceipt(Guid id)
     {
-        var usuarioId = GetUsuarioId();
-        var pago = await _planService.GetPaymentReceiptAsync(id, usuarioId);
-        if (pago is null)
-            return NotFound(new { mensaje = "Pago no encontrado." });
-        return Ok(pago);
+        var payment = await _planService.GetPaymentReceiptAsync(id, GetUsuarioId());
+        return payment is null ? NotFound(new { mensaje = "Pago no encontrado." }) : Ok(payment);
     }
 
     [HttpPost("expire")]
     [ApiExplorerSettings(IgnoreApi = true)]
     [Obsolete("Operación interna. La expiración se ejecuta desde procesos de backend, no por clientes.")]
-    public IActionResult ExpireSubscriptions()
-    {
-        return Forbid();
-    }
+    public IActionResult ExpireSubscriptions() => Forbid();
 
     private Guid GetUsuarioId()
-    {
-        var claim = User.FindFirst(ClaimTypes.NameIdentifier);
-        return Guid.Parse(claim!.Value);
-    }
+        => Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 }

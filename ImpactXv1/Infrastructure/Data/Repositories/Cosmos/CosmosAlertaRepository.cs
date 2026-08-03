@@ -101,6 +101,59 @@ public class CosmosAlertaRepository : IAlertaRepository
         return null;
     }
 
+    public async Task<Alerta?> GetBySourceTelemetryEventIdAsync(
+        Guid usuarioId,
+        Guid sourceTelemetryEventId,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT TOP 1 * FROM c WHERE c.usuarioId = @usuarioId AND c.sourceTelemetryEventId = @eventId")
+            .WithParameter("@usuarioId", usuarioId.ToString())
+            .WithParameter("@eventId", sourceTelemetryEventId.ToString());
+
+        using var iterator = _container.GetItemQueryIterator<Alerta>(
+            query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = CosmosPartitionKeys.For(usuarioId),
+                MaxItemCount = 1
+            });
+
+        if (!iterator.HasMoreResults)
+            return null;
+
+        var response = await iterator.ReadNextAsync(cancellationToken);
+        return response.FirstOrDefault();
+    }
+
+    public async Task<IReadOnlyList<Alerta>> GetPendingDueAsync(
+        DateTime utcNow,
+        int maxCount,
+        CancellationToken cancellationToken = default)
+    {
+        // Consulta cross-partition deliberada: el worker procesa alertas
+        // vencidas de todos los usuarios. Se limita estrictamente el lote.
+        var take = Math.Clamp(maxCount, 1, 500);
+        var query = new QueryDefinition(
+            $"SELECT TOP {take} * FROM c WHERE c.estado = 'Pendiente' " +
+            "AND IS_DEFINED(c.autoSendAtUtc) AND c.autoSendAtUtc <= @utcNow " +
+            "ORDER BY c.autoSendAtUtc ASC")
+            .WithParameter("@utcNow", utcNow);
+
+        var results = new List<Alerta>();
+        using var iterator = _container.GetItemQueryIterator<Alerta>(
+            query,
+            requestOptions: new QueryRequestOptions { MaxItemCount = take });
+
+        while (iterator.HasMoreResults && results.Count < take)
+        {
+            var response = await iterator.ReadNextAsync(cancellationToken);
+            results.AddRange(response);
+        }
+
+        return results.Take(take).ToList();
+    }
+
     public async Task<List<Alerta>> GetPendingByUserAsync(Guid usuarioId)
     {
         var query = new QueryDefinition(

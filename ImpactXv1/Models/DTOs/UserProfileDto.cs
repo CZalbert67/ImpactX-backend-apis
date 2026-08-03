@@ -92,7 +92,13 @@ public class OnboardingDto
     public string Status { get; set; } = nameof(ImpactX.Core.Domain.OnboardingStatus.Pending);
     public int CurrentStep { get; set; } = 1;
     public string MedicalProfileStatus { get; set; } = nameof(ImpactX.Core.Domain.MedicalProfileOnboardingStatus.Pending);
+    public int RegistrationContractVersion { get; set; } = ImpactX.Core.Identity.RegistrationContract.LegacyVersion;
+    public bool TermsAccepted { get; set; }
+    public string? TermsVersion { get; set; }
+    public DateTime? TermsAcceptedAtUtc { get; set; }
     public bool PrivacyAccepted { get; set; }
+    public string? PrivacyNoticeVersion { get; set; }
+    public DateTime? PrivacyAcceptedAtUtc { get; set; }
     public bool LocationIncidentConsent { get; set; }
     public bool DrivingPatternConsent { get; set; }
     public DateTime? CompletedAtUtc { get; set; }
@@ -107,6 +113,14 @@ public class UpdateOnboardingRequest
     public bool? PrivacyAccepted { get; set; }
     public bool? LocationIncidentConsent { get; set; }
     public bool? DrivingPatternConsent { get; set; }
+}
+
+
+public sealed class AcceptLegalDocumentsRequest
+{
+    public int ContractVersion { get; set; }
+    public bool TermsAccepted { get; set; }
+    public bool PrivacyAccepted { get; set; }
 }
 
 public class UpdateUsernameRequest

@@ -12,6 +12,7 @@ namespace ImpactX.Services;
 public class FamilySubscriptionService : IFamilySubscriptionService
 {
     private static readonly TimeSpan InvitationLifetime = TimeSpan.FromDays(7);
+    private static readonly TimeSpan GracePeriod = TimeSpan.FromDays(3);
     private const int MaxPendingInvitations = 20;
 
     private readonly IFamilySubscriptionRepository _familyRepository;
@@ -38,7 +39,11 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         var subscription = await _familyRepository.GetActiveByUserAsync(
             userId,
             cancellationToken);
-        return subscription is null
+        if (subscription is null)
+            return null;
+
+        await ApplyLifecycleAsync(subscription, DateTime.UtcNow, cancellationToken);
+        return subscription.Status == FamilySubscriptionStatus.Expired
             ? null
             : await MapSummaryAsync(subscription, userId, cancellationToken);
     }
@@ -51,7 +56,9 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         var existing = await _familyRepository.GetActiveByUserAsync(userId, cancellationToken);
         if (existing is not null)
         {
-            throw new ConflictException("Ya perteneces a una suscripción familiar activa.");
+            await ApplyLifecycleAsync(existing, DateTime.UtcNow, cancellationToken);
+            if (existing.Status != FamilySubscriptionStatus.Expired)
+                throw new ConflictException("Ya perteneces a una suscripción familiar activa.");
         }
 
         var user = await GetUserAsync(userId);
@@ -66,6 +73,9 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             Status = FamilySubscriptionStatus.Active,
             PeriodStartUtc = now,
             PeriodEndUtc = now.AddMonths(1),
+            NextBillingAtUtc = now.AddMonths(1),
+            GraceEndsAtUtc = null,
+            AutoRenew = false,
             CreatedAtUtc = now,
             UpdatedAtUtc = now,
             Memberships =
@@ -118,14 +128,17 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         Guid userId,
         CancellationToken cancellationToken = default)
     {
-        var subscription = await RequireOwnedActiveSubscriptionAsync(userId, cancellationToken);
+        var subscription = await RequireOwnedCurrentSubscriptionAsync(userId, cancellationToken);
         var plan = await ResolvePlanAsync(subscription.PlanName);
         var now = DateTime.UtcNow;
 
+        subscription.Status = FamilySubscriptionStatus.Active;
         subscription.PeriodStartUtc = subscription.PeriodEndUtc > now
             ? subscription.PeriodEndUtc
             : now;
         subscription.PeriodEndUtc = subscription.PeriodStartUtc.AddMonths(1);
+        subscription.NextBillingAtUtc = subscription.PeriodEndUtc;
+        subscription.GraceEndsAtUtc = null;
         subscription.UpdatedAtUtc = now;
         subscription.Payments.Add(CreatePayment(plan, now));
 
@@ -137,7 +150,7 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         Guid userId,
         CancellationToken cancellationToken = default)
     {
-        var subscription = await RequireOwnedActiveSubscriptionAsync(userId, cancellationToken);
+        var subscription = await RequireOwnedCurrentSubscriptionAsync(userId, cancellationToken);
         var now = DateTime.UtcNow;
         var affectedUserIds = subscription.Memberships
             .Where(value => value.Status == FamilyMembershipStatus.Active)
@@ -149,6 +162,9 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         subscription.Status = FamilySubscriptionStatus.Cancelled;
         subscription.PendingAdjustment = false;
         subscription.PendingPlanName = null;
+        subscription.GraceEndsAtUtc = null;
+        subscription.NextBillingAtUtc = null;
+        subscription.AutoRenew = false;
         subscription.UpdatedAtUtc = now;
 
         foreach (var membership in subscription.Memberships.Where(value =>
@@ -187,7 +203,23 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         Guid userId,
         CancellationToken cancellationToken = default)
     {
-        var subscription = await RequireOwnedActiveSubscriptionAsync(userId, cancellationToken);
+        var subscription = await _familyRepository.GetActiveByUserAsync(
+            userId,
+            cancellationToken);
+        if (subscription is not null)
+        {
+            await ApplyLifecycleAsync(subscription, DateTime.UtcNow, cancellationToken);
+            if (subscription.Status == FamilySubscriptionStatus.Expired)
+                subscription = null;
+        }
+
+        // No pertenecer a un plan familiar no es un error de lectura. Las
+        // invitaciones son privadas del propietario; un integrante recibe [].
+        if (subscription is null || subscription.OwnerUserId != userId)
+        {
+            return [];
+        }
+
         ExpireInvitations(subscription);
         await _familyRepository.UpdateAsync(subscription, cancellationToken);
         return subscription.Invitations
@@ -382,11 +414,24 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         var family = await _familyRepository.GetActiveByUserAsync(userId, cancellationToken);
         if (family is not null)
         {
-            return family.PlanName;
+            await ApplyLifecycleAsync(family, DateTime.UtcNow, cancellationToken);
+            if (family.Status != FamilySubscriptionStatus.Expired)
+                return PlanNamePolicy.ToPublicName(family.PlanName);
         }
 
         var user = await GetUserAsync(userId);
-        return string.IsNullOrWhiteSpace(user.PlanActivo) ? "Free" : user.PlanActivo;
+        return PlanNamePolicy.ToPublicName(
+            string.IsNullOrWhiteSpace(user.PlanActivo) ? PlanNamePolicy.Free : user.PlanActivo);
+    }
+
+    public Task<int> ProcessLifecycleAsync(
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+    {
+        return _familyRepository.ProcessLifecycleAsync(
+            utcNow,
+            (subscription, ct) => ApplyLifecycleAsync(subscription, utcNow, ct),
+            cancellationToken);
     }
 
     private async Task AcceptInvitationCoreAsync(
@@ -566,6 +611,7 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             ownerUserId,
             cancellationToken)
             ?? throw new NotFoundException("Suscripción familiar no encontrada.");
+        await ApplyLifecycleAsync(subscription, DateTime.UtcNow, cancellationToken);
         if (subscription.Status != FamilySubscriptionStatus.Active)
         {
             throw new ConflictException("La suscripción familiar no está activa.");
@@ -574,12 +620,28 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         return subscription;
     }
 
+    private async Task<FamilySubscription> RequireOwnedCurrentSubscriptionAsync(
+        Guid ownerUserId,
+        CancellationToken cancellationToken)
+    {
+        var subscription = await _familyRepository.GetByOwnerAsync(ownerUserId, cancellationToken)
+            ?? throw new NotFoundException("Suscripción familiar no encontrada.");
+        await ApplyLifecycleAsync(subscription, DateTime.UtcNow, cancellationToken);
+        if (subscription.Status is not (FamilySubscriptionStatus.Active or FamilySubscriptionStatus.PastDue))
+            throw new ConflictException("La suscripción familiar ya no puede administrarse.");
+        return subscription;
+    }
+
     private async Task<FamilySubscription> RequireMembershipAsync(
         Guid userId,
         CancellationToken cancellationToken)
     {
-        return await _familyRepository.GetActiveByUserAsync(userId, cancellationToken)
+        var subscription = await _familyRepository.GetActiveByUserAsync(userId, cancellationToken)
             ?? throw new NotFoundException("Suscripción familiar no encontrada.");
+        await ApplyLifecycleAsync(subscription, DateTime.UtcNow, cancellationToken);
+        if (subscription.Status == FamilySubscriptionStatus.Expired)
+            throw new NotFoundException("Suscripción familiar no encontrada.");
+        return subscription;
     }
 
     private async Task<Plan> ResolvePlanAsync(string requestedPlan)
@@ -666,7 +728,7 @@ public class FamilySubscriptionService : IFamilySubscriptionService
 
     private async Task SetUserPlanAsync(Usuario user, string planName)
     {
-        user.PlanActivo = planName;
+        user.PlanActivo = PlanNamePolicy.ToPublicName(planName);
         await _usuarioRepository.UpdateAsync(user);
     }
 
@@ -688,7 +750,7 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         return new FamilySubscriptionSummaryDto
         {
             PublicSubscriptionId = subscription.PublicSubscriptionId,
-            PlanName = subscription.PlanName,
+            PlanName = PlanNamePolicy.ToPublicName(subscription.PlanName),
             Status = subscription.Status,
             CurrentUserRole = role,
             OwnerPublicProfileId = owner.PublicProfileId,
@@ -699,14 +761,70 @@ public class FamilySubscriptionService : IFamilySubscriptionService
             AvailableMemberSlots = Math.Max(0, limit - accepted),
             VehicleLimitPerUser = GetVehicleLimit(subscription.PlanName),
             PendingAdjustment = subscription.PendingAdjustment,
-            PendingPlanName = subscription.PendingPlanName,
+            PendingPlanName = string.IsNullOrWhiteSpace(subscription.PendingPlanName)
+                ? null
+                : PlanNamePolicy.ToPublicName(subscription.PendingPlanName),
             PeriodStartUtc = subscription.PeriodStartUtc,
             PeriodEndUtc = subscription.PeriodEndUtc,
+            NextBillingAtUtc = subscription.NextBillingAtUtc,
+            GraceEndsAtUtc = subscription.GraceEndsAtUtc,
+            AutoRenew = subscription.AutoRenew,
             LatestPayment = subscription.Payments
                 .OrderByDescending(value => value.OccurredAtUtc)
                 .Select(MapPayment)
                 .FirstOrDefault()
         };
+    }
+
+    private async Task ApplyLifecycleAsync(
+        FamilySubscription subscription,
+        DateTime utcNow,
+        CancellationToken cancellationToken)
+    {
+        if (subscription.Status == FamilySubscriptionStatus.Active
+            && subscription.PeriodEndUtc <= utcNow)
+        {
+            subscription.Status = FamilySubscriptionStatus.PastDue;
+            subscription.GraceEndsAtUtc = subscription.PeriodEndUtc.Add(GracePeriod);
+            subscription.NextBillingAtUtc = subscription.PeriodEndUtc;
+            subscription.UpdatedAtUtc = utcNow;
+            await _familyRepository.UpdateAsync(subscription, cancellationToken);
+            return;
+        }
+
+        if (subscription.Status == FamilySubscriptionStatus.PastDue
+            && subscription.GraceEndsAtUtc is not null
+            && subscription.GraceEndsAtUtc <= utcNow)
+        {
+            var affectedUserIds = subscription.Memberships
+                .Where(value => value.Status == FamilyMembershipStatus.Active)
+                .Select(value => value.UserId)
+                .Append(subscription.OwnerUserId)
+                .Distinct()
+                .ToArray();
+
+            subscription.Status = FamilySubscriptionStatus.Expired;
+            subscription.NextBillingAtUtc = null;
+            subscription.AutoRenew = false;
+            subscription.UpdatedAtUtc = utcNow;
+            foreach (var membership in subscription.Memberships.Where(value =>
+                         value.Role == FamilyMembershipRole.Member
+                         && value.Status == FamilyMembershipStatus.Active))
+            {
+                membership.Status = FamilyMembershipStatus.Expired;
+                membership.EndedAtUtc = utcNow;
+            }
+            foreach (var invitation in subscription.Invitations.Where(value =>
+                         value.Status == FamilyInvitationStatus.Pending))
+            {
+                invitation.Status = FamilyInvitationStatus.Expired;
+                invitation.RespondedAtUtc = utcNow;
+                invitation.CodeHash = string.Empty;
+            }
+
+            await _familyRepository.UpdateAsync(subscription, cancellationToken);
+            await ResetUserPlansAsync(affectedUserIds);
+        }
     }
 
     private static void EnsureInvitationPending(FamilyInvitation invitation)
@@ -942,7 +1060,7 @@ public class FamilySubscriptionService : IFamilySubscriptionService
         {
             PublicPaymentId = payment.PublicPaymentId,
             Result = payment.Result,
-            PlanName = payment.PlanName,
+            PlanName = PlanNamePolicy.ToPublicName(payment.PlanName),
             Amount = payment.Amount,
             Currency = payment.Currency,
             OccurredAtUtc = payment.OccurredAtUtc

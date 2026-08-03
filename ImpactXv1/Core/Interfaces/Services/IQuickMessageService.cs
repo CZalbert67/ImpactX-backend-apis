@@ -8,6 +8,10 @@ public interface IQuickMessageService
         Guid userId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<QuickMessageRecipientDto>> GetRecipientsAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
     Task<QuickMessageTemplateDto> CreateTemplateAsync(
         Guid userId,
         UpsertQuickMessageTemplateRequest request,

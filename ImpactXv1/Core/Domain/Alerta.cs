@@ -17,6 +17,11 @@ public class Alerta
     public string Modo { get; set; } = "auto";
     public string? Canal { get; set; }
     public string? ViajeId { get; set; }
+    public Guid? SourceTelemetryEventId { get; set; }
+    public string? DetectionLabel { get; set; }
+    public string? RuleVersion { get; set; }
+    public int? DetectionScore { get; set; }
+    public DateTime? AutoSendAtUtc { get; set; }
     public string? TiempoRespuesta { get; set; }
     public DateTime CreadoEn { get; set; } = DateTime.UtcNow;
     public DateTime? EnviadaEn { get; set; }

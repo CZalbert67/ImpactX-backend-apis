@@ -19,4 +19,5 @@ public class Notificacion
     public DateTime? UltimoIntentoEn { get; set; }
     public DateTime? EnviadoEn { get; set; }
     public string? ClaveIdempotencia { get; set; }
+    public string? PublicRelationshipId { get; set; }
 }

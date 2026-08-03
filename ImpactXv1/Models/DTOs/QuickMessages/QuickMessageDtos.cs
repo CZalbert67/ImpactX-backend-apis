@@ -50,3 +50,11 @@ public class QuickMessageDto
     public bool IsRead { get; set; }
     public DateTime? ReadAtUtc { get; set; }
 }
+
+public class QuickMessageRecipientDto
+{
+    public string PublicRelationshipId { get; set; } = string.Empty;
+    public string RecipientPublicProfileId { get; set; } = string.Empty;
+    public string RecipientUsername { get; set; } = string.Empty;
+    public string RecipientName { get; set; } = string.Empty;
+}

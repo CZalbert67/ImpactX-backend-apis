@@ -24,7 +24,34 @@ public class WearableControllerTests : IClassFixture<CustomWebApplicationFactory
             password = "Password123!"
         });
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
-        return result!.Token;
+        return result!.Token!;
+    }
+
+    private async Task<(string MobileToken, string WearableToken)> RegisterAndGetClientTokensAsync()
+    {
+        var email = $"wear_multi_{Guid.NewGuid():N}@test.com";
+        const string password = "Password123!";
+
+        var register = await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            nombre = "Wear Multi Tester",
+            correo = email,
+            password,
+            client = "mobile"
+        });
+        register.EnsureSuccessStatusCode();
+        var mobile = await register.Content.ReadFromJsonAsync<AuthResponse>();
+
+        var login = await _client.PostAsJsonAsync("/api/auth/login", new
+        {
+            identifier = email,
+            password,
+            client = "wearable"
+        });
+        login.EnsureSuccessStatusCode();
+        var wearable = await login.Content.ReadFromJsonAsync<AuthResponse>();
+
+        return (mobile!.Token!, wearable!.Token!);
     }
 
     [Fact]
@@ -139,8 +166,11 @@ public class WearableControllerTests : IClassFixture<CustomWebApplicationFactory
         var response = await _client.PostAsJsonAsync("/api/wearable/pair", new
         {
             dispositivoId = "WATCH-001",
-            nombre = "Apple Watch",
-            modelo = "Series 9",
+            nombre = "Galaxy Watch 8",
+            modelo = "Galaxy Watch 8",
+            fabricante = "Samsung",
+            plataforma = "WearOS",
+            capacidadesSensores = new[] { "accelerometer", "gyroscope", "gps", "heart_rate" },
         });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -159,8 +189,10 @@ public class WearableControllerTests : IClassFixture<CustomWebApplicationFactory
         var pairResponse = await _client.PostAsJsonAsync("/api/wearable/pair", new
         {
             dispositivoId = "WATCH-002",
-            nombre = "Samsung Watch",
-            modelo = "Galaxy 6",
+            nombre = "Galaxy Watch 8",
+            modelo = "Galaxy Watch 8",
+            fabricante = "Samsung",
+            plataforma = "WearOS",
         });
         var pairResult = await pairResponse.Content.ReadFromJsonAsync<PairResponse>();
 
@@ -188,18 +220,26 @@ public class WearableControllerTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
-    public async Task UpdateBattery_WithAuth_Updates()
+    public async Task UpdateBattery_WithWearableClient_Updates()
     {
-        var token = await RegisterAndGetTokenAsync();
+        var tokens = await RegisterAndGetClientTokensAsync();
         _client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.MobileToken);
 
         await PairAndCompleteFlowAsync();
 
-        var response = await _client.PatchAsJsonAsync("/api/wearable/battery", new { nivel = 85 });
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.WearableToken);
+
+        var response = await _client.PatchAsJsonAsync("/api/v1/wearable/battery", new
+        {
+            nivel = 85,
+            cargando = true
+        });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var wearable = await response.Content.ReadFromJsonAsync<WearableDto>();
         Assert.Equal(85, wearable!.NivelBateria);
+        Assert.True(wearable.Cargando);
     }
 
     [Fact]
@@ -214,6 +254,7 @@ public class WearableControllerTests : IClassFixture<CustomWebApplicationFactory
         var response = await _client.PostAsJsonAsync("/api/wearable/calibration", new
         {
             acelerometro = true,
+            giroscopio = true,
             gps = true,
         });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -249,8 +290,11 @@ public class WearableControllerTests : IClassFixture<CustomWebApplicationFactory
         var pairResponse = await _client.PostAsJsonAsync("/api/wearable/pair", new
         {
             dispositivoId = $"WATCH-{Guid.NewGuid():N}",
-            nombre = "Test Watch",
-            modelo = "Test Model",
+            nombre = "Galaxy Watch 8",
+            modelo = "Galaxy Watch 8",
+            fabricante = "Samsung",
+            plataforma = "WearOS",
+            capacidadesSensores = new[] { "accelerometer", "gyroscope", "gps", "heart_rate", "hrv", "spo2" },
         });
         var pairResult = await pairResponse.Content.ReadFromJsonAsync<PairResponse>();
         await _client.PostAsJsonAsync("/api/wearable/pair/confirm", new

@@ -23,7 +23,7 @@ public class CosmosPageReaderTests
             .Select(i => new CosmosPageReaderTestsDummyDoc { Id = $"doc-{i}" })
             .ToList();
 
-        response.SetupGet(r => r.ContinuationToken).Returns(continuationToken);
+        response.SetupGet(r => r.ContinuationToken).Returns(continuationToken!);
         response.SetupGet(r => r.Resource).Returns(resources);
         iterator.SetupGet(i => i.HasMoreResults).Returns(hasMore);
         iterator.Setup(i => i.ReadNextAsync(It.IsAny<CancellationToken>()))

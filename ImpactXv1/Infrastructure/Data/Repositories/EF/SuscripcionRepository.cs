@@ -22,6 +22,15 @@ public class SuscripcionRepository : ISuscripcionRepository
             .FirstOrDefaultAsync();
     }
 
+    public async Task<Suscripcion?> GetCurrentByUserAsync(Guid usuarioId)
+    {
+        return await _context.Set<Suscripcion>()
+            .Where(s => s.UsuarioId == usuarioId &&
+                (s.Estado == "Trial" || s.Estado == "Activa" || s.Estado == "Grace"))
+            .OrderByDescending(s => s.Inicio)
+            .FirstOrDefaultAsync();
+    }
+
     public async Task<List<Suscripcion>> GetHistoryByUserAsync(Guid usuarioId)
     {
         return await _context.Set<Suscripcion>()
@@ -111,6 +120,24 @@ public class SuscripcionRepository : ISuscripcionRepository
         }
 
         return processed;
+    }
+
+    public async Task<int> ProcessLifecycleAsync(
+        DateTime utcNow,
+        Func<Suscripcion, CancellationToken, Task> process,
+        CancellationToken cancellationToken = default)
+    {
+        var candidates = await _context.Set<Suscripcion>()
+            .Where(s =>
+                ((s.Estado == "Activa" || s.Estado == "Trial") && s.Fin != null && s.Fin <= utcNow)
+                || (s.Estado == "Grace" && s.GraceEndsAtUtc != null && s.GraceEndsAtUtc <= utcNow))
+            .OrderBy(s => s.Inicio)
+            .ToListAsync(cancellationToken);
+
+        foreach (var subscription in candidates)
+            await process(subscription, cancellationToken);
+
+        return candidates.Count;
     }
 
     public async Task<int> ProcessTrialsEndingAsync(int daysRemaining, Func<Suscripcion, CancellationToken, Task> process, CancellationToken cancellationToken = default)

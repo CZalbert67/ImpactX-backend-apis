@@ -1,4 +1,3 @@
-using ImpactX.Core.Exceptions;
 using ImpactX.Core.Pagination;
 using ImpactX.Models.DTOs;
 
@@ -16,4 +15,6 @@ public interface IWearableService
     Task<WearableDto> UpdatePermissionsAsync(Guid usuarioId, UpdateWearablePermissionsRequest request);
     Task<SensorDiagnosticsDto> GetSensorDiagnosticsAsync(Guid usuarioId);
     Task<WearableDto> UpdateBatteryAsync(Guid usuarioId, BatteryUpdateRequest request);
+    Task<WearableDto> RegisterHeartbeatAsync(Guid usuarioId, WearableHeartbeatRequest request);
+    Task<WearableDto> ReportDiagnosticsAsync(Guid usuarioId, WearableDiagnosticsReportRequest request);
 }

@@ -13,17 +13,18 @@ public class TripsControllerTests : IClassFixture<CustomWebApplicationFactory>
         _client = factory.CreateClient();
     }
 
-    private async Task<string> RegisterAndGetTokenAsync()
+    private async Task<string> RegisterAndGetTokenAsync(string client = "wearable")
     {
         var email = $"trip_{Guid.NewGuid()}@test.com";
         var response = await _client.PostAsJsonAsync("/api/auth/register", new
         {
             nombre = "Trip Tester",
             correo = email,
-            password = "Password123!"
+            password = "Password123!",
+            client
         });
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
-        return result!.Token;
+        return result!.Token!;
     }
 
     [Fact]
