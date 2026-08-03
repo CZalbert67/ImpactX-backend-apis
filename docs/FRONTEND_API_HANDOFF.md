@@ -3,7 +3,7 @@
 ## Contrato congelado
 
 - Base canónica: `/api/v1`
-- Versión: `2026.08.03`
+- Versión: `2026.08.04`
 - OpenAPI: `/openapi/v1.json`
 - Contrato JSON para clientes: `/api/v1/meta/contract`
 - Capacidades por cliente: `/api/v1/meta/clients/web`, `/mobile`, `/wearable`
@@ -12,7 +12,7 @@ Cada respuesta expone:
 
 ```text
 X-ImpactX-Api-Version: v1
-X-ImpactX-Contract-Version: 2026.08.03
+X-ImpactX-Contract-Version: 2026.08.04
 X-Correlation-Id: <id>
 ```
 
@@ -76,4 +76,12 @@ El móvil puede vincular y desvincular el Galaxy Watch 8, sincronizar operacione
 
 ## Integración recomendada
 
-Genera tipos TypeScript desde `/openapi/v1.json` y conserva el JSON de `/api/v1/meta/contract` como comprobación de versión al arrancar. Si `contractVersion` no coincide con `2026.08.03`, bloquea funciones de escritura hasta revisar el contrato.
+Genera tipos TypeScript desde `/openapi/v1.json` y conserva el JSON de `/api/v1/meta/contract` como comprobación de versión al arrancar. Si `contractVersion` no coincide con `2026.08.04`, bloquea funciones de escritura hasta revisar el contrato.
+
+## Relaciones y conversaciones (2026.08.04)
+
+- La capacidad familiar se obtiene de `totalActivePeople` y `totalPeopleLimit`; no debe calcularse solo con datos locales.
+- `currentUserRole=Member` oculta todas las operaciones de cambio, renovación y cancelación de plan.
+- `direction=MonitoredRequestsMonitor` significa que el usuario actual pide a otra persona que lo monitoree.
+- `direction=MonitorInvitesMonitored` significa que el usuario actual solicita monitorear a la otra persona.
+- Al abrir una conversación se usa `PATCH /api/v1/quick-messages/conversations/{otherPublicProfileId}/read`.

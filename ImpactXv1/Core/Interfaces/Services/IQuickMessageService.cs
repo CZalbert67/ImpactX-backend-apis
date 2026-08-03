@@ -46,4 +46,9 @@ public interface IQuickMessageService
         Guid userId,
         string publicMessageId,
         CancellationToken cancellationToken = default);
+
+    Task<int> MarkConversationReadAsync(
+        Guid userId,
+        string otherPublicProfileId,
+        CancellationToken cancellationToken = default);
 }

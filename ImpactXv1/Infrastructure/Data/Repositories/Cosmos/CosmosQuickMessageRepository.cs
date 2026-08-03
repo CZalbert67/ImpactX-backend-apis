@@ -169,6 +169,33 @@ public class CosmosQuickMessageRepository : IQuickMessageRepository
         return response.FirstOrDefault();
     }
 
+    public async Task<int> MarkConversationReadAsync(
+        Guid recipientUserId,
+        Guid senderUserId,
+        DateTime readAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.recipientUserId = @recipientUserId " +
+            "AND c.senderUserId = @senderUserId AND c.isRead = false")
+            .WithParameter("@recipientUserId", recipientUserId.ToString())
+            .WithParameter("@senderUserId", senderUserId.ToString());
+        var unread = await ReadAllAsync<QuickMessage>(
+            _messages,
+            query,
+            CosmosPartitionKeys.For(recipientUserId),
+            cancellationToken);
+
+        foreach (var message in unread)
+        {
+            message.IsRead = true;
+            message.ReadAtUtc = readAtUtc;
+            await UpdateMessageAsync(message, cancellationToken);
+        }
+
+        return unread.Count;
+    }
+
     public async Task UpdateMessageAsync(
         QuickMessage message,
         CancellationToken cancellationToken = default)

@@ -80,6 +80,26 @@ public class CosmosMonitoringRelationshipRepository : IMonitoringRelationshipRep
         return response.FirstOrDefault();
     }
 
+    public async Task<int> CountAcceptedForMonitoredAsync(
+        Guid monitoredUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT VALUE COUNT(1) FROM c WHERE c.monitoredUserId = @monitoredUserId " +
+            "AND c.status = 'Accepted'")
+            .WithParameter("@monitoredUserId", monitoredUserId.ToString());
+        using var iterator = _container.GetItemQueryIterator<int>(
+            query,
+            requestOptions: new QueryRequestOptions { MaxItemCount = 1 });
+        if (!iterator.HasMoreResults)
+        {
+            return 0;
+        }
+
+        var response = await iterator.ReadNextAsync(cancellationToken);
+        return response.FirstOrDefault();
+    }
+
     public async Task<IReadOnlyList<MonitoringRelationship>> GetAcceptedForMonitoredUserAsync(
         Guid monitoredUserId,
         CancellationToken cancellationToken = default)

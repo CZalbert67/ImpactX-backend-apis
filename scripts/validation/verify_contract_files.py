@@ -6,7 +6,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 required = {
     "ImpactXv1/Core/ApiContract/ApiContractDefinition.cs": [
-        'ContractVersion = "2026.08.03"',
+        'ContractVersion = "2026.08.04"',
         'ContractStatus = "frozen"',
         'SupportedClients = ["web", "mobile", "wearable"]',
     ],
@@ -55,4 +55,4 @@ if errors:
 
 print("ImpactX contract verification: OK")
 print(f"Detected v1 controller route attributes: {len(v1_routes)}")
-print("Contract version: 2026.08.03")
+print("Contract version: 2026.08.04")

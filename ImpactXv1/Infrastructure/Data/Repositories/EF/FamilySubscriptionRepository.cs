@@ -39,7 +39,11 @@ public class FamilySubscriptionRepository : IFamilySubscriptionRepository
                     && (subscription.OwnerUserId == userId
                         || subscription.Memberships.Any(membership =>
                             membership.UserId == userId
-                            && membership.Status == FamilyMembershipStatus.Active)),
+                            && membership.Status == FamilyMembershipStatus.Active)
+                        || subscription.Invitations.Any(invitation =>
+                            invitation.TargetUserId == userId
+                            && (invitation.Status == FamilyInvitationStatus.Accepted
+                                || invitation.Status == FamilyInvitationStatus.Consumed))),
                 cancellationToken);
     }
 

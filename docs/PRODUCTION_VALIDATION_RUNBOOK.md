@@ -95,7 +95,7 @@ Debe devolver:
 
 ```text
 apiVersion: v1
-contractVersion: 2026.08.03
+contractVersion: 2026.08.04
 status: frozen
 ```
 

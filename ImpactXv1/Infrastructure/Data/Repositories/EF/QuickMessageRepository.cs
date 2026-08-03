@@ -110,6 +110,28 @@ public class QuickMessageRepository : IQuickMessageRepository
             cancellationToken);
     }
 
+    public async Task<int> MarkConversationReadAsync(
+        Guid recipientUserId,
+        Guid senderUserId,
+        DateTime readAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var messages = await _context.QuickMessages
+            .Where(message => message.RecipientUserId == recipientUserId
+                && message.SenderUserId == senderUserId
+                && !message.IsRead)
+            .ToListAsync(cancellationToken);
+
+        foreach (var message in messages)
+        {
+            message.IsRead = true;
+            message.ReadAtUtc = readAtUtc;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+        return messages.Count;
+    }
+
     public async Task UpdateMessageAsync(
         QuickMessage message,
         CancellationToken cancellationToken = default)

@@ -54,6 +54,16 @@ public class MonitoringRelationshipRepository : IMonitoringRelationshipRepositor
             cancellationToken);
     }
 
+    public Task<int> CountAcceptedForMonitoredAsync(
+        Guid monitoredUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return _context.MonitoringRelationships.CountAsync(
+            relationship => relationship.MonitoredUserId == monitoredUserId
+                && relationship.Status == MonitoringRelationshipStatus.Accepted,
+            cancellationToken);
+    }
+
     public async Task<IReadOnlyList<MonitoringRelationship>> GetAcceptedForMonitoredUserAsync(
         Guid monitoredUserId,
         CancellationToken cancellationToken = default)
