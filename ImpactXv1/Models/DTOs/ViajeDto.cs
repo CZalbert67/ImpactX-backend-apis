@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ImpactX.Core.Security;
 
 namespace ImpactX.Models.DTOs;
 
@@ -33,7 +34,7 @@ public class StartTripRequest
     public string? FallbackReason { get; set; }
 
     [JsonIgnore]
-    public string Client { get; set; } = "mobile";
+    public string Client { get; set; } = ClientTypePolicy.Wearable;
 }
 
 public class TelemetryUpdateRequest

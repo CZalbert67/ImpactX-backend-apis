@@ -4,6 +4,8 @@ using Moq;
 using ImpactX.Core.Domain;
 using ImpactX.Core.Interfaces.Repositories;
 using ImpactX.Core.Pagination;
+using ImpactX.Core.Security;
+using ImpactX.Core.Wearables;
 using ImpactX.Models.DTOs;
 using ImpactX.Services;
 
@@ -12,13 +14,18 @@ namespace ImpactX.Tests.Unit;
 public class ViajeServiceTests
 {
     private readonly Mock<IViajeRepository> _viajeRepo;
+    private readonly Mock<IWearableRepository> _wearableRepo;
     private readonly ViajeService _viajeService;
 
     public ViajeServiceTests()
     {
         _viajeRepo = new Mock<IViajeRepository>();
+        _wearableRepo = new Mock<IWearableRepository>();
         var logger = Mock.Of<ILogger<ViajeService>>();
-        _viajeService = new ViajeService(_viajeRepo.Object, logger);
+        _viajeService = new ViajeService(
+            _viajeRepo.Object,
+            logger,
+            wearableRepository: _wearableRepo.Object);
     }
 
     [Fact]
@@ -47,6 +54,61 @@ public class ViajeServiceTests
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             _viajeService.StartAsync(usuarioId, new StartTripRequest { DispositivoId = "WEAR-001" }));
+    }
+
+    [Fact]
+    public async Task StartAsync_MobileRelayWithLinkedGalaxyWatch8_CreatesWearableControlledTrip()
+    {
+        var usuarioId = Guid.NewGuid();
+        const string deviceId = "GW8-UNIT-001";
+        _viajeRepo.Setup(r => r.GetActiveByUserAsync(usuarioId)).ReturnsAsync((Viaje?)null);
+        _wearableRepo.Setup(r => r.GetByUsuarioIdAsync(usuarioId)).ReturnsAsync(new Wearable
+        {
+            UsuarioId = usuarioId,
+            DispositivoId = deviceId,
+            Estado = "Vinculado",
+            Modelo = WearableProductPolicy.TargetModel,
+            Fabricante = WearableProductPolicy.TargetManufacturer,
+            Plataforma = WearableProductPolicy.TargetPlatform,
+        });
+
+        var result = await _viajeService.StartAsync(usuarioId, new StartTripRequest
+        {
+            DispositivoId = deviceId,
+            Client = ClientTypePolicy.Mobile,
+        });
+
+        Assert.Equal(ClientTypePolicy.Wearable, result.ControlClient);
+        Assert.True(result.MobileFallbackUsed);
+        Assert.False(string.IsNullOrWhiteSpace(result.FallbackReason));
+        _viajeRepo.Verify(r => r.AddAsync(It.Is<Viaje>(trip =>
+            trip.DispositivoId == deviceId
+            && trip.ControlClient == ClientTypePolicy.Wearable
+            && trip.MobileFallbackUsed)), Times.Once);
+    }
+
+    [Fact]
+    public async Task StartAsync_MobileRelayWithMismatchedWearable_ThrowsForbidden()
+    {
+        var usuarioId = Guid.NewGuid();
+        _wearableRepo.Setup(r => r.GetByUsuarioIdAsync(usuarioId)).ReturnsAsync(new Wearable
+        {
+            UsuarioId = usuarioId,
+            DispositivoId = "GW8-OWNED",
+            Estado = "Vinculado",
+            Modelo = WearableProductPolicy.TargetModel,
+            Fabricante = WearableProductPolicy.TargetManufacturer,
+            Plataforma = WearableProductPolicy.TargetPlatform,
+        });
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            _viajeService.StartAsync(usuarioId, new StartTripRequest
+            {
+                DispositivoId = "GW8-OTHER",
+                Client = ClientTypePolicy.Mobile,
+            }));
+
+        _viajeRepo.Verify(r => r.AddAsync(It.IsAny<Viaje>()), Times.Never);
     }
 
     [Fact]

@@ -23,47 +23,47 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("start")]
-    [RequireClientCapability(ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable, ClientTypePolicy.Mobile)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Start([FromBody] StartTripRequest request)
     {
         var usuarioId = GetUsuarioId();
-        request.Client = ClientTypePolicy.Wearable;
+        request.Client = GetClientType();
         var viaje = await _viajeService.StartAsync(usuarioId, request);
         return CreatedAtAction(nameof(GetActive), null, viaje);
     }
 
     [HttpPost("{id:guid}/pause")]
-    [RequireClientCapability(ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable, ClientTypePolicy.Mobile)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Pause(Guid id)
     {
         var usuarioId = GetUsuarioId();
-        var result = await _viajeService.PauseAsync(usuarioId, id);
+        var result = await _viajeService.PauseAsync(usuarioId, id, GetClientType());
         return Ok(result);
     }
 
     [HttpPost("{id:guid}/resume")]
-    [RequireClientCapability(ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable, ClientTypePolicy.Mobile)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Resume(Guid id)
     {
         var usuarioId = GetUsuarioId();
-        var result = await _viajeService.ResumeAsync(usuarioId, id);
+        var result = await _viajeService.ResumeAsync(usuarioId, id, GetClientType());
         return Ok(result);
     }
 
     [HttpPost("{id:guid}/finish")]
-    [RequireClientCapability(ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable, ClientTypePolicy.Mobile)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Finish(Guid id)
     {
         var usuarioId = GetUsuarioId();
-        var viaje = await _viajeService.FinishAsync(usuarioId, id);
+        var viaje = await _viajeService.FinishAsync(usuarioId, id, GetClientType());
         return Ok(viaje);
     }
 
@@ -117,6 +117,12 @@ public class TripsController : ControllerBase
         var usuarioId = GetUsuarioId();
         var page = await _viajeService.GetTelemetryPagedAsync(usuarioId, id, pageSize, continuationToken);
         return Ok(page);
+    }
+
+    private string GetClientType()
+    {
+        var client = User.FindFirst("client")?.Value;
+        return ClientTypePolicy.Normalize(client);
     }
 
     private Guid GetUsuarioId()

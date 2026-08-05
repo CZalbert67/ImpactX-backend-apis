@@ -6,6 +6,7 @@ using ImpactX.Core.Interfaces.Services;
 using ImpactX.Core.Pagination;
 using ImpactX.Core.Security;
 using ImpactX.Core.Telemetry;
+using ImpactX.Core.Wearables;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Services;
@@ -17,40 +18,57 @@ public class ViajeService : IViajeService
     private readonly IVehicleRepository? _vehicleRepository;
     private readonly IImpactDetectionEngine? _impactDetectionEngine;
     private readonly IImpactAlertOrchestrator? _impactAlertOrchestrator;
+    private readonly IWearableRepository? _wearableRepository;
+
+    private const string MobileRelayFallbackReason =
+        "Orden originada en el wearable y retransmitida por la aplicación móvil.";
 
     public ViajeService(
         IViajeRepository viajeRepository,
         ILogger<ViajeService> logger,
         IVehicleRepository? vehicleRepository = null,
         IImpactDetectionEngine? impactDetectionEngine = null,
-        IImpactAlertOrchestrator? impactAlertOrchestrator = null)
+        IImpactAlertOrchestrator? impactAlertOrchestrator = null,
+        IWearableRepository? wearableRepository = null)
     {
         _viajeRepository = viajeRepository;
         _logger = logger;
         _vehicleRepository = vehicleRepository;
         _impactDetectionEngine = impactDetectionEngine;
         _impactAlertOrchestrator = impactAlertOrchestrator;
+        _wearableRepository = wearableRepository;
     }
 
     public async Task<ViajeDto> StartAsync(Guid usuarioId, StartTripRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var client = ClientTypePolicy.Normalize(request.Client);
+        var dispositivoId = NormalizeDeviceId(request.DispositivoId);
+
+        if (client == ClientTypePolicy.Mobile)
+            await ValidateMobileWearableRelayAsync(usuarioId, dispositivoId);
+
         var active = await _viajeRepository.GetActiveByUserAsync(usuarioId);
         if (active is not null)
             throw new ConflictException("Ya tienes un viaje activo. Finalízalo antes de iniciar uno nuevo.");
 
         var vehiclePublicId = await ResolveVehiclePublicIdAsync(usuarioId, request.VehiclePublicId);
+        var mobileRelay = client == ClientTypePolicy.Mobile;
 
-        // Invariante de producto: el ciclo de vida del viaje es controlado
-        // exclusivamente por el wearable. Los campos legacy se conservan solo
-        // para leer documentos históricos, no para crear nuevos viajes.
+        // El control funcional sigue originándose en el wearable. Cuando el
+        // reloj no tiene conectividad propia, la app móvil actúa únicamente
+        // como transporte autenticado de la orden de un wearable vinculado.
         var viaje = new Viaje
         {
             UsuarioId = usuarioId,
-            DispositivoId = request.DispositivoId,
+            DispositivoId = dispositivoId,
             VehiclePublicId = vehiclePublicId,
             ControlClient = ClientTypePolicy.Wearable,
-            MobileFallbackUsed = false,
-            FallbackReason = null,
+            MobileFallbackUsed = mobileRelay,
+            FallbackReason = mobileRelay
+                ? NormalizeFallbackReason(request.FallbackReason) ?? MobileRelayFallbackReason
+                : null,
             Estado = "Activo",
             Inicio = DateTime.UtcNow,
             Proposito = request.Proposito,
@@ -67,9 +85,13 @@ public class ViajeService : IViajeService
         return MapToDto(viaje);
     }
 
-    public async Task<TripActionResponse> PauseAsync(Guid usuarioId, Guid viajeId)
+    public async Task<TripActionResponse> PauseAsync(
+        Guid usuarioId,
+        Guid viajeId,
+        string client = ClientTypePolicy.Wearable)
     {
         var viaje = await GetOwnedViajeAsync(usuarioId, viajeId);
+        await ValidateTripControlClientAsync(usuarioId, viaje, client);
 
         if (viaje.Estado != "Activo")
             throw new ConflictException("Solo se puede pausar un viaje activo.");
@@ -80,9 +102,13 @@ public class ViajeService : IViajeService
         return new TripActionResponse { ViajeId = viajeId, Estado = "Pausado", Mensaje = "Viaje pausado." };
     }
 
-    public async Task<TripActionResponse> ResumeAsync(Guid usuarioId, Guid viajeId)
+    public async Task<TripActionResponse> ResumeAsync(
+        Guid usuarioId,
+        Guid viajeId,
+        string client = ClientTypePolicy.Wearable)
     {
         var viaje = await GetOwnedViajeAsync(usuarioId, viajeId);
+        await ValidateTripControlClientAsync(usuarioId, viaje, client);
 
         if (viaje.Estado != "Pausado")
             throw new ConflictException("Solo se puede reanudar un viaje pausado.");
@@ -93,9 +119,13 @@ public class ViajeService : IViajeService
         return new TripActionResponse { ViajeId = viajeId, Estado = "Activo", Mensaje = "Viaje reanudado." };
     }
 
-    public async Task<ViajeDto> FinishAsync(Guid usuarioId, Guid viajeId)
+    public async Task<ViajeDto> FinishAsync(
+        Guid usuarioId,
+        Guid viajeId,
+        string client = ClientTypePolicy.Wearable)
     {
         var viaje = await GetOwnedViajeAsync(usuarioId, viajeId);
+        await ValidateTripControlClientAsync(usuarioId, viaje, client);
 
         if (viaje.Estado == "Finalizado")
             throw new ConflictException("Este viaje ya fue finalizado.");
@@ -353,6 +383,69 @@ public class ViajeService : IViajeService
             throw new ForbiddenException("No tienes permiso para acceder a este viaje.");
 
         return viaje;
+    }
+
+    private async Task ValidateTripControlClientAsync(Guid usuarioId, Viaje viaje, string client)
+    {
+        var normalizedClient = ClientTypePolicy.Normalize(client);
+        if (normalizedClient == ClientTypePolicy.Wearable)
+            return;
+
+        if (normalizedClient != ClientTypePolicy.Mobile)
+            throw new ForbiddenException("El cliente no tiene permiso para controlar viajes.");
+
+        await ValidateMobileWearableRelayAsync(usuarioId, viaje.DispositivoId);
+    }
+
+    private async Task ValidateMobileWearableRelayAsync(Guid usuarioId, string dispositivoId)
+    {
+        if (_wearableRepository is null)
+            throw new ForbiddenException("No fue posible validar el wearable vinculado.");
+
+        var wearable = await _wearableRepository.GetByUsuarioIdAsync(usuarioId);
+        if (wearable is null
+            || !string.Equals(wearable.Estado, "Vinculado", StringComparison.Ordinal)
+            || !WearableProductPolicy.IsTargetDevice(
+                wearable.Fabricante,
+                wearable.Modelo,
+                wearable.Plataforma)
+            || !string.Equals(
+                wearable.DispositivoId,
+                dispositivoId,
+                StringComparison.Ordinal))
+        {
+            // Respuesta uniforme para no revelar si el identificador existe o
+            // pertenece a otra cuenta.
+            throw new ForbiddenException(
+                "La orden móvil no corresponde a un Galaxy Watch8 vinculado al usuario.");
+        }
+    }
+
+    private static string NormalizeDeviceId(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new BadRequestException("dispositivoId es obligatorio.");
+
+        var normalized = value.Trim();
+        if (normalized.Length > WearableProductPolicy.MaxDeviceIdLength
+            || normalized.Any(char.IsControl))
+        {
+            throw new BadRequestException("dispositivoId contiene un valor no permitido.");
+        }
+
+        return normalized;
+    }
+
+    private static string? NormalizeFallbackReason(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var normalized = value.Trim();
+        if (normalized.Length > 500 || normalized.Any(char.IsControl))
+            throw new BadRequestException("fallbackReason contiene un valor no permitido.");
+
+        return normalized;
     }
 
     private async Task<string?> ResolveVehiclePublicIdAsync(Guid userId, string? requestedPublicVehicleId)

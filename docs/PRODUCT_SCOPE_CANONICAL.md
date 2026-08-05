@@ -80,7 +80,11 @@ La aplicación móvil:
 - Recibe alertas y notificaciones.
 - Sincroniza datos locales con el backend.
 - Puede consultar el estado, historial y telemetría de los viajes.
-- **No** puede iniciar, pausar, reanudar ni finalizar viajes.
+- Puede retransmitir al backend, como transporte autenticado, una orden de
+  inicio, pausa, reanudación o finalización originada en el Galaxy Watch8
+  vinculado.
+- **No** puede originar por sí misma el inicio, pausa, reanudación ni
+  finalización de viajes.
 - Administra los vehículos del usuario (ver sección 8).
 - Gestiona el **plan y grupo unificado** cuando corresponde:
   plan, pago simulado, unirse mediante una sola invitación, permisos por integrante y abandono voluntario
@@ -596,7 +600,10 @@ El backend conserva operaciones de:
 - Finalizar viaje.
 - Ingesta de telemetría.
 
-Estas operaciones son **invocadas exclusivamente por el wearable**.
+Estas operaciones son **originadas exclusivamente por el wearable**. Cuando
+el reloj usa Bluetooth/Data Layer, la aplicación móvil puede retransmitir la
+orden al backend después de validar el wearable vinculado; esa retransmisión no
+convierte al móvil en controlador del viaje.
 
 La web solo usa **lectura**:
 
