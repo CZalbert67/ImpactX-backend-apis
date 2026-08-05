@@ -51,18 +51,22 @@
 
 | Método y ruta | Web | Mobile | Wearable |
 |---|---:|---:|---:|
-| `POST /api/v1/trips/start` | 403 | 403 | Permitido |
-| `POST /api/v1/trips/{id}/pause` | 403 | 403 | Permitido |
-| `POST /api/v1/trips/{id}/resume` | 403 | 403 | Permitido |
-| `POST /api/v1/trips/{id}/finish` | 403 | 403 | Permitido |
+| `POST /api/v1/trips/start` | 403 | Relay validado | Permitido |
+| `POST /api/v1/trips/{id}/pause` | 403 | Relay validado | Permitido |
+| `POST /api/v1/trips/{id}/resume` | 403 | Relay validado | Permitido |
+| `POST /api/v1/trips/{id}/finish` | 403 | Relay validado | Permitido |
 | `PATCH /api/v1/trips/{id}/telemetry` | 403 | 403 | Permitido |
 | `POST /api/v1/trips/{id}/telemetry` | 403 | 403 | Permitido |
 
 ## Compatibilidad
 
 Los documentos históricos pueden conservar `controlClient` y
-`mobileFallbackUsed`. Para viajes nuevos, `controlClient=wearable`,
-`mobileFallbackUsed=false` y `fallbackReason=null`.
+`mobileFallbackUsed`. Los viajes iniciados directamente por el wearable usan
+`controlClient=wearable`, `mobileFallbackUsed=false` y `fallbackReason=null`.
+Cuando el Galaxy Watch8 envía la orden por Bluetooth y el móvil la retransmite,
+el backend exige que `dispositivoId` coincida con el wearable vinculado del
+usuario y persiste `controlClient=wearable`, `mobileFallbackUsed=true`. El móvil
+no obtiene control propio del viaje y continúa sin permiso para telemetría.
 
 ## Grupo unificado, privacidad, SOS y mensajes rápidos
 

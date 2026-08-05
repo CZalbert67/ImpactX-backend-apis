@@ -40,9 +40,41 @@ public class ApiContractMetadataTests : IClassFixture<CustomWebApplicationFactor
         Assert.Contains("POST /api/v1/trips/start", routes);
     }
 
+    [Fact]
+    public async Task Contract_TripLifecycleAllowsValidatedMobileRelayAndWearable()
+    {
+        var response = await _client.GetAsync("/api/v1/meta/contract");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var routes = json.RootElement.GetProperty("routes").EnumerateArray().ToArray();
+
+        foreach (var path in new[]
+                 {
+                     "/api/v1/trips/start",
+                     "/api/v1/trips/{id:guid}/pause",
+                     "/api/v1/trips/{id:guid}/resume",
+                     "/api/v1/trips/{id:guid}/finish",
+                 })
+        {
+            var route = routes.Single(item =>
+                item.GetProperty("method").GetString() == "POST"
+                && item.GetProperty("path").GetString() == path);
+            var allowedClients = route.GetProperty("allowedClients")
+                .EnumerateArray()
+                .Select(value => value.GetString())
+                .ToArray();
+
+            Assert.Contains("mobile", allowedClients);
+            Assert.Contains("wearable", allowedClients);
+            Assert.DoesNotContain("web", allowedClients);
+        }
+    }
+
     [Theory]
     [InlineData("web", "vehicles:manage")]
     [InlineData("mobile", "mobile-sync:offline")]
+    [InlineData("mobile", "trips:relay-wearable")]
     [InlineData("wearable", "telemetry:write")]
     public async Task ClientCapabilityContract_ReturnsExpectedCapability(string client, string capability)
     {

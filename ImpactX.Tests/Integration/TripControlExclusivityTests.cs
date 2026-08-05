@@ -4,6 +4,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
+using ImpactX.Core.Domain;
+using ImpactX.Core.Wearables;
 using ImpactX.Models.DTOs;
 
 namespace ImpactX.Tests.Integration;
@@ -42,6 +44,25 @@ public class TripControlExclusivityTests : IClassFixture<CustomWebApplicationFac
         return client;
     }
 
+    private async Task AddLinkedWearableAsync(Guid userId, string deviceId)
+    {
+        await _factory.ExecuteInDbContextAsync(async db =>
+        {
+            db.Wearables.Add(new Wearable
+            {
+                UsuarioId = userId,
+                DispositivoId = deviceId,
+                Nombre = "Galaxy Watch8 de prueba",
+                Modelo = WearableProductPolicy.TargetModel,
+                Fabricante = WearableProductPolicy.TargetManufacturer,
+                Plataforma = WearableProductPolicy.TargetPlatform,
+                Estado = "Vinculado",
+                Connected = true,
+            });
+            await db.SaveChangesAsync();
+        });
+    }
+
     private static object TelemetryBatch(Guid eventId) => new
     {
         eventos = new[]
@@ -57,13 +78,11 @@ public class TripControlExclusivityTests : IClassFixture<CustomWebApplicationFac
         }
     };
 
-    [Theory]
-    [InlineData("web")]
-    [InlineData("mobile")]
+    [Fact]
     [Trait("Category", "Security")]
-    public async Task NonWearableClient_CanReadButCannotControlTrip(string clientType)
+    public async Task WebClient_CanReadButCannotControlTrip()
     {
-        var account = await RegisterAsync(clientType);
+        var account = await RegisterAsync("web");
         using var client = AuthClient(account.Token);
 
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/trips")).StatusCode);
@@ -76,10 +95,68 @@ public class TripControlExclusivityTests : IClassFixture<CustomWebApplicationFac
             (await client.PostAsync($"/api/v1/trips/{Guid.NewGuid()}/resume", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await client.PostAsync($"/api/v1/trips/{Guid.NewGuid()}/finish", null)).StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task MobileWithoutLinkedWearable_CannotControlTrip()
+    {
+        var account = await RegisterAsync("mobile");
+        using var client = AuthClient(account.Token);
+
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/trips")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await client.PostAsJsonAsync("/api/v1/trips/start", new { dispositivoId = "UNLINKED" })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await client.PostAsJsonAsync(
                 $"/api/v1/trips/{Guid.NewGuid()}/telemetry",
                 TelemetryBatch(Guid.NewGuid()))).StatusCode);
+    }
+
+    [Fact]
+    public async Task MobileRelay_WithOwnLinkedGalaxyWatch8_CanControlTripButNotTelemetry()
+    {
+        const string deviceId = "GW8-MOBILE-RELAY-001";
+        var account = await RegisterAsync("mobile");
+        await AddLinkedWearableAsync(account.UserId, deviceId);
+        using var client = AuthClient(account.Token);
+
+        var start = await client.PostAsJsonAsync(
+            "/api/v1/trips/start",
+            new { dispositivoId = deviceId, proposito = "Relay desde Galaxy Watch8" });
+
+        Assert.Equal(HttpStatusCode.Created, start.StatusCode);
+        var trip = await start.Content.ReadFromJsonAsync<ViajeDto>();
+        Assert.NotNull(trip);
+        Assert.Equal("wearable", trip!.ControlClient);
+        Assert.True(trip.MobileFallbackUsed);
+        Assert.False(string.IsNullOrWhiteSpace(trip.FallbackReason));
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await client.PostAsync($"/api/v1/trips/{trip.Id}/pause", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK,
+            (await client.PostAsync($"/api/v1/trips/{trip.Id}/resume", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await client.PostAsJsonAsync(
+                $"/api/v1/trips/{trip.Id}/telemetry",
+                TelemetryBatch(Guid.NewGuid()))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK,
+            (await client.PostAsync($"/api/v1/trips/{trip.Id}/finish", null)).StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task MobileRelay_WithDifferentDeviceId_IsRejected()
+    {
+        var account = await RegisterAsync("mobile");
+        await AddLinkedWearableAsync(account.UserId, "GW8-OWNED");
+        using var client = AuthClient(account.Token);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/trips/start",
+            new { dispositivoId = "GW8-NOT-OWNED" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -137,7 +214,7 @@ public class TripControlExclusivityTests : IClassFixture<CustomWebApplicationFac
     }
 
     [Fact]
-    public async Task OpenApi_WearableOnlyTripWrites_Declare403()
+    public async Task OpenApi_RestrictedTripWrites_Declare403()
     {
         using var client = _factory.CreateClient();
         var response = await client.GetAsync("/openapi/v1.json");

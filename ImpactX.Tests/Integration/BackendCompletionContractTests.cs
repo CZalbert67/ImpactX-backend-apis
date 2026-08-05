@@ -55,7 +55,7 @@ public class BackendCompletionContractTests : IClassFixture<CustomWebApplication
 
     [Fact]
     [Trait("Category", "Security")]
-    public async Task MobileClient_CannotStartTrips_Returns403()
+    public async Task MobileClient_WithoutLinkedWearable_CannotStartTrips_Returns403()
     {
         var mobile = await RegisterAsync("mobile");
         SetBearer(mobile.Token);
