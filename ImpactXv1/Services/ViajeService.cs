@@ -23,6 +23,9 @@ public class ViajeService : IViajeService
     private const string MobileRelayFallbackReason =
         "Orden originada en el wearable y retransmitida por la aplicación móvil.";
 
+    private static readonly TimeSpan FinalizedOfflineTelemetryGracePeriod = TimeSpan.FromHours(24);
+    private static readonly TimeSpan TelemetryTimestampTolerance = TimeSpan.FromMinutes(5);
+
     public ViajeService(
         IViajeRepository viajeRepository,
         ILogger<ViajeService> logger,
@@ -204,7 +207,12 @@ public class ViajeService : IViajeService
         return request.Puntos;
     }
 
-    public async Task<TelemetryIngestionResultDto> IngestTelemetryAsync(Guid usuarioId, Guid viajeId, TelemetryBatchRequest request, CancellationToken cancellationToken = default)
+    public async Task<TelemetryIngestionResultDto> IngestTelemetryAsync(
+        Guid usuarioId,
+        Guid viajeId,
+        TelemetryBatchRequest request,
+        CancellationToken cancellationToken = default,
+        string client = ClientTypePolicy.Wearable)
     {
         TelemetryBatchValidator.Validate(request);
 
@@ -212,9 +220,31 @@ public class ViajeService : IViajeService
         // es indistinguible de uno inexistente (404 seguro, sin filtrar propiedad).
         var viaje = await GetOwnedViajeAsync(usuarioId, viajeId);
 
-        // Mismas reglas de estado que la ingesta legacy: solo activo o pausado.
-        if (viaje.Estado != "Activo" && viaje.Estado != "Pausado")
-            throw new ConflictException("Solo se puede enviar telemetría de un viaje activo o pausado.");
+        await ValidateTelemetryClientAsync(usuarioId, viaje, request, client);
+
+        // El lote normal se recibe mientras el viaje está activo o pausado. Si
+        // el teléfono estuvo sin conexión, también se permite completar el
+        // envío después de finalizar, dentro de una ventana acotada y solo con
+        // timestamps que pertenezcan al viaje.
+        var finalizedAge = viaje.Fin.HasValue
+            ? DateTime.UtcNow - viaje.Fin.Value
+            : TimeSpan.MaxValue;
+        var finalizedOfflineSync = viaje.Estado == "Finalizado"
+            && request.CapturedOffline
+            && viaje.Fin.HasValue
+            && finalizedAge >= TimeSpan.Zero
+            && finalizedAge <= FinalizedOfflineTelemetryGracePeriod;
+
+        if (viaje.Estado != "Activo" && viaje.Estado != "Pausado" && !finalizedOfflineSync)
+        {
+            throw new ConflictException(
+                "Solo se puede enviar telemetría de un viaje activo, pausado o de un lote offline reciente.");
+        }
+
+        if (finalizedOfflineSync)
+        {
+            ValidateFinalizedOfflineTimestamps(viaje, request);
+        }
 
         // Idempotencia por EventId: point-read por (viajeId, eventId). Los
         // eventos nuevos se escriben en un solo lote atómico; los duplicados
@@ -383,6 +413,66 @@ public class ViajeService : IViajeService
             throw new ForbiddenException("No tienes permiso para acceder a este viaje.");
 
         return viaje;
+    }
+
+
+    private async Task ValidateTelemetryClientAsync(
+        Guid usuarioId,
+        Viaje viaje,
+        TelemetryBatchRequest request,
+        string client)
+    {
+        var normalizedClient = ClientTypePolicy.Normalize(client);
+        if (normalizedClient == ClientTypePolicy.Wearable)
+        {
+            if (!string.IsNullOrWhiteSpace(request.WearableDeviceId)
+                && !string.Equals(
+                    request.WearableDeviceId.Trim(),
+                    viaje.DispositivoId,
+                    StringComparison.Ordinal))
+            {
+                throw new ForbiddenException(
+                    "La telemetría no corresponde al wearable que inició el viaje.");
+            }
+
+            return;
+        }
+
+        if (normalizedClient != ClientTypePolicy.Mobile)
+            throw new ForbiddenException("El cliente no tiene permiso para enviar telemetría.");
+
+        var relayDeviceId = NormalizeDeviceId(request.WearableDeviceId);
+        if (!string.Equals(relayDeviceId, viaje.DispositivoId, StringComparison.Ordinal))
+        {
+            throw new ForbiddenException(
+                "El lote móvil no corresponde al wearable que inició el viaje.");
+        }
+
+        if (!WearableProductPolicy.IsTargetDevice(
+                WearableProductPolicy.TargetManufacturer,
+                request.WearableModel,
+                WearableProductPolicy.TargetPlatform))
+        {
+            throw new ForbiddenException(
+                "El relay de telemetría móvil solo admite Galaxy Watch8 vinculado.");
+        }
+
+        await ValidateMobileWearableRelayAsync(usuarioId, relayDeviceId);
+    }
+
+    private static void ValidateFinalizedOfflineTimestamps(
+        Viaje viaje,
+        TelemetryBatchRequest request)
+    {
+        var minTimestamp = viaje.Inicio - TelemetryTimestampTolerance;
+        var maxTimestamp = viaje.Fin!.Value + TelemetryTimestampTolerance;
+
+        if (request.Eventos.Any(evento =>
+                evento.Timestamp < minTimestamp || evento.Timestamp > maxTimestamp))
+        {
+            throw new BadRequestException(
+                "El lote offline contiene eventos fuera del intervalo del viaje.");
+        }
     }
 
     private async Task ValidateTripControlClientAsync(Guid usuarioId, Viaje viaje, string client)

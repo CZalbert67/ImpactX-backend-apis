@@ -235,6 +235,7 @@ public class TelemetryV2ContractTests
             Id = Guid.NewGuid(),
             UsuarioId = userId,
             Estado = "Activo",
+            DispositivoId = "GW8-UNIT-001",
             VehiclePublicId = "VEH-test-001",
         };
         var repository = new Mock<IViajeRepository>();

@@ -73,8 +73,10 @@ public class ApiContractMetadataTests : IClassFixture<CustomWebApplicationFactor
 
     [Theory]
     [InlineData("web", "vehicles:manage")]
+    [InlineData("mobile", "alerts:create")]
     [InlineData("mobile", "mobile-sync:offline")]
     [InlineData("mobile", "trips:relay-wearable")]
+    [InlineData("mobile", "telemetry:relay-wearable")]
     [InlineData("wearable", "telemetry:write")]
     public async Task ClientCapabilityContract_ReturnsExpectedCapability(string client, string capability)
     {

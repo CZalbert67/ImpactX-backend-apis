@@ -22,10 +22,10 @@ public static class ApiContractDefinition
             ],
             ["mobile"] =
             [
-                "account:read", "account:write", "alerts:read", "contacts:manage",
+                "account:read", "account:write", "alerts:create", "alerts:read", "contacts:manage",
                 "family:manage", "incidents:confirm-ok", "incidents:read", "mobile-sync:offline",
                 "monitoring:manage", "notifications:manage", "profile:manage", "quick-messages:manage",
-                "subscriptions:manage", "trips:read", "trips:relay-wearable", "vehicles:manage", "wearable:pair",
+                "subscriptions:manage", "telemetry:relay-wearable", "trips:read", "trips:relay-wearable", "vehicles:manage", "wearable:pair",
                 "wearable:permissions", "wearable:read", "wearable:unlink"
             ],
             ["wearable"] =

@@ -63,17 +63,39 @@ public class TripControlExclusivityTests : IClassFixture<CustomWebApplicationFac
         });
     }
 
-    private static object TelemetryBatch(Guid eventId) => new
+    private static object TelemetryBatch(
+        Guid eventId,
+        string? wearableDeviceId = null,
+        bool capturedOffline = false,
+        DateTime? timestamp = null) => new
     {
+        schemaVersion = 2,
+        batchId = Guid.NewGuid(),
+        batchSequence = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        capturedOffline,
+        wearableDeviceId,
+        wearableModel = WearableProductPolicy.TargetModel,
+        batteryLevel = 80,
         eventos = new[]
         {
             new
             {
                 eventId,
-                timestamp = DateTime.UtcNow,
+                timestamp = timestamp ?? DateTime.UtcNow,
+                sequenceNumber = 1L,
                 lat = 19.4326,
                 lng = -99.1332,
-                velocidad = 25d
+                velocidad = 25d,
+                gpsAccuracyMeters = 8d,
+                aceleracionX = 0.1d,
+                aceleracionY = 0.2d,
+                aceleracionZ = 9.8d,
+                magnitudAceleracion = 9.81d,
+                giroscopioX = 0.01d,
+                giroscopioY = 0.02d,
+                giroscopioZ = 0.01d,
+                frecuenciaCardiaca = 82,
+                calidadSensor = "high"
             }
         }
     };
@@ -107,14 +129,10 @@ public class TripControlExclusivityTests : IClassFixture<CustomWebApplicationFac
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/trips")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await client.PostAsJsonAsync("/api/v1/trips/start", new { dispositivoId = "UNLINKED" })).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden,
-            (await client.PostAsJsonAsync(
-                $"/api/v1/trips/{Guid.NewGuid()}/telemetry",
-                TelemetryBatch(Guid.NewGuid()))).StatusCode);
     }
 
     [Fact]
-    public async Task MobileRelay_WithOwnLinkedGalaxyWatch8_CanControlTripButNotTelemetry()
+    public async Task MobileRelay_WithOwnLinkedGalaxyWatch8_CanControlTripAndIngestBatchTelemetry()
     {
         const string deviceId = "GW8-MOBILE-RELAY-001";
         var account = await RegisterAsync("mobile");
@@ -136,12 +154,35 @@ public class TripControlExclusivityTests : IClassFixture<CustomWebApplicationFac
             (await client.PostAsync($"/api/v1/trips/{trip.Id}/pause", null)).StatusCode);
         Assert.Equal(HttpStatusCode.OK,
             (await client.PostAsync($"/api/v1/trips/{trip.Id}/resume", null)).StatusCode);
+        var telemetry = await client.PostAsJsonAsync(
+            $"/api/v1/trips/{trip.Id}/telemetry",
+            TelemetryBatch(Guid.NewGuid(), deviceId));
+        Assert.Equal(HttpStatusCode.OK, telemetry.StatusCode);
+        var telemetryResult = await telemetry.Content.ReadFromJsonAsync<TelemetryIngestionResultDto>();
+        Assert.NotNull(telemetryResult);
+        Assert.Equal(1, telemetryResult!.Insertados);
+
         Assert.Equal(HttpStatusCode.Forbidden,
             (await client.PostAsJsonAsync(
                 $"/api/v1/trips/{trip.Id}/telemetry",
-                TelemetryBatch(Guid.NewGuid()))).StatusCode);
+                TelemetryBatch(Guid.NewGuid(), "GW8-NOT-OWNED"))).StatusCode);
+
         Assert.Equal(HttpStatusCode.OK,
             (await client.PostAsync($"/api/v1/trips/{trip.Id}/finish", null)).StatusCode);
+
+        var offlineAfterFinish = await client.PostAsJsonAsync(
+            $"/api/v1/trips/{trip.Id}/telemetry",
+            TelemetryBatch(
+                Guid.NewGuid(),
+                deviceId,
+                capturedOffline: true,
+                timestamp: trip.Inicio.AddSeconds(1)));
+        Assert.Equal(HttpStatusCode.OK, offlineAfterFinish.StatusCode);
+
+        var onlineAfterFinish = await client.PostAsJsonAsync(
+            $"/api/v1/trips/{trip.Id}/telemetry",
+            TelemetryBatch(Guid.NewGuid(), deviceId, capturedOffline: false));
+        Assert.Equal(HttpStatusCode.Conflict, onlineAfterFinish.StatusCode);
     }
 
     [Fact]
@@ -193,7 +234,7 @@ public class TripControlExclusivityTests : IClassFixture<CustomWebApplicationFac
             (await client.PostAsync($"/api/v1/trips/{trip.Id}/resume", null)).StatusCode);
 
         var eventId = Guid.NewGuid();
-        var batch = TelemetryBatch(eventId);
+        var batch = TelemetryBatch(eventId, "GALAXY-WATCH-8");
         var first = await client.PostAsJsonAsync(
             $"/api/v1/trips/{trip.Id}/telemetry",
             batch);

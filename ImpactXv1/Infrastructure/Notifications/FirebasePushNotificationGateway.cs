@@ -27,6 +27,10 @@ public class FirebasePushNotificationGateway : IPushNotificationGateway
 
         try
         {
+            var isCriticalAlert = data is not null
+                && data.TryGetValue("type", out var messageType)
+                && string.Equals(messageType, "Alert", StringComparison.OrdinalIgnoreCase);
+
             var message = new FirebaseAdmin.Messaging.Message
             {
                 Token = deviceToken,
@@ -36,6 +40,21 @@ public class FirebasePushNotificationGateway : IPushNotificationGateway
                     Body = body,
                 },
                 Data = data?.ToDictionary(kv => kv.Key, kv => kv.Value),
+                Android = isCriticalAlert
+                    ? new FirebaseAdmin.Messaging.AndroidConfig
+                    {
+                        Priority = FirebaseAdmin.Messaging.Priority.High,
+                        TimeToLive = TimeSpan.FromMinutes(15),
+                        Notification = new FirebaseAdmin.Messaging.AndroidNotification
+                        {
+                            ChannelId = "impactx_monitor_alerts",
+                            Priority = FirebaseAdmin.Messaging.NotificationPriority.MAX,
+                            DefaultSound = true,
+                            DefaultVibrateTimings = true,
+                            DefaultLightSettings = true,
+                        },
+                    }
+                    : null,
             };
 
             var response = await FirebaseAdmin.Messaging.FirebaseMessaging.DefaultInstance.SendAsync(message, cancellationToken);

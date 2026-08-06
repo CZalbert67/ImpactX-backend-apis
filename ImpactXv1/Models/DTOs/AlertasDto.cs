@@ -26,6 +26,8 @@ public class SosRequest
     public string Modo { get; set; } = "manual";
     public string? ViajeId { get; set; }
     public Guid? ClientEventId { get; set; }
+    public bool CapturedOffline { get; set; }
+    public DateTime? OccurredAtUtc { get; set; }
 }
 
 public class CloseAlertRequest

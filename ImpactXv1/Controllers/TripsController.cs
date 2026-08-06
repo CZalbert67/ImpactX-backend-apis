@@ -80,7 +80,7 @@ public class TripsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/telemetry")]
-    [RequireClientCapability(ClientTypePolicy.Wearable)]
+    [RequireClientCapability(ClientTypePolicy.Wearable, ClientTypePolicy.Mobile)]
     [EnableRateLimiting("telemetry-ingestion")]
     [RequestSizeLimit(ImpactX.Core.Telemetry.TelemetryIngestionLimits.MaxBodyBytes)]
     [ProducesResponseType(typeof(TelemetryIngestionResultDto), StatusCodes.Status200OK)]
@@ -89,7 +89,12 @@ public class TripsController : ControllerBase
     public async Task<IActionResult> IngestTelemetry(Guid id, [FromBody] TelemetryBatchRequest request, CancellationToken cancellationToken)
     {
         var usuarioId = GetUsuarioId();
-        var result = await _viajeService.IngestTelemetryAsync(usuarioId, id, request, cancellationToken);
+        var result = await _viajeService.IngestTelemetryAsync(
+            usuarioId,
+            id,
+            request,
+            cancellationToken,
+            GetClientType());
         return Ok(result);
     }
 
