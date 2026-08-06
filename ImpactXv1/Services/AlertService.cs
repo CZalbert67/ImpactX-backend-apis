@@ -84,6 +84,11 @@ public class AlertService : IAlertService
             }
         }
 
+        var receivedAtUtc = DateTime.UtcNow;
+        var occurredAtUtc = request.OccurredAtUtc?.ToUniversalTime() ?? receivedAtUtc;
+        if (occurredAtUtc > receivedAtUtc.AddMinutes(5))
+            throw new BadRequestException("La hora del SOS no puede estar en el futuro.");
+
         var alerta = new Alerta
         {
             UsuarioId = usuarioId,
@@ -100,10 +105,19 @@ public class AlertService : IAlertService
             Modo = request.Modo,
             ViajeId = request.ViajeId,
             SourceTelemetryEventId = request.ClientEventId,
-            CreadoEn = DateTime.UtcNow,
-            EnviadaEn = DateTime.UtcNow,
-            Timeline = [[DateTime.UtcNow.ToString("O"), $"SOS {request.Modo}: {request.Severidad}"]],
+            EsOffline = request.CapturedOffline,
+            CreadoEn = occurredAtUtc,
+            EnviadaEn = receivedAtUtc,
+            Timeline = [[receivedAtUtc.ToString("O"), $"SOS {request.Modo}: {request.Severidad}"]],
         };
+
+        if (request.CapturedOffline)
+        {
+            alerta.Timeline.Add([
+                receivedAtUtc.ToString("O"),
+                $"SOS capturado sin conexión en {occurredAtUtc:O} y sincronizado al recuperar señal"
+            ]);
+        }
 
         if (request.Modo == "immediate" || request.Severidad == "severe")
         {

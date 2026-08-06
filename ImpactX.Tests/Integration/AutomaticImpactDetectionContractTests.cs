@@ -21,10 +21,10 @@ public sealed class AutomaticImpactDetectionContractTests : IClassFixture<Custom
         var tokens = await CreateAccountTokensAsync();
         using var wearable = AuthClient(tokens.Wearable);
         using var mobile = AuthClient(tokens.Mobile);
-        var tripId = await StartTripAsync(wearable);
+        var (tripId, deviceId) = await StartTripAsync(wearable);
         var eventId = Guid.NewGuid();
         var timestamp = DateTime.UtcNow.AddSeconds(-1);
-        var payload = SeverePayload(eventId, timestamp);
+        var payload = SeverePayload(eventId, timestamp, deviceId);
 
         var first = await wearable.PostAsJsonAsync(
             $"/api/v1/trips/{tripId}/telemetry",
@@ -69,11 +69,11 @@ public sealed class AutomaticImpactDetectionContractTests : IClassFixture<Custom
         var tokens = await CreateAccountTokensAsync();
         using var wearable = AuthClient(tokens.Wearable);
         using var mobile = AuthClient(tokens.Mobile);
-        var tripId = await StartTripAsync(wearable);
+        var (tripId, deviceId) = await StartTripAsync(wearable);
 
         var response = await wearable.PostAsJsonAsync(
             $"/api/v1/trips/{tripId}/telemetry",
-            ModeratePayload(Guid.NewGuid(), DateTime.UtcNow.AddSeconds(-1)));
+            ModeratePayload(Guid.NewGuid(), DateTime.UtcNow.AddSeconds(-1), deviceId));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var alerts = await mobile.GetFromJsonAsync<JsonElement>("/api/v1/alerts?pageSize=10");
@@ -129,23 +129,24 @@ public sealed class AutomaticImpactDetectionContractTests : IClassFixture<Custom
         return (mobile!.Token!, wearable!.Token!);
     }
 
-    private static async Task<Guid> StartTripAsync(HttpClient client)
+    private static async Task<(Guid TripId, string DeviceId)> StartTripAsync(HttpClient client)
     {
+        var deviceId = $"GW8-AUTO-{Guid.NewGuid():N}";
         var response = await client.PostAsJsonAsync("/api/v1/trips/start", new
         {
-            dispositivoId = $"GW8-AUTO-{Guid.NewGuid():N}"
+            dispositivoId = deviceId
         });
         response.EnsureSuccessStatusCode();
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-        return json.GetProperty("id").GetGuid();
+        return (json.GetProperty("id").GetGuid(), deviceId);
     }
 
-    private static object SeverePayload(Guid eventId, DateTime timestamp) => new
+    private static object SeverePayload(Guid eventId, DateTime timestamp, string deviceId) => new
     {
         schemaVersion = 2,
         batchId = Guid.NewGuid(),
         batchSequence = 1L,
-        wearableDeviceId = "GW8-AUTO",
+        wearableDeviceId = deviceId,
         wearableModel = "Galaxy Watch 8",
         batteryLevel = 80,
         eventos = new[]
@@ -173,12 +174,12 @@ public sealed class AutomaticImpactDetectionContractTests : IClassFixture<Custom
         }
     };
 
-    private static object ModeratePayload(Guid eventId, DateTime timestamp) => new
+    private static object ModeratePayload(Guid eventId, DateTime timestamp, string deviceId) => new
     {
         schemaVersion = 2,
         batchId = Guid.NewGuid(),
         batchSequence = 1L,
-        wearableDeviceId = "GW8-AUTO",
+        wearableDeviceId = deviceId,
         wearableModel = "Galaxy Watch 8",
         batteryLevel = 80,
         eventos = new[]

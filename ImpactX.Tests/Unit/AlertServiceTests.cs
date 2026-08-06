@@ -93,6 +93,48 @@ public class AlertServiceTests
     }
 
     [Fact]
+    public async Task SendSosAsync_OfflineRequest_PreservesOccurrenceTimeAndOfflineFlag()
+    {
+        var usuarioId = Guid.NewGuid();
+        var occurredAtUtc = DateTime.UtcNow.AddMinutes(-3);
+        Alerta? persisted = null;
+        _alertaRepo
+            .Setup(repository => repository.AddAsync(It.IsAny<Alerta>()))
+            .Callback<Alerta>(value => persisted = value)
+            .Returns(Task.CompletedTask);
+
+        var result = await _alertService.SendSosAsync(usuarioId, new SosRequest
+        {
+            Lat = 19.43,
+            Lng = -99.13,
+            Severidad = "severe",
+            Modo = "immediate",
+            CapturedOffline = true,
+            OccurredAtUtc = occurredAtUtc,
+            ClientEventId = Guid.NewGuid()
+        });
+
+        Assert.True(result.EsOffline);
+        Assert.NotNull(persisted);
+        Assert.True(persisted!.EsOffline);
+        Assert.Equal(occurredAtUtc, persisted.CreadoEn, TimeSpan.FromSeconds(1));
+        Assert.True(persisted.EnviadaEn >= persisted.CreadoEn);
+        Assert.Contains(persisted.Timeline, value => value[1].Contains("sin conexión"));
+    }
+
+    [Fact]
+    public async Task SendSosAsync_FutureOccurrenceTime_IsRejected()
+    {
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            _alertService.SendSosAsync(Guid.NewGuid(), new SosRequest
+            {
+                Lat = 19.43,
+                Lng = -99.13,
+                OccurredAtUtc = DateTime.UtcNow.AddMinutes(10)
+            }));
+    }
+
+    [Fact]
     public async Task SendSosAsync_RepeatedClientEventId_ReturnsExistingWithoutDuplicating()
     {
         var usuarioId = Guid.NewGuid();
